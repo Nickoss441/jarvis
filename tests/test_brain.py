@@ -65,6 +65,7 @@ def _build_brain(
         model="claude-sonnet-4-6",
         notes_dir=tmp_path / "notes",
         audit_db=tmp_path / "audit.db",
+        conversation_store_path=tmp_path / "conversation.json",
         user_name="Nick",
     )
     audit = AuditLog(config.audit_db)
@@ -203,6 +204,21 @@ def test_turn_audit_events_share_same_correlation_id(tmp_path: Path, monkeypatch
     assert by_kind["tool_result"]["correlation_id"] == corr
     assert by_kind["tool_call"]["tool_use_id"] == "t-corr"
     assert by_kind["tool_result"]["tool_use_id"] == "t-corr"
+
+
+def test_brain_restores_persisted_conversation_on_restart(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses = [_Response("end_turn", [_Block("text", text="hello")])]
+    brain, _ = _build_brain(tmp_path, monkeypatch, responses)
+
+    assert brain.turn("hi") == "hello"
+
+    restored_brain, _ = _build_brain(tmp_path, monkeypatch, responses)
+
+    assert restored_brain.conversation.messages[0] == {"role": "user", "content": "hi"}
+    assert restored_brain.conversation.messages[1]["role"] == "assistant"
 
 
 def test_run_tool_denied_by_policy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

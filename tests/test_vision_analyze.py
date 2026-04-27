@@ -13,6 +13,7 @@ from jarvis.vision_analyze import (
     detect_faces,
     detect_landmarks,
     extract_dominant_colors,
+    locate_prominent_button,
 )
 
 
@@ -29,6 +30,16 @@ def _solid_jpeg(r: int, g: int, b: int, size: int = 50) -> bytes:
 
 def _solid_b64(r: int, g: int, b: int) -> str:
     return base64.b64encode(_solid_jpeg(r, g, b)).decode("ascii")
+
+
+def _button_png() -> bytes:
+    img = Image.new("RGB", (100, 60), (20, 20, 20))
+    for x in range(25, 76):
+        for y in range(20, 41):
+            img.putpixel((x, y), (240, 240, 240))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
 
 
 # ---------------------------------------------------------------------------
@@ -156,6 +167,29 @@ def test_detect_faces_returns_list_of_dicts_with_expected_keys():
         assert "w" in face
         assert "h" in face
         assert "confidence" in face
+
+
+def test_locate_prominent_button_returns_bounding_box_for_contrast_region():
+    button = locate_prominent_button(_button_png())
+
+    assert button is not None
+    assert 0.2 <= button["x"] <= 0.3
+    assert 0.3 <= button["y"] <= 0.35
+    assert 0.45 <= button["w"] <= 0.55
+    assert 0.3 <= button["h"] <= 0.4
+
+
+def test_locate_prominent_button_returns_none_for_solid_image():
+    assert locate_prominent_button(_solid_jpeg(200, 150, 100)) is None
+
+
+def test_analyze_frame_exposes_button_click_target():
+    result = analyze_frame(_button_png())
+
+    assert result["button"] is not None
+    assert result["button_target"] is not None
+    assert 0.49 <= result["button_target"]["x"] <= 0.51
+    assert 0.49 <= result["button_target"]["y"] <= 0.51
 
 
 # ---------------------------------------------------------------------------

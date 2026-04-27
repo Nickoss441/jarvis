@@ -73,7 +73,7 @@ class Brain:
         self.policy = policy
         self.tools = tools
         self.retry_policy = retry_policy or RetryPolicy()
-        self.conversation = Conversation()
+        self.conversation = Conversation(storage_path=config.conversation_store_path)
         self.runtime = RuntimeOrchestrator(MAX_ITERATIONS)
 
         # Lazy import so test files that only touch audit/policy don't need

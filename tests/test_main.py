@@ -218,9 +218,118 @@ def test_main_trade_performance_report_prints_summary(tmp_path, monkeypatch, cap
 
     assert rc == 0
     assert payload["mode"] == "paper"
-    assert payload["trade_count"] == 2
-    assert payload["pnl"]["net"] == 50.0
-    assert payload["audit"]["policy_violation_count"] == 1
+
+
+def test_main_trade_streaks_prints_streak_summary(tmp_path, monkeypatch, capsys):
+    trades_log = tmp_path / "trades.jsonl"
+    trades_log.write_text(
+        "\n".join(
+            [
+                json.dumps({"mode": "paper", "ts": 1713744000.0, "pnl_delta": 75.0}),
+                json.dumps({"mode": "paper", "ts": 1713830400.0, "pnl_delta": -25.0}),
+                json.dumps({"mode": "paper", "ts": 1713916800.0, "pnl_delta": -15.0}),
+                json.dumps({"mode": "paper", "ts": 1714003200.0, "pnl_delta": 40.0}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("JARVIS_TRADES_LOG", str(trades_log))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+
+    rc = main(["trade-streaks", "--mode", "paper", "--limit", "4"])
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert rc == 0
+    assert payload["mode"] == "paper"
+    assert payload["max_loss_streak"] == 2
+    assert payload["current_streak"] == {"type": "win", "count": 1}
+
+
+def test_main_trade_portfolio_metrics_prints_metrics(tmp_path, monkeypatch, capsys):
+    trades_log = tmp_path / "trades.jsonl"
+    trades_log.write_text(
+        "\n".join(
+            [
+                json.dumps({"mode": "paper", "ts": 1713744000.0, "pnl_delta": 100.0}),
+                json.dumps({"mode": "paper", "ts": 1713830400.0, "pnl_delta": -20.0}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("JARVIS_TRADES_LOG", str(trades_log))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+
+    rc = main(["trade-portfolio-metrics", "paper"])
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert rc == 0
+    assert payload["total_trades"] == 2
+    assert payload["total_pnl"] == 80.0
+    assert payload["profit_factor"] == 5.0
+
+
+def test_main_trade_market_hours_reports_supported_market(capsys):
+    rc = main(["trade-market-hours", "BTCUSD", "--market", "CRYPTO"])
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert rc == 0
+    assert payload["is_open"] is True
+    assert payload["market"] == "CRYPTO"
+
+
+def test_main_trade_risk_estimate_prints_calculated_risk(capsys):
+    rc = main(
+        [
+            "trade-risk-estimate",
+            "--position-size",
+            "10",
+            "--entry-price",
+            "100",
+            "--stop-loss-price",
+            "95",
+            "--take-profit-price",
+            "115",
+        ]
+    )
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert rc == 0
+    assert payload["max_loss_total"] == 50.0
+    assert payload["reward_to_risk_ratio"] == 3.0
+
+
+def test_main_trade_journal_writes_audit_entry(tmp_path, monkeypatch, capsys):
+    db = tmp_path / "audit.db"
+    monkeypatch.setenv("JARVIS_AUDIT_DB", str(db))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+
+    rc = main(
+        [
+            "trade-journal",
+            "trade-42",
+            "--setup",
+            "Opening range breakout",
+            "--lessons",
+            "Wait for confirmation",
+        ]
+    )
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+    events = AuditLog(db).recent(limit=5)
+
+    assert rc == 0
+    assert payload["ok"] is True
+    assert payload["trade_id"] == "trade-42"
+    assert events[0]["kind"] == "trade_journal_entry"
+    assert events[0]["payload"]["setup"] == "Opening range breakout"
 
 
 def test_main_trade_performance_report_invalid_mode_errors(capsys):

@@ -598,6 +598,201 @@ def dispatch_trade(
     }
 
 
+def analyze_trade_streaks(trades_log_path: Path | str, *, mode: str = "paper", limit: int = 100) -> dict[str, Any]:
+    """Analyze consecutive win/loss streaks from the trade log."""
+    report = build_trade_performance_report(trades_log_path, mode=mode, min_trades=0, min_trading_days=0)
+    path = Path(trades_log_path)
+    if not path.exists():
+        return {"error": "trades log not found", "mode": mode}
+
+    pnl_values: list[float] = []
+    with path.open(encoding="utf-8") as handle:
+        for raw_line in handle:
+            line = raw_line.strip()
+            if not line:
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if str(payload.get("mode") or "").strip().lower() != mode:
+                continue
+            pnl_delta = payload.get("pnl_delta")
+            if isinstance(pnl_delta, (int, float)):
+                pnl_values.append(float(pnl_delta))
+
+    pnl_values = pnl_values[-max(1, limit):]
+    if not pnl_values:
+        return {
+            "mode": mode,
+            "total_trades": 0,
+            "wins": 0,
+            "losses": 0,
+            "breakevens": 0,
+            "current_streak": None,
+            "max_win_streak": 0,
+            "max_loss_streak": 0,
+        }
+
+    streaks: list[dict[str, Any]] = []
+    current_streak_type: str | None = None
+    current_streak_count = 0
+    for pnl_value in pnl_values:
+        streak_type = "win" if pnl_value > 0 else "loss" if pnl_value < 0 else "breakeven"
+        if streak_type == current_streak_type:
+            current_streak_count += 1
+            continue
+        if current_streak_type is not None:
+            streaks.append({"type": current_streak_type, "count": current_streak_count})
+        current_streak_type = streak_type
+        current_streak_count = 1
+    if current_streak_type is not None:
+        streaks.append({"type": current_streak_type, "count": current_streak_count})
+
+    return {
+        "mode": mode,
+        "total_trades": len(pnl_values),
+        "wins": sum(1 for value in pnl_values if value > 0),
+        "losses": sum(1 for value in pnl_values if value < 0),
+        "breakevens": sum(1 for value in pnl_values if value == 0),
+        "win_rate": report["pnl"]["win_rate"],
+        "max_win_streak": max((item["count"] for item in streaks if item["type"] == "win"), default=0),
+        "max_loss_streak": max((item["count"] for item in streaks if item["type"] == "loss"), default=0),
+        "current_streak": streaks[-1] if streaks else None,
+        "recent_streaks": streaks[-10:],
+    }
+
+
+def check_market_hours(
+    instrument: str,
+    *,
+    market: str = "US",
+    now: dt.datetime | None = None,
+) -> dict[str, Any]:
+    """Check whether a market is open for an instrument."""
+    if not str(instrument or "").strip():
+        return {"error": "instrument is required"}
+
+    current_time = now or dt.datetime.now(dt.timezone.utc)
+    market_name = market.strip().upper()
+    if market_name == "CRYPTO":
+        return {"is_open": True, "market": market_name, "reason": "crypto markets are open 24/7"}
+    if market_name != "US":
+        return {"error": f"market '{market}' not supported", "supported": ["US", "CRYPTO"]}
+
+    if current_time.weekday() >= 5:
+        return {"is_open": False, "market": market_name, "reason": "US market closed on weekends"}
+
+    current_utc_time = current_time.hour + (current_time.minute / 60.0)
+    market_open_utc = 13.5
+    market_close_utc = 20.0
+    if current_utc_time < market_open_utc:
+        return {
+            "is_open": False,
+            "market": market_name,
+            "reason": "US market has not opened yet",
+            "time_until_open_hours": round(market_open_utc - current_utc_time, 1),
+        }
+    if current_utc_time >= market_close_utc:
+        return {
+            "is_open": False,
+            "market": market_name,
+            "reason": "US market is closed for the day",
+            "time_until_next_open_hours": round((24 - current_utc_time) + market_open_utc, 1),
+        }
+    return {
+        "is_open": True,
+        "market": market_name,
+        "time_until_close_hours": round(market_close_utc - current_utc_time, 1),
+    }
+
+
+def calculate_portfolio_metrics(trades_log_path: Path | str, *, mode: str = "paper") -> dict[str, Any]:
+    """Calculate summary trading metrics from the trade log."""
+    report = build_trade_performance_report(trades_log_path, mode=mode, min_trades=0, min_trading_days=0)
+    if not report.get("ok"):
+        return report
+
+    pnl = report["pnl"]
+    gross_loss = float(pnl["gross_loss"])
+    expectancy = float(pnl["average_per_trade"])
+    return {
+        "mode": mode,
+        "total_trades": report["trade_count"],
+        "trading_days": report["trading_days"],
+        "wins": int(round(float(pnl["win_rate"]) * report["trade_count"])),
+        "losses": report["trade_count"] - int(round(float(pnl["win_rate"]) * report["trade_count"])),
+        "total_pnl": round(float(pnl["net"]), 2),
+        "win_rate": round(float(pnl["win_rate"]), 4),
+        "avg_win": pnl["average_win"],
+        "avg_loss": abs(float(pnl["average_loss"])) if pnl["average_loss"] is not None else None,
+        "profit_factor": round(float(pnl["profit_factor"]) if pnl["profit_factor"] is not None else 0.0, 2),
+        "expectancy_per_trade": round(expectancy, 2),
+        "gross_profit": round(float(pnl["gross_profit"]), 2),
+        "gross_loss": round(gross_loss, 2),
+        "max_drawdown": round(float(report["risk"]["max_drawdown"]), 2),
+    }
+
+
+def log_trade_journal_entry(
+    audit_log: AuditLog,
+    *,
+    trade_id: str,
+    setup: str = "",
+    lessons: str = "",
+    improvement: str = "",
+) -> dict[str, Any]:
+    """Persist a trade journal note in the audit log."""
+    normalized_trade_id = str(trade_id or "").strip()
+    if not normalized_trade_id:
+        return {"ok": False, "error": "trade_id is required"}
+    if not any(value.strip() for value in (setup, lessons, improvement)):
+        return {"ok": False, "error": "at least one journal field is required"}
+
+    journal_entry = {"trade_id": normalized_trade_id, "timestamp": time.time()}
+    if setup.strip():
+        journal_entry["setup"] = setup.strip()
+    if lessons.strip():
+        journal_entry["lessons"] = lessons.strip()
+    if improvement.strip():
+        journal_entry["improvement"] = improvement.strip()
+    audit_log.append("trade_journal_entry", journal_entry)
+    return {"ok": True, "trade_id": normalized_trade_id, "entry": journal_entry}
+
+
+def estimate_trade_value_at_risk(
+    *,
+    position_size: float,
+    entry_price: float,
+    stop_loss_price: float,
+    take_profit_price: float | None = None,
+    confidence_level: float = 0.95,
+) -> dict[str, Any]:
+    """Estimate bounded trade risk from entry/stop levels."""
+    if position_size <= 0 or entry_price <= 0 or stop_loss_price <= 0:
+        return {"ok": False, "error": "position_size, entry_price, and stop_loss_price must be positive"}
+
+    max_loss_per_unit = abs(float(entry_price) - float(stop_loss_price))
+    max_loss_total = float(position_size) * max_loss_per_unit
+    risk_pct = (max_loss_per_unit / float(entry_price)) * 100.0
+    result = {
+        "ok": True,
+        "position_size": float(position_size),
+        "entry_price": float(entry_price),
+        "stop_loss_price": float(stop_loss_price),
+        "confidence_level": float(confidence_level),
+        "max_loss_per_unit": round(max_loss_per_unit, 4),
+        "max_loss_total": round(max_loss_total, 2),
+        "max_loss_pct": round(risk_pct, 2),
+    }
+    if take_profit_price is not None and take_profit_price > 0:
+        reward_per_unit = abs(float(take_profit_price) - float(entry_price))
+        result["take_profit_price"] = float(take_profit_price)
+        result["reward_to_risk_ratio"] = round(reward_per_unit / max_loss_per_unit, 2) if max_loss_per_unit else None
+        result["max_reward_total"] = round(float(position_size) * reward_per_unit, 2)
+    return result
+
+
 def make_trade_tool(
     request_approval: Callable[[str, dict[str, Any]], str] | None = None,
     get_approval: Callable[[str], dict[str, Any] | None] | None = None,

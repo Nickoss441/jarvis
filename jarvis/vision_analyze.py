@@ -146,6 +146,75 @@ def extract_dominant_colors(image_bytes: bytes, n: int = 5) -> list[dict[str, An
     return sorted(results, key=lambda x: -x["pct"])[:n]
 
 
+def locate_prominent_button(image_bytes: bytes, *, tolerance: int = 60) -> dict[str, Any] | None:
+    """Locate the most prominent high-contrast rectangular region in an image.
+
+    This is a lightweight heuristic for UI button-like regions. Coordinates use a
+    top-left origin and are normalized to image width/height.
+    """
+    if not _load_pil():
+        return None
+
+    from PIL import Image
+
+    try:
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    except Exception:
+        return None
+
+    width, height = img.size
+    if width == 0 or height == 0:
+        return None
+
+    background = img.getpixel((0, 0))
+    min_x = width
+    min_y = height
+    max_x = -1
+    max_y = -1
+    matched_pixels = 0
+
+    for y in range(height):
+        for x in range(width):
+            pixel = img.getpixel((x, y))
+            delta = abs(pixel[0] - background[0]) + abs(pixel[1] - background[1]) + abs(pixel[2] - background[2])
+            if delta < tolerance:
+                continue
+            matched_pixels += 1
+            if x < min_x:
+                min_x = x
+            if y < min_y:
+                min_y = y
+            if x > max_x:
+                max_x = x
+            if y > max_y:
+                max_y = y
+
+    if matched_pixels == 0:
+        return None
+
+    box_width = max_x - min_x + 1
+    box_height = max_y - min_y + 1
+    if box_width < 8 or box_height < 8:
+        return None
+
+    return {
+        "x": round(min_x / width, 4),
+        "y": round(min_y / height, 4),
+        "w": round(box_width / width, 4),
+        "h": round(box_height / height, 4),
+        "pixel_count": matched_pixels,
+    }
+
+
+def _button_click_target(button: dict[str, Any] | None) -> dict[str, float] | None:
+    if button is None:
+        return None
+    return {
+        "x": round(float(button["x"]) + (float(button["w"]) / 2.0), 4),
+        "y": round(float(button["y"]) + (float(button["h"]) / 2.0), 4),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Face detection and landmarks
 # ---------------------------------------------------------------------------
@@ -411,11 +480,12 @@ def analyze_frame(
 ) -> dict[str, Any]:
     """Run face detection, color analysis, and/or landmark detection on raw image bytes.
 
-    Returns a dict with keys: ``faces``, ``face_count``, ``colors``, ``landmarks``, ``capabilities``.
+    Returns a dict with keys: ``faces``, ``face_count``, ``colors``, ``landmarks``, ``button``, ``button_target``, ``capabilities``.
     """
     faces: list[dict[str, Any]] = []
     colors: list[dict[str, Any]] = []
     landmarks: list[dict[str, Any]] = []
+    button: dict[str, Any] | None = None
 
     if detect_faces_flag:
         faces = detect_faces(image_bytes)
@@ -426,11 +496,15 @@ def analyze_frame(
     if detect_landmarks_flag:
         landmarks = detect_landmarks(image_bytes)
 
+    button = locate_prominent_button(image_bytes)
+
     return {
         "faces": faces,
         "face_count": len(faces),
         "colors": colors,
         "landmarks": landmarks,
+        "button": button,
+        "button_target": _button_click_target(button),
         "capabilities": {
             "vision_framework": _load_vision(),
             "pil": _load_pil(),

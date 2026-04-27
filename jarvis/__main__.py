@@ -24,8 +24,13 @@ from .monitors import CalendarMonitor, FilesystemMonitor, RSSMonitor, VisionInge
 from .vision_bridge import build_shortcut_guide, build_shortcut_template
 from .vision_analyze import analyze_frame_b64
 from .tools.trade import (
+    analyze_trade_streaks,
     build_trade_performance_report,
     build_trade_replay_report,
+    calculate_portfolio_metrics,
+    check_market_hours,
+    estimate_trade_value_at_risk,
+    log_trade_journal_entry,
 )
 from .perception.voice import build_voice_adapter_stack
 from .runtime import RuntimeEventEnvelope
@@ -99,6 +104,70 @@ def _trade_review_artifact(
     )
     print(json.dumps(payload, sort_keys=True))
     return 0
+
+
+def _trade_streaks(mode: str = "paper", limit: int = 100) -> int:
+    config = Config.from_env()
+    config.trades_log.parent.mkdir(parents=True, exist_ok=True)
+
+    payload = analyze_trade_streaks(config.trades_log, mode=mode, limit=limit)
+    print(json.dumps(payload, sort_keys=True))
+    return 0
+
+
+def _trade_portfolio_metrics(mode: str = "paper") -> int:
+    config = Config.from_env()
+    config.trades_log.parent.mkdir(parents=True, exist_ok=True)
+
+    payload = calculate_portfolio_metrics(config.trades_log, mode=mode)
+    print(json.dumps(payload, sort_keys=True))
+    return 0
+
+
+def _trade_market_hours(instrument: str, market: str = "US") -> int:
+    payload = check_market_hours(instrument, market=market)
+    print(json.dumps(payload, sort_keys=True))
+    return 0 if payload.get("error") is None else 1
+
+
+def _trade_risk_estimate(
+    *,
+    position_size: float,
+    entry_price: float,
+    stop_loss_price: float,
+    take_profit_price: float | None = None,
+    confidence_level: float = 0.95,
+) -> int:
+    payload = estimate_trade_value_at_risk(
+        position_size=position_size,
+        entry_price=entry_price,
+        stop_loss_price=stop_loss_price,
+        take_profit_price=take_profit_price,
+        confidence_level=confidence_level,
+    )
+    print(json.dumps(payload, sort_keys=True))
+    return 0 if payload.get("ok") else 1
+
+
+def _trade_journal(
+    trade_id: str,
+    *,
+    setup: str = "",
+    lessons: str = "",
+    improvement: str = "",
+) -> int:
+    config = Config.from_env()
+    config.audit_db.parent.mkdir(parents=True, exist_ok=True)
+
+    payload = log_trade_journal_entry(
+        AuditLog(config.audit_db),
+        trade_id=trade_id,
+        setup=setup,
+        lessons=lessons,
+        improvement=improvement,
+    )
+    print(json.dumps(payload, sort_keys=True))
+    return 0 if payload.get("ok") else 1
 
 
 def _stop() -> int:
@@ -1507,6 +1576,77 @@ def main(argv: list[str] | None = None) -> int:
 
         return _trade_performance_report(mode=mode)
 
+    if args[0] == "trade-streaks":
+        mode = "paper"
+        limit = 100
+        tail = args[1:] if len(args) >= 2 else []
+        idx = 0
+        while idx < len(tail):
+            token = tail[idx]
+            parsed_value, next_idx, err = _consume_flag_value(tail, idx, "--mode", "missing_mode_value")
+            if err:
+                print(json.dumps({"ok": False, "error": err}, sort_keys=True))
+                return 1
+            if next_idx != idx:
+                mode = (parsed_value or "").strip().lower()
+                idx = next_idx
+                continue
+
+            parsed_value, next_idx, err = _consume_flag_value(tail, idx, "--limit", "missing_limit_value")
+            if err:
+                print(json.dumps({"ok": False, "error": err}, sort_keys=True))
+                return 1
+            if next_idx != idx:
+                parsed_limit, error_payload = _parse_int_arg(parsed_value or "", "invalid_limit_value", min_value=1, max_value=1000)
+                if error_payload is not None:
+                    print(json.dumps(error_payload, sort_keys=True))
+                    return 1
+                limit = parsed_limit or 100
+                idx = next_idx
+                continue
+
+            if token.startswith("--"):
+                print(json.dumps({"ok": False, "error": "unknown_argument", "arg": token}, sort_keys=True))
+                return 1
+            if mode != "paper" and mode != token.strip().lower():
+                print(json.dumps({"ok": False, "error": "conflicting_mode_filters", "mode": mode, "new_mode": token}, sort_keys=True))
+                return 1
+            mode = token.strip().lower()
+            idx += 1
+
+        if mode not in {"dry_run", "paper", "live"}:
+            print(json.dumps({"ok": False, "error": "invalid_mode_value", "value": mode}, sort_keys=True))
+            return 1
+        return _trade_streaks(mode=mode, limit=limit)
+
+    if args[0] == "trade-portfolio-metrics":
+        mode = "paper"
+        tail = args[1:] if len(args) >= 2 else []
+        idx = 0
+        while idx < len(tail):
+            token = tail[idx]
+            parsed_value, next_idx, err = _consume_flag_value(tail, idx, "--mode", "missing_mode_value")
+            if err:
+                print(json.dumps({"ok": False, "error": err}, sort_keys=True))
+                return 1
+            if next_idx != idx:
+                mode = (parsed_value or "").strip().lower()
+                idx = next_idx
+                continue
+            if token.startswith("--"):
+                print(json.dumps({"ok": False, "error": "unknown_argument", "arg": token}, sort_keys=True))
+                return 1
+            if mode != "paper" and mode != token.strip().lower():
+                print(json.dumps({"ok": False, "error": "conflicting_mode_filters", "mode": mode, "new_mode": token}, sort_keys=True))
+                return 1
+            mode = token.strip().lower()
+            idx += 1
+
+        if mode not in {"dry_run", "paper", "live"}:
+            print(json.dumps({"ok": False, "error": "invalid_mode_value", "value": mode}, sort_keys=True))
+            return 1
+        return _trade_portfolio_metrics(mode=mode)
+
     if args[0] == "trade-review-artifact":
         reviewer = ""
         strategy_version = ""
@@ -1550,6 +1690,119 @@ def main(argv: list[str] | None = None) -> int:
             reviewer=reviewer,
             strategy_version=strategy_version,
         )
+
+    if args[0] == "trade-market-hours":
+        if len(args) < 2:
+            print(json.dumps({"ok": False, "error": "missing_instrument_value"}, sort_keys=True))
+            return 1
+        instrument = args[1]
+        market = "US"
+        tail = args[2:] if len(args) >= 3 else []
+        idx = 0
+        while idx < len(tail):
+            token = tail[idx]
+            parsed_value, next_idx, err = _consume_flag_value(tail, idx, "--market", "missing_market_value")
+            if err:
+                print(json.dumps({"ok": False, "error": err}, sort_keys=True))
+                return 1
+            if next_idx != idx:
+                market = parsed_value or "US"
+                idx = next_idx
+                continue
+            print(json.dumps({"ok": False, "error": "unknown_argument", "arg": token}, sort_keys=True))
+            return 1
+        return _trade_market_hours(instrument, market=market)
+
+    if args[0] == "trade-risk-estimate":
+        tail = args[1:] if len(args) >= 2 else []
+        values: dict[str, float | None] = {
+            "position_size": None,
+            "entry_price": None,
+            "stop_loss_price": None,
+            "take_profit_price": None,
+            "confidence_level": 0.95,
+        }
+        idx = 0
+        while idx < len(tail):
+            token = tail[idx]
+            matched = False
+            for flag, key, missing_error in (
+                ("--position-size", "position_size", "missing_position_size_value"),
+                ("--entry-price", "entry_price", "missing_entry_price_value"),
+                ("--stop-loss-price", "stop_loss_price", "missing_stop_loss_price_value"),
+                ("--take-profit-price", "take_profit_price", "missing_take_profit_price_value"),
+                ("--confidence-level", "confidence_level", "missing_confidence_level_value"),
+            ):
+                parsed_value, next_idx, err = _consume_flag_value(tail, idx, flag, missing_error)
+                if err:
+                    print(json.dumps({"ok": False, "error": err}, sort_keys=True))
+                    return 1
+                if next_idx != idx:
+                    try:
+                        values[key] = float(parsed_value or "")
+                    except ValueError:
+                        print(json.dumps({"ok": False, "error": f"invalid_{key}_value", "value": parsed_value}, sort_keys=True))
+                        return 1
+                    idx = next_idx
+                    matched = True
+                    break
+            if matched:
+                continue
+            print(json.dumps({"ok": False, "error": "unknown_argument", "arg": token}, sort_keys=True))
+            return 1
+
+        for required_key in ("position_size", "entry_price", "stop_loss_price"):
+            if values[required_key] is None:
+                print(json.dumps({"ok": False, "error": f"missing_{required_key}_value"}, sort_keys=True))
+                return 1
+
+        return _trade_risk_estimate(
+            position_size=float(values["position_size"]),
+            entry_price=float(values["entry_price"]),
+            stop_loss_price=float(values["stop_loss_price"]),
+            take_profit_price=float(values["take_profit_price"]) if values["take_profit_price"] is not None else None,
+            confidence_level=float(values["confidence_level"]),
+        )
+
+    if args[0] == "trade-journal":
+        if len(args) < 2:
+            print(json.dumps({"ok": False, "error": "missing_trade_id_value"}, sort_keys=True))
+            return 1
+        trade_id = args[1]
+        setup = ""
+        lessons = ""
+        improvement = ""
+        tail = args[2:] if len(args) >= 3 else []
+        idx = 0
+        while idx < len(tail):
+            token = tail[idx]
+            parsed_value, next_idx, err = _consume_flag_value(tail, idx, "--setup", "missing_setup_value")
+            if err:
+                print(json.dumps({"ok": False, "error": err}, sort_keys=True))
+                return 1
+            if next_idx != idx:
+                setup = parsed_value or ""
+                idx = next_idx
+                continue
+            parsed_value, next_idx, err = _consume_flag_value(tail, idx, "--lessons", "missing_lessons_value")
+            if err:
+                print(json.dumps({"ok": False, "error": err}, sort_keys=True))
+                return 1
+            if next_idx != idx:
+                lessons = parsed_value or ""
+                idx = next_idx
+                continue
+            parsed_value, next_idx, err = _consume_flag_value(tail, idx, "--improvement", "missing_improvement_value")
+            if err:
+                print(json.dumps({"ok": False, "error": err}, sort_keys=True))
+                return 1
+            if next_idx != idx:
+                improvement = parsed_value or ""
+                idx = next_idx
+                continue
+            print(json.dumps({"ok": False, "error": "unknown_argument", "arg": token}, sort_keys=True))
+            return 1
+        return _trade_journal(trade_id, setup=setup, lessons=lessons, improvement=improvement)
 
     if args[0] == "stop":
         return _stop()
@@ -2661,7 +2914,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(
         "Usage: python3 -m jarvis "
-        "[audit-verify|audit-export|audit-stats|audit-correlation <correlation_id> [limit|--limit <n>] [--kind <event_kind>]|trade-replay-report [limit|--limit <n>]|trade-performance-report [paper|live|dry_run|--mode <mode>]|approvals-list|approvals-approve <id> [reason]|"
+        "[audit-verify|audit-export|audit-stats|audit-correlation <correlation_id> [limit|--limit <n>] [--kind <event_kind>]|trade-replay-report [limit|--limit <n>]|trade-performance-report [paper|live|dry_run|--mode <mode>]|trade-streaks [paper|live|dry_run|--mode <mode>] [--limit <n>]|trade-portfolio-metrics [paper|live|dry_run|--mode <mode>]|trade-market-hours <instrument> [--market <US|CRYPTO>]|trade-risk-estimate --position-size <n> --entry-price <n> --stop-loss-price <n> [--take-profit-price <n>] [--confidence-level <n>]|trade-journal <trade_id> [--setup <text>] [--lessons <text>] [--improvement <text>]|approvals-list|approvals-approve <id> [reason]|"
         "approvals-reject <id> [reason]|approvals-dispatch|"
         "approvals-seed [count]|"
         "approvals-api [host] [port]|events-stats|"
