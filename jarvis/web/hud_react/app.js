@@ -25,6 +25,29 @@ function MetricCard({ label, value }) {
     );
 }
 
+function BurstWidget({ label, tone, delayMs }) {
+    const classes = `burst-widget tone-${tone}`;
+    const style = { animationDelay: `${delayMs}ms` };
+
+    return React.createElement(
+        "div",
+        { className: classes },
+        React.createElement("div", { className: "burst-ring", style }),
+        React.createElement("div", { className: "burst-core" }),
+        React.createElement("div", { className: "burst-label" }, label)
+    );
+}
+
+function BurstWidgetStrip() {
+    return React.createElement(
+        "section",
+        { className: "hud-burst-strip", "aria-label": "Burst widget animations" },
+        React.createElement(BurstWidget, { label: "Signal", tone: "blue", delayMs: 0 }),
+        React.createElement(BurstWidget, { label: "Priority", tone: "rose", delayMs: 280 }),
+        React.createElement(BurstWidget, { label: "Ops", tone: "gold", delayMs: 560 })
+    );
+}
+
 function GlobeLayer({ onMarkerSelect }) {
     const containerRef = React.useRef(null);
 
@@ -218,6 +241,7 @@ function HudViewport() {
             React.createElement(MetricCard, { label: "Runtime Mode", value: "paper" }),
             React.createElement(MetricCard, { label: "Viewport Rev", value: "v0" })
         ),
+        React.createElement(BurstWidgetStrip),
         React.createElement(GlobeLayer, { onMarkerSelect: setSelectedMarker }),
         React.createElement(SlidePanel, { marker: selectedMarker }),
         React.createElement(
