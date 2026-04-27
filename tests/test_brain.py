@@ -109,8 +109,10 @@ def test_default_system_prompt_is_structured(tmp_path: Path, monkeypatch: pytest
     assert "<identity>" in prompt
     assert "<tool_families>" in prompt
     assert "<turn_structure>" in prompt
+    assert "<planning_rules>" in prompt
     assert "<response_contract>" in prompt
     assert "Nick" in prompt
+    assert "check calendar_read before making a plan" in prompt
 
 
 def test_turn_executes_tools_then_returns_text(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
