@@ -2,6 +2,20 @@ import React from "https://esm.sh/react@18.3.1";
 import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
 import * as THREE from "https://esm.sh/three@0.167.1";
 
+const GLOBE_MARKERS = [
+    { id: "hormuz", label: "Hormuz", lat: 26.56, lon: 56.25, color: 0xff7b95 },
+    { id: "kabul", label: "Kabul", lat: 34.5553, lon: 69.2075, color: 0xffd166 },
+];
+
+function latLonToVector3(latDeg, lonDeg, radius) {
+    const lat = (latDeg * Math.PI) / 180;
+    const lon = (lonDeg * Math.PI) / 180;
+    const x = radius * Math.cos(lat) * Math.sin(lon);
+    const y = radius * Math.sin(lat);
+    const z = radius * Math.cos(lat) * Math.cos(lon);
+    return new THREE.Vector3(x, y, z);
+}
+
 function MetricCard({ label, value }) {
     return React.createElement(
         "section",
@@ -74,12 +88,30 @@ function GlobeLayer() {
         const points = new THREE.Points(pointsGeometry, pointsMaterial);
         scene.add(points);
 
+        const markerGroup = new THREE.Group();
+        markerGroup.name = "geo_markers";
+        GLOBE_MARKERS.forEach((marker) => {
+            const markerGeometry = new THREE.SphereGeometry(0.04, 14, 14);
+            const markerMaterial = new THREE.MeshBasicMaterial({
+                color: marker.color,
+                transparent: true,
+                opacity: 0.96,
+            });
+            const markerMesh = new THREE.Mesh(markerGeometry, markerMaterial);
+            markerMesh.position.copy(latLonToVector3(marker.lat, marker.lon, 1.08));
+            markerMesh.name = marker.id;
+            markerMesh.userData = { ...marker };
+            markerGroup.add(markerMesh);
+        });
+        scene.add(markerGroup);
+
         let rafId = 0;
         const animate = () => {
             globe.rotation.y += 0.0035;
             globe.rotation.x += 0.0008;
             glow.rotation.y -= 0.0023;
             points.rotation.y += 0.0017;
+            markerGroup.rotation.y += 0.0035;
             renderer.render(scene, camera);
             rafId = requestAnimationFrame(animate);
         };
@@ -98,6 +130,14 @@ function GlobeLayer() {
             cancelAnimationFrame(rafId);
             pointsGeometry.dispose();
             pointsMaterial.dispose();
+            markerGroup.children.forEach((child) => {
+                if (child.geometry) {
+                    child.geometry.dispose();
+                }
+                if (child.material) {
+                    child.material.dispose();
+                }
+            });
             sphereGeometry.dispose();
             sphereMaterial.dispose();
             glowGeometry.dispose();
@@ -139,6 +179,11 @@ function HudViewport() {
             React.createElement(MetricCard, { label: "Viewport Rev", value: "v0" })
         ),
         React.createElement(GlobeLayer),
+        React.createElement(
+            "div",
+            { className: "hud-footnotes" },
+            "Marker Targets: Hormuz, Kabul"
+        ),
         React.createElement(
             "div",
             { className: "hud-footer" },

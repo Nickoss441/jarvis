@@ -256,10 +256,14 @@ def test_approval_api_serves_react_hud_viewport_and_assets(tmp_path):
         assert "HudViewport" in app_js
         assert "THREE.Scene" in app_js
         assert "GlobeLayer" in app_js
+        assert "GLOBE_MARKERS" in app_js
+        assert "Hormuz" in app_js
+        assert "Kabul" in app_js
         assert "No critical alerts" in app_js
 
         assert ".hud-shell" in styles_css
         assert ".globe-frame" in styles_css
+        assert ".hud-footnotes" in styles_css
         assert "radial-gradient" in styles_css
         assert "@media (max-width: 760px)" in styles_css
     finally:
