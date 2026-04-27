@@ -62,3 +62,43 @@ def test_vision_observe_captures_screenshot_before_analysis(monkeypatch) -> None
     assert out["source"] == "screenshot"
     assert out["screenshot_byte_count"] == len(b"screen-bytes")
     assert out["image_b64"] == base64.b64encode(b"screen-bytes").decode("ascii")
+
+
+def test_vision_observe_returns_ui_coordinates_for_target_hint(monkeypatch) -> None:
+    tool = make_vision_observe_tool(mode="live")
+    payload = base64.b64encode(b"png-bytes").decode("ascii")
+
+    monkeypatch.setattr(
+        vision_observe,
+        "analyze_frame_b64",
+        lambda *_args, **_kwargs: {"ok": True, "button_target": {"x": 0.42, "y": 0.77}},
+    )
+
+    out = tool.handler(source="image_base64", image_base64=payload, target_hint="submit button")
+
+    assert out["ok"] is True
+    assert out["target_hint"] == "submit button"
+    assert out["ui_coordinates"] == {
+        "x": 0.42,
+        "y": 0.77,
+        "coordinate_space": "normalized",
+        "source": "model_button_target",
+    }
+
+
+def test_vision_observe_returns_target_not_found_for_missing_coordinates(monkeypatch) -> None:
+    tool = make_vision_observe_tool(mode="live")
+    payload = base64.b64encode(b"png-bytes").decode("ascii")
+
+    monkeypatch.setattr(
+        vision_observe,
+        "analyze_frame_b64",
+        lambda *_args, **_kwargs: {"ok": True, "button_target": None},
+    )
+
+    out = tool.handler(source="image_base64", image_base64=payload, target_hint="submit button")
+
+    assert out["ok"] is False
+    assert out["error"] == "target_not_found"
+    assert out["target_hint"] == "submit button"
+    assert out["analysis"]["button_target"] is None

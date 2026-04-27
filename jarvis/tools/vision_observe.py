@@ -16,6 +16,7 @@ def make_vision_observe_tool(mode: str = "live") -> Tool:
     def _handle(
         source: str = "screenshot",
         image_base64: str = "",
+        target_hint: str = "",
         detect_faces: bool = True,
         detect_colors: bool = True,
         detect_landmarks: bool = True,
@@ -63,6 +64,26 @@ def make_vision_observe_tool(mode: str = "live") -> Tool:
         result["source"] = selected_source
         if screenshot_byte_count:
             result["screenshot_byte_count"] = screenshot_byte_count
+
+        hint = (target_hint or "").strip()
+        if hint:
+            candidate = result.get("button_target")
+            if isinstance(candidate, dict) and "x" in candidate and "y" in candidate:
+                result["target_hint"] = hint
+                result["ui_coordinates"] = {
+                    "x": float(candidate["x"]),
+                    "y": float(candidate["y"]),
+                    "coordinate_space": "normalized",
+                    "source": "model_button_target",
+                }
+            else:
+                return {
+                    "ok": False,
+                    "error": "target_not_found",
+                    "target_hint": hint,
+                    "source": selected_source,
+                    "analysis": result,
+                }
         return result
 
     return Tool(
@@ -81,6 +102,10 @@ def make_vision_observe_tool(mode: str = "live") -> Tool:
                 "image_base64": {
                     "type": "string",
                     "description": "Base64 image payload when source=image_base64.",
+                },
+                "target_hint": {
+                    "type": "string",
+                    "description": "Optional natural-language UI target (e.g., 'blue submit button'). Returns ui_coordinates when resolved.",
                 },
                 "detect_faces": {"type": "boolean"},
                 "detect_colors": {"type": "boolean"},
