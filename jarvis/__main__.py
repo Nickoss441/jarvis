@@ -796,13 +796,19 @@ def _wake_word_listen(audio_text: str) -> int:
         tts_fallback_provider=config.voice_tts_fallback_provider,
     )
     listener = WakeWordListener(adapter=stack.wake_word)
-    out = listener.ingest((audio_text or "").encode("utf-8"))
+    audio_chunk = (audio_text or "").encode("utf-8")
+    out = listener.ingest(audio_chunk)
     payload = {
         "ok": True,
         "wake_word": config.voice_wake_word,
         "audio_text": audio_text,
         **out,
     }
+    if bool(out.get("triggered")):
+        payload["stt_triggered"] = True
+        payload["stt"] = stack.stt.transcribe(audio_chunk, language="en")
+    else:
+        payload["stt_triggered"] = False
     print(json.dumps(payload, sort_keys=True))
     return 0
 

@@ -521,6 +521,26 @@ def test_main_wake_word_listen_success(tmp_path, monkeypatch, capsys):
     assert payload["triggered"] is True
     assert payload["chunks_seen"] == 1
     assert payload["triggers"] == 1
+    assert payload["stt_triggered"] is True
+    assert payload["stt"]["provider"] == "faster-whisper"
+    assert payload["stt"]["text"] == "hello jarvis"
+
+
+def test_main_wake_word_listen_no_trigger_skips_stt(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("JARVIS_NOTES_DIR", str(tmp_path / "notes"))
+    monkeypatch.setenv("JARVIS_AUDIT_DB", str(tmp_path / "audit.db"))
+    monkeypatch.setenv("JARVIS_USER_NAME", "Nick")
+
+    rc = main(["wake-word-listen", "hello", "friday"])
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert rc == 0
+    assert payload["ok"] is True
+    assert payload["triggered"] is False
+    assert payload["stt_triggered"] is False
+    assert "stt" not in payload
 
 
 def test_main_wake_word_listen_missing_audio_text_errors(capsys):
