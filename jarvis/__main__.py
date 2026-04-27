@@ -32,7 +32,7 @@ from .tools.trade import (
     estimate_trade_value_at_risk,
     log_trade_journal_entry,
 )
-from .perception.voice import build_voice_adapter_stack
+from .perception.voice import WakeWordListener, build_voice_adapter_stack
 from .runtime import RuntimeEventEnvelope
 
 
@@ -777,6 +777,34 @@ def _voice_self_test(
     }
     print(json.dumps(result, sort_keys=True))
     return 0 if ok else 2
+
+
+def _wake_word_listen(audio_text: str) -> int:
+    """Run a single wake-word listener ingestion over provided text audio."""
+    config = Config.from_env()
+    stack = build_voice_adapter_stack(
+        wake_word=config.voice_wake_word,
+        stt_provider=config.voice_stt_provider,
+        tts_provider=config.voice_tts_provider,
+        tts_api_key=config.voice_tts_api_key,
+        tts_voice_ids={
+            "male": config.voice_tts_voice_id_male,
+            "female": config.voice_tts_voice_id_female,
+        },
+        tts_default_voice=config.voice_tts_default_voice,
+        tts_model=config.voice_tts_model,
+        tts_fallback_provider=config.voice_tts_fallback_provider,
+    )
+    listener = WakeWordListener(adapter=stack.wake_word)
+    out = listener.ingest((audio_text or "").encode("utf-8"))
+    payload = {
+        "ok": True,
+        "wake_word": config.voice_wake_word,
+        "audio_text": audio_text,
+        **out,
+    }
+    print(json.dumps(payload, sort_keys=True))
+    return 0
 
 
 def _webhook_listen(
@@ -2382,6 +2410,12 @@ def main(argv: list[str] | None = None) -> int:
             max_roundtrip_ms=max_roundtrip_ms,
         )
 
+    if args[0] == "wake-word-listen":
+        if len(args) < 2:
+            print(json.dumps({"ok": False, "error": "missing_audio_text"}, sort_keys=True))
+            return 1
+        return _wake_word_listen(audio_text=" ".join(args[1:]))
+
     if args[0] == "hud-run":
         width = 720
         height = 180
@@ -3032,6 +3066,7 @@ def main(argv: list[str] | None = None) -> int:
         "hud-run [--width N] [--height N] [--opacity X] [--duration-ms N]|"
         "webhook-listen [source] [host] [port]|"
         "voice-self-test [--iterations N] [--max-roundtrip-ms X]|"
+        "wake-word-listen <audio_text>|"
         "vision-listen [source] [host] [port]|"
         "vision-shortcut-template [url]|"
         "vision-shortcut-guide [url]|"

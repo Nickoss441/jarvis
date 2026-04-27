@@ -506,6 +506,33 @@ def test_main_voice_self_test_invalid_iterations_errors(capsys):
     assert payload["error"] == "invalid_iterations_value"
 
 
+def test_main_wake_word_listen_success(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("JARVIS_NOTES_DIR", str(tmp_path / "notes"))
+    monkeypatch.setenv("JARVIS_AUDIT_DB", str(tmp_path / "audit.db"))
+    monkeypatch.setenv("JARVIS_USER_NAME", "Nick")
+
+    rc = main(["wake-word-listen", "hello", "jarvis"])
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert rc == 0
+    assert payload["ok"] is True
+    assert payload["triggered"] is True
+    assert payload["chunks_seen"] == 1
+    assert payload["triggers"] == 1
+
+
+def test_main_wake_word_listen_missing_audio_text_errors(capsys):
+    rc = main(["wake-word-listen"])
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert rc == 1
+    assert payload["ok"] is False
+    assert payload["error"] == "missing_audio_text"
+
+
 def test_main_hud_run_calls_overlay_runner(monkeypatch, capsys):
     import jarvis.hud as hud
 

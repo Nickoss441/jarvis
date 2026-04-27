@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .listener import WakeWordListener
 from .stt import STTAdapter, build_stt_adapter
 from .tts import TTSAdapter, build_tts_adapter
 from .wake_word import WakeWordAdapter, build_wake_word_adapter
@@ -45,6 +46,7 @@ def build_voice_adapter_stack(
 
 __all__ = [
     "WakeWordAdapter",
+    "WakeWordListener",
     "STTAdapter",
     "TTSAdapter",
     "VoiceAdapterStack",

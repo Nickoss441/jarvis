@@ -1,4 +1,5 @@
 from jarvis.perception.voice import (
+    WakeWordListener,
     build_stt_adapter,
     build_tts_adapter,
     build_voice_adapter_stack,
@@ -177,3 +178,18 @@ def test_build_voice_adapter_stack_wires_elevenlabs_tts(monkeypatch):
 
     assert tts_out["provider"] == "elevenlabs"
     assert tts_out["voice_id"] == "voice-m"
+
+
+def test_wake_word_listener_tracks_chunks_and_triggers() -> None:
+    adapter = build_wake_word_adapter(provider="dry_run", wake_word="jarvis")
+    listener = WakeWordListener(adapter=adapter)
+
+    out1 = listener.ingest(b"hello there")
+    out2 = listener.ingest(b"jarvis wake up")
+
+    assert out1["triggered"] is False
+    assert out1["chunks_seen"] == 1
+    assert out1["triggers"] == 0
+    assert out2["triggered"] is True
+    assert out2["chunks_seen"] == 2
+    assert out2["triggers"] == 1
