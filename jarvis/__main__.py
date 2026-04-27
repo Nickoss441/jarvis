@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 import secrets
 import sys
@@ -669,6 +670,72 @@ def _youtube_sentiment(video_id: str = "dQw4w9WgXcQ") -> int:
         return 1
     except ValueError as e:
         print(json.dumps({"ok": False, "error": "youtube_sentiment_invalid_mode", "reason": str(e)}, sort_keys=True))
+        return 1
+
+
+def _gold_trade_execute(
+    action: str = "BUY",
+    price: float = 0.0,
+    news_sentiment: float = 0.0,
+    youtube_sentiment: float = 0.0,
+) -> int:
+    """Execute a gold trade based on sentiment and price data."""
+    from .tools.gold_trade import (
+        GoldTradeSignal,
+        GoldTradeDecisionEngine,
+        execute_gold_trade,
+    )
+    
+    config = Config.from_env()
+    
+    # If price is not provided, fetch current gold price
+    if price <= 0:
+        from .tools.gold import get_gold_market_data
+        try:
+            gold_data = get_gold_market_data(mode=config.gold_market_mode)
+            price = gold_data["price"]
+        except Exception as e:
+            print(json.dumps({"ok": False, "error": "price_fetch_failed", "reason": str(e)}, sort_keys=True))
+            return 1
+    
+    # Validate action
+    action = action.upper()
+    if action not in ("BUY", "SELL"):
+        print(json.dumps({"ok": False, "error": "invalid_action", "reason": f"action must be BUY or SELL, got {action}"}, sort_keys=True))
+        return 1
+    
+    # Create trade signal
+    signal = GoldTradeSignal(
+        action=action,
+        price=price,
+        quantity=1.0,
+        confidence=0.7,
+        reason=f"Manual {action} order with sentiment context",
+        news_sentiment=news_sentiment,
+        youtube_sentiment=youtube_sentiment,
+        timestamp=datetime.now(timezone.utc).isoformat(),
+    )
+    
+    # Execute trade
+    trades_log = Path(os.path.expanduser(os.environ.get("JARVIS_TRADES_LOG", "~/.jarvis/trades-log.jsonl")))
+    
+    try:
+        execution = execute_gold_trade(
+            signal=signal,
+            mode=config.trades_mode,
+        )
+        
+        # Log execution
+        from .tools.gold_trade import log_gold_trade_execution
+        log_gold_trade_execution(execution, trades_log)
+        
+        print(json.dumps(execution.to_dict(), sort_keys=True))
+        return 0
+    except ValueError as e:
+        print(json.dumps({"ok": False, "error": "gold_trade_invalid_mode", "reason": str(e)}, sort_keys=True))
+        return 1
+    except RuntimeError as e:
+        print(json.dumps({"ok": False, "error": "gold_trade_execution_failed", "reason": str(e)}, sort_keys=True))
         return 1
 
 
@@ -2527,6 +2594,18 @@ def main(argv: list[str] | None = None) -> int:
         video_id = args[1] if len(args) >= 2 else "dQw4w9WgXcQ"
         return _youtube_sentiment(video_id=video_id)
 
+    if args[0] == "gold-trade":
+        action = args[1].upper() if len(args) >= 2 else "BUY"
+        price = float(args[2]) if len(args) >= 3 else 0.0
+        news_sentiment = float(args[3]) if len(args) >= 4 else 0.0
+        youtube_sentiment = float(args[4]) if len(args) >= 5 else 0.0
+        return _gold_trade_execute(
+            action=action,
+            price=price,
+            news_sentiment=news_sentiment,
+            youtube_sentiment=youtube_sentiment,
+        )
+
     if args[0] == "monitor-run-once":
         return _monitor_run_once()
 
@@ -3356,6 +3435,7 @@ def main(argv: list[str] | None = None) -> int:
         "gold-price|"
         "news-sentiment [query]|"
         "youtube-sentiment [video_id]|"
+        "gold-trade [action] [price] [news_sentiment] [youtube_sentiment]|"
         "system-control|"
         "monitor-run-once|"
         "hud-run [--width N] [--height N] [--opacity X] [--duration-ms N]|"

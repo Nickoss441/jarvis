@@ -580,6 +580,61 @@ def test_main_youtube_sentiment_default_video_id(monkeypatch, capsys):
     assert payload["ok"] is True
 
 
+def test_main_gold_trade_dry_run(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("JARVIS_NOTES_DIR", "/tmp")
+    monkeypatch.setenv("JARVIS_AUDIT_DB", "/tmp/audit.db")
+    monkeypatch.setenv("JARVIS_USER_NAME", "Nick")
+    monkeypatch.setenv("JARVIS_TRADES_MODE", "dry_run")
+    monkeypatch.setenv("JARVIS_GOLD_MARKET_MODE", "dry_run")
+    monkeypatch.setenv("JARVIS_TRADES_LOG", str(tmp_path / "trades.jsonl"))
+
+    rc = main(["gold-trade", "BUY", "2050.25", "1.5", "1.2"])
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert rc == 0
+    assert payload["action"] == "BUY"
+    assert payload["status"] == "executed"
+    assert payload["mode"] == "dry_run"
+
+
+def test_main_gold_trade_sell(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("JARVIS_NOTES_DIR", "/tmp")
+    monkeypatch.setenv("JARVIS_AUDIT_DB", "/tmp/audit.db")
+    monkeypatch.setenv("JARVIS_USER_NAME", "Nick")
+    monkeypatch.setenv("JARVIS_TRADES_MODE", "dry_run")
+    monkeypatch.setenv("JARVIS_GOLD_MARKET_MODE", "dry_run")
+    monkeypatch.setenv("JARVIS_TRADES_LOG", str(tmp_path / "trades.jsonl"))
+
+    rc = main(["gold-trade", "SELL", "2050.25", "-1.5", "-1.2"])
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert rc == 0
+    assert payload["action"] == "SELL"
+    assert payload["status"] == "executed"
+
+
+def test_main_gold_trade_defaults(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("JARVIS_NOTES_DIR", "/tmp")
+    monkeypatch.setenv("JARVIS_AUDIT_DB", "/tmp/audit.db")
+    monkeypatch.setenv("JARVIS_USER_NAME", "Nick")
+    monkeypatch.setenv("JARVIS_TRADES_MODE", "dry_run")
+    monkeypatch.setenv("JARVIS_GOLD_MARKET_MODE", "dry_run")
+    monkeypatch.setenv("JARVIS_TRADES_LOG", str(tmp_path / "trades.jsonl"))
+
+    rc = main(["gold-trade"])
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert rc == 0
+    assert payload["action"] == "BUY"
+    assert payload["status"] == "executed"
+
+
 def test_main_voice_self_test_success(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     monkeypatch.setenv("JARVIS_NOTES_DIR", str(tmp_path / "notes"))
