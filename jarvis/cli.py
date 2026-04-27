@@ -9,6 +9,7 @@ from .event_bus import EventBus
 from .policy import Policy
 from .brain import Brain
 from .tools import ToolRegistry
+from .voice_output import build_default_speaker, wants_vocal_reply
 from .tools.web_search import web_search
 from .tools.web_fetch import web_fetch
 from .tools.notes import make_notes_tools
@@ -244,6 +245,8 @@ def repl() -> None:
         print(f"Startup error: {e}")
         sys.exit(1)
 
+    speaker = build_default_speaker()
+
     while True:
         try:
             user = input("you > ").strip()
@@ -263,6 +266,8 @@ def repl() -> None:
         try:
             reply = brain.turn(user)
             print(f"jarvis > {reply}\n")
+            if wants_vocal_reply(user):
+                speaker.speak(reply)
         except KeyboardInterrupt:
             print("\n(interrupted)\n")
         except Exception as e:
@@ -277,6 +282,8 @@ def repl_system_control() -> None:
     except Exception as e:
         print(f"Startup error: {e}")
         sys.exit(1)
+
+    speaker = build_default_speaker()
 
     while True:
         try:
@@ -297,6 +304,8 @@ def repl_system_control() -> None:
         try:
             reply = brain.turn(user)
             print(f"jarvis > {reply}\n")
+            if wants_vocal_reply(user):
+                speaker.speak(reply)
         except KeyboardInterrupt:
             print("\n(interrupted)\n")
         except Exception as e:
