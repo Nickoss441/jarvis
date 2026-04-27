@@ -44,6 +44,9 @@ def dispatch_call_phone(
     caller_id: str = "",
     twilio_account_sid: str = "",
     twilio_auth_token: str = "",
+    vapi_api_key: str = "",
+    vapi_assistant_id: str = "",
+    vapi_phone_number_id: str = "",
 ) -> dict[str, Any]:
     """Execute a phone call in dry-run mode."""
     mode = (mode or "dry_run").strip().lower()
@@ -147,7 +150,7 @@ def dispatch_call_phone(
             ),
         }
 
-    if provider != "twilio":
+    if provider not in {"twilio", "vapi"}:
         return {
             "status": "not_implemented",
             "tool": "call_phone",
@@ -158,13 +161,99 @@ def dispatch_call_phone(
     if not from_number or not from_number.startswith("+") or len(from_number) < 10:
         return {"error": "caller_id must be set in E.164 format for twilio live calls"}
 
+    if httpx is None:
+        return {"error": "httpx not installed. pip install httpx"}
+
+    if provider == "vapi":
+        api_key = (vapi_api_key or "").strip()
+        assistant_id = (vapi_assistant_id or "").strip() or str(payload.get("assistant_id") or "").strip()
+        phone_number_id = (vapi_phone_number_id or "").strip() or str(payload.get("phone_number_id") or "").strip()
+
+        if not api_key:
+            return {"error": "vapi api key is required (VAPI_API_KEY)"}
+        if not assistant_id:
+            return {
+                "error": (
+                    "vapi assistant id is required "
+                    "(JARVIS_TELEPHONY_VAPI_ASSISTANT_ID or payload.assistant_id)"
+                )
+            }
+        if not phone_number_id:
+            return {
+                "error": (
+                    "vapi phone number id is required "
+                    "(JARVIS_TELEPHONY_VAPI_PHONE_NUMBER_ID or payload.phone_number_id)"
+                )
+            }
+
+        request_body: dict[str, Any] = {
+            "assistantId": assistant_id,
+            "phoneNumberId": phone_number_id,
+            "customer": {"number": phone_number},
+            # Keep the disclosure-enforced script visible for auditability.
+            "assistantOverrides": {"firstMessage": script},
+            "metadata": {
+                "subject": subject,
+                "purpose": purpose,
+                "disclosure": disclosure,
+            },
+        }
+
+        try:
+            resp = httpx.post(
+                "https://api.vapi.ai/call",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=request_body,
+                timeout=10.0,
+            )
+            resp.raise_for_status()
+            payload_json = resp.json() if hasattr(resp, "json") else {}
+        except Exception as exc:  # noqa: BLE001
+            return {"error": f"vapi call failed: {exc}"}
+
+        vapi_call_id = str(
+            payload_json.get("id")
+            or payload_json.get("call", {}).get("id")
+            or ""
+        )
+        recording_url = str(payload_json.get("recordingUrl") or "")
+        transcript = "[pending transcription]" if vapi_call_id else ""
+        call_record = {
+            "id": vapi_call_id or str(uuid.uuid4()),
+            "ts": time.time(),
+            "mode": mode,
+            "provider": "vapi",
+            "phone_number": phone_number,
+            "caller_id": from_number,
+            "subject": subject,
+            "message": message,
+            "disclosure": disclosure,
+            "script": script,
+            "vapi_call_id": vapi_call_id,
+            "recording_url": recording_url,
+            "transcript": transcript,
+        }
+        calls_log_path.parent.mkdir(parents=True, exist_ok=True)
+        with calls_log_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(call_record, sort_keys=True) + "\n")
+
+        return {
+            "status": "vapi_queued",
+            "call_id": call_record["id"],
+            "provider": "vapi",
+            "phone_number": phone_number,
+            "calls_log_path": str(calls_log_path),
+            "recording_url": recording_url,
+            "transcript": transcript,
+        }
+
     sid = (twilio_account_sid or "").strip()
     token = (twilio_auth_token or "").strip()
     if not sid or not token:
         return {"error": "twilio credentials are required (TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN)"}
-
-    if httpx is None:
-        return {"error": "httpx not installed. pip install httpx"}
 
     twiml = (
         "<Response><Say>"

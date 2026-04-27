@@ -288,10 +288,14 @@ class ApprovalService:
                     caller_id=self.config.telephony_caller_id,
                     twilio_account_sid=self.config.get_secret("TWILIO_ACCOUNT_SID"),
                     twilio_auth_token=self.config.get_secret("TWILIO_AUTH_TOKEN"),
+                    vapi_api_key=self.config.get_secret("VAPI_API_KEY"),
+                    vapi_assistant_id=self.config.telephony_vapi_assistant_id,
+                    vapi_phone_number_id=self.config.telephony_vapi_phone_number_id,
                 )
                 success = result.get("status") in {
                     "dry_run_logged",
                     "twilio_queued",
+                    "vapi_queued",
                     "human_handoff_requested",
                 }
             elif row["kind"] == "payments":

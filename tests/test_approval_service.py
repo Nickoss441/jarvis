@@ -279,6 +279,40 @@ def test_approval_service_dispatch_treats_twilio_queued_as_success(tmp_path):
     assert row["status"] == "processed"
 
 
+def test_approval_service_dispatch_treats_vapi_queued_as_success(tmp_path):
+    cfg = _config(tmp_path)
+    cfg.call_phone_mode = "live"
+    cfg.telephony_provider = "vapi"
+    cfg.telephony_caller_id = "+14155550000"
+    cfg.telephony_vapi_assistant_id = "assistant-123"
+    cfg.telephony_vapi_phone_number_id = "phone-123"
+    service = ApprovalService(cfg)
+
+    approval_id = service.request(
+        "call_phone",
+        {
+            "phone_number": "+14155552671",
+            "subject": "Reminder",
+            "message": "This is a reminder call",
+        },
+    )
+    assert service.approve(approval_id)
+
+    with patch("jarvis.approval_service.dispatch_call_phone") as mock_dispatch:
+        mock_dispatch.return_value = {
+            "status": "vapi_queued",
+            "provider": "vapi",
+            "call_id": "call_vapi_123",
+        }
+        summary = service.dispatch(limit=10)
+
+    assert summary.failures == 0
+    assert len(summary.items) == 1
+    row = service.store.get(approval_id)
+    assert row is not None
+    assert row["status"] == "processed"
+
+
 def test_approval_service_call_phone_persists_recording_and_transcript_in_audit(tmp_path):
     cfg = _config(tmp_path)
     service = ApprovalService(cfg)

@@ -207,6 +207,26 @@ def test_dispatch_call_phone_live_unknown_provider_not_implemented(tmp_path):
     assert "provider 'other'" in result["message"]
 
 
+def test_dispatch_call_phone_live_vapi_missing_required_fields(tmp_path):
+    calls_log = tmp_path / "calls.jsonl"
+    result = dispatch_call_phone(
+        mode="live",
+        calls_log_path=calls_log,
+        payload={
+            "phone_number": "+14155552671",
+            "message": "Hello",
+        },
+        provider="vapi",
+        caller_id="+14155550000",
+        vapi_api_key="",
+        vapi_assistant_id="",
+        vapi_phone_number_id="",
+    )
+
+    assert "error" in result
+    assert "vapi api key" in result["error"].lower()
+
+
 def test_dispatch_call_phone_human_requested_graceful_handoff(tmp_path):
     calls_log = tmp_path / "calls.jsonl"
     result = dispatch_call_phone(
@@ -269,6 +289,47 @@ def test_dispatch_call_phone_live_twilio_success(tmp_path):
     assert logged["twilio_sid"] == "CA123"
     assert logged["caller_id"] == "+14155550000"
     assert "Calls/CA123/Recordings.json" in logged["recording_url"]
+    assert logged["transcript"] == "[pending transcription]"
+
+    mock_httpx.post.assert_called_once()
+
+
+def test_dispatch_call_phone_live_vapi_success(tmp_path):
+    calls_log = tmp_path / "calls.jsonl"
+
+    fake_resp = MagicMock()
+    fake_resp.raise_for_status = MagicMock()
+    fake_resp.json.return_value = {"id": "call_vapi_123", "recordingUrl": "https://example.test/recording.wav"}
+
+    with patch("jarvis.tools.call_phone.httpx") as mock_httpx:
+        mock_httpx.post.return_value = fake_resp
+
+        result = dispatch_call_phone(
+            mode="live",
+            calls_log_path=calls_log,
+            payload={
+                "phone_number": "+14155552671",
+                "message": "Hello from Jarvis",
+                "subject": "Appointment",
+            },
+            provider="vapi",
+            caller_id="+14155550000",
+            vapi_api_key="vapi-key",
+            vapi_assistant_id="assistant-123",
+            vapi_phone_number_id="phone-123",
+        )
+
+    assert result["status"] == "vapi_queued"
+    assert result["provider"] == "vapi"
+    assert result["call_id"] == "call_vapi_123"
+    assert result["recording_url"] == "https://example.test/recording.wav"
+    assert result["transcript"] == "[pending transcription]"
+    assert calls_log.exists()
+
+    logged = json.loads(calls_log.read_text())
+    assert logged["provider"] == "vapi"
+    assert logged["vapi_call_id"] == "call_vapi_123"
+    assert logged["recording_url"] == "https://example.test/recording.wav"
     assert logged["transcript"] == "[pending transcription]"
 
     mock_httpx.post.assert_called_once()

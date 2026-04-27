@@ -120,6 +120,8 @@ class Config:
     home_assistant_timeout_seconds: int = 10
     telephony_provider: str = "dry_run"
     telephony_caller_id: str = ""
+    telephony_vapi_assistant_id: str = ""
+    telephony_vapi_phone_number_id: str = ""
     telephony_disclosure_template: str = (
         "Hello, this is an AI assistant calling on behalf of {user_name} "
         "to {purpose}. Is that alright to proceed?"
@@ -280,6 +282,8 @@ class Config:
                 or "dry_run"
             ),
             telephony_caller_id=os.environ.get("JARVIS_TELEPHONY_CALLER_ID", "").strip(),
+            telephony_vapi_assistant_id=os.environ.get("JARVIS_TELEPHONY_VAPI_ASSISTANT_ID", "").strip(),
+            telephony_vapi_phone_number_id=os.environ.get("JARVIS_TELEPHONY_VAPI_PHONE_NUMBER_ID", "").strip(),
             telephony_disclosure_template=(
                 os.environ.get(
                     "JARVIS_TELEPHONY_DISCLOSURE_TEMPLATE",
@@ -575,6 +579,25 @@ class Config:
             phase_dependency_errors.append(
                 "JARVIS_PHASE_TELEPHONY requires JARVIS_TELEPHONY_CALLER_ID"
             )
+        if self.phase_telephony:
+            provider = self.telephony_provider.strip().lower()
+            if provider not in {"dry_run", "twilio", "vapi"}:
+                phase_dependency_errors.append(
+                    "JARVIS_TELEPHONY_PROVIDER must be one of: dry_run, twilio, vapi"
+                )
+            if provider == "vapi":
+                if not self.get_secret("VAPI_API_KEY"):
+                    phase_dependency_errors.append(
+                        "JARVIS_TELEPHONY_PROVIDER=vapi requires VAPI_API_KEY"
+                    )
+                if not self.telephony_vapi_assistant_id.strip():
+                    phase_dependency_errors.append(
+                        "JARVIS_TELEPHONY_PROVIDER=vapi requires JARVIS_TELEPHONY_VAPI_ASSISTANT_ID"
+                    )
+                if not self.telephony_vapi_phone_number_id.strip():
+                    phase_dependency_errors.append(
+                        "JARVIS_TELEPHONY_PROVIDER=vapi requires JARVIS_TELEPHONY_VAPI_PHONE_NUMBER_ID"
+                    )
         if phase_dependency_errors:
             raise ValueError("; ".join(phase_dependency_errors))
 

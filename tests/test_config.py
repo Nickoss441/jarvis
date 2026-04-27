@@ -156,6 +156,8 @@ def test_message_send_config_from_env(monkeypatch, tmp_path):
     monkeypatch.setenv("JARVIS_HOME_ASSISTANT_TIMEOUT_SECONDS", "25")
     monkeypatch.setenv("JARVIS_TELEPHONY_PROVIDER", "twilio")
     monkeypatch.setenv("JARVIS_TELEPHONY_CALLER_ID", "+14155550000")
+    monkeypatch.setenv("JARVIS_TELEPHONY_VAPI_ASSISTANT_ID", "assistant-123")
+    monkeypatch.setenv("JARVIS_TELEPHONY_VAPI_PHONE_NUMBER_ID", "phone-123")
     monkeypatch.setenv("JARVIS_PAYMENTS_MONTHLY_CAP", "1500")
     monkeypatch.setenv("JARVIS_PAYMENTS_TX_LIMIT", "250")
     monkeypatch.setenv("JARVIS_PAYMENTS_ALLOWED_MCCS", "5812, 5411,5732")
@@ -213,6 +215,8 @@ def test_message_send_config_from_env(monkeypatch, tmp_path):
     assert config.home_assistant_timeout_seconds == 25
     assert config.telephony_provider == "twilio"
     assert config.telephony_caller_id == "+14155550000"
+    assert config.telephony_vapi_assistant_id == "assistant-123"
+    assert config.telephony_vapi_phone_number_id == "phone-123"
     assert config.payments_monthly_cap == 1500.0
     assert config.payments_tx_limit == 250.0
     assert config.payments_allowed_mccs == ("5812", "5411", "5732")
@@ -430,6 +434,55 @@ def test_validate_allows_gated_phases_when_approvals_enabled(tmp_path):
     )
 
     config.validate()
+
+
+def test_validate_rejects_invalid_telephony_provider(tmp_path):
+    config = Config(
+        anthropic_api_key="test",
+        model="claude-sonnet-4-6",
+        deployment_target="laptop",
+        voice_stack="local",
+        notes_dir=tmp_path / "notes",
+        audit_db=tmp_path / "audit.db",
+        user_name="Nick",
+        phase_approvals=True,
+        phase_telephony=True,
+        telephony_caller_id="+14155550000",
+        telephony_provider="invalid",
+    )
+
+    try:
+        config.validate()
+        assert False, "expected ValueError"
+    except ValueError as e:
+        assert "JARVIS_TELEPHONY_PROVIDER must be one of" in str(e)
+
+
+def test_validate_rejects_vapi_telephony_without_required_settings(tmp_path):
+    config = Config(
+        anthropic_api_key="test",
+        model="claude-sonnet-4-6",
+        deployment_target="laptop",
+        voice_stack="local",
+        notes_dir=tmp_path / "notes",
+        audit_db=tmp_path / "audit.db",
+        user_name="Nick",
+        phase_approvals=True,
+        phase_telephony=True,
+        telephony_provider="vapi",
+        telephony_caller_id="+14155550000",
+        telephony_vapi_assistant_id="",
+        telephony_vapi_phone_number_id="",
+    )
+
+    try:
+        config.validate()
+        assert False, "expected ValueError"
+    except ValueError as e:
+        msg = str(e)
+        assert "VAPI_API_KEY" in msg
+        assert "JARVIS_TELEPHONY_VAPI_ASSISTANT_ID" in msg
+        assert "JARVIS_TELEPHONY_VAPI_PHONE_NUMBER_ID" in msg
 
 
 def test_phase_enabled_returns_true_for_each_active_phase(tmp_path: Path) -> None:
