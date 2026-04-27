@@ -82,7 +82,7 @@ def test_default_registry_tools_expose_object_input_schemas(tmp_path, monkeypatc
 
 
 def test_default_registry_includes_desktop_tools_when_sandbox_enabled(tmp_path, monkeypatch) -> None:
-    """Verify desktop_control, install_app, app_status, and uninstall_app are registered when sandbox phase is enabled."""
+    """Verify sandbox desktop and vision helpers are registered when sandbox phase is enabled."""
     config = _build_test_config(tmp_path)
     config.phase_sandbox = True
 
@@ -96,6 +96,7 @@ def test_default_registry_includes_desktop_tools_when_sandbox_enabled(tmp_path, 
     names = {tool.name for tool in tools}
 
     assert "desktop_control" in names
+    assert "vision_observe" in names
     assert "install_app" in names
     assert "app_status" in names
     assert "uninstall_app" in names
@@ -116,6 +117,7 @@ def test_registry_includes_desktop_control_when_sandbox_enabled(tmp_path, monkey
     assert "shell_run" in names
     assert "file_write" in names
     assert "desktop_control" in names
+    assert "vision_observe" in names
     assert "install_app" in names
 
 

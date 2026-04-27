@@ -25,6 +25,7 @@ from .tools.user_preferences import make_user_preferences_tool
 from .tools.home_assistant import make_home_assistant_tool
 from .tools.sandbox import make_shell_run_tool, make_file_write_tool
 from .tools.desktop_control import make_desktop_control_tool
+from .tools.vision_observe import make_vision_observe_tool
 from .tools.install_app import make_install_app_tool
 from .tools.app_status import make_app_status_tool
 from .tools.app_list import make_app_list_tool
@@ -115,6 +116,9 @@ def build_brain_from_config(config: Config) -> Brain:
         )
         tools.register(
             make_desktop_control_tool(mode="live")
+        )
+        tools.register(
+            make_vision_observe_tool(mode="live")
         )
         tools.register(
             make_install_app_tool(

@@ -43,6 +43,7 @@ Today is {date}.
 - solana_tx_lookup, solana_wallet_activity: inspect Solana activity via Helius RPC
 - solana_enhanced_tx_lookup, solana_enhanced_address_transactions: parsed Solana data via Helius Enhanced API
 - desktop_control: local macOS desktop actions when sandbox is enabled
+- vision_observe: analyze the current desktop screenshot or a supplied image for visual state when sandbox is enabled
 - install_app, app_status, app_list, uninstall_app: allowlisted macOS app control when sandbox is enabled
 - recall: search the audit log for past actions
 - payments, trade, call_phone, message_send: gated phase tools
