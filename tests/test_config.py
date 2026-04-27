@@ -103,6 +103,7 @@ def test_message_send_config_defaults(monkeypatch):
     assert config.mac_pc_pipeline_shared_secret == ""
     assert config.location_tools_mode == "dry_run"
     assert config.gold_market_mode == "dry_run"
+    assert config.news_sentiment_mode == "dry_run"
     assert config.home_assistant_url == ""
     assert config.home_assistant_token == ""
     assert config.home_assistant_timeout_seconds == 10
@@ -169,6 +170,7 @@ def test_message_send_config_from_env(monkeypatch, tmp_path):
     monkeypatch.setenv("JARVIS_VOICE_TTS_FALLBACK_PROVIDER", "coqui")
     monkeypatch.setenv("JARVIS_LOCATION_TOOLS_MODE", "live")
     monkeypatch.setenv("JARVIS_GOLD_MARKET_MODE", "live")
+    monkeypatch.setenv("JARVIS_NEWS_SENTIMENT_MODE", "live")
     monkeypatch.setenv("JARVIS_HOME_ASSISTANT_URL", "http://ha.local:8123")
     monkeypatch.setenv("JARVIS_HOME_ASSISTANT_TOKEN", "ha-token")
     monkeypatch.setenv("JARVIS_HOME_ASSISTANT_TIMEOUT_SECONDS", "25")
@@ -236,6 +238,7 @@ def test_message_send_config_from_env(monkeypatch, tmp_path):
     assert config.voice_tts_fallback_provider == "coqui"
     assert config.location_tools_mode == "live"
     assert config.gold_market_mode == "live"
+    assert config.news_sentiment_mode == "live"
     assert config.home_assistant_url == "http://ha.local:8123"
     assert config.home_assistant_token == "ha-token"
     assert config.home_assistant_timeout_seconds == 25

@@ -632,6 +632,26 @@ def _gold_price() -> int:
         return 1
 
 
+def _news_sentiment(query: str = "gold market") -> int:
+    """Fetch and analyze news sentiment."""
+    from .tools.news import get_news_sentiment
+
+    config = Config.from_env()
+    try:
+        result = get_news_sentiment(
+            query=query,
+            mode=config.news_sentiment_mode,
+        )
+        print(json.dumps(result, sort_keys=True))
+        return 0
+    except RuntimeError as e:
+        print(json.dumps({"ok": False, "error": "news_sentiment_fetch_failed", "reason": str(e)}, sort_keys=True))
+        return 1
+    except ValueError as e:
+        print(json.dumps({"ok": False, "error": "news_sentiment_invalid_mode", "reason": str(e)}, sort_keys=True))
+        return 1
+
+
 def _consume_flag_value(
     tokens: list[str],
     idx: int,
@@ -2479,6 +2499,10 @@ def main(argv: list[str] | None = None) -> int:
     if args[0] == "gold-price":
         return _gold_price()
 
+    if args[0] == "news-sentiment":
+        query = args[1] if len(args) >= 2 else "market"
+        return _news_sentiment(query=query)
+
     if args[0] == "monitor-run-once":
         return _monitor_run_once()
 
@@ -3306,6 +3330,7 @@ def main(argv: list[str] | None = None) -> int:
         "location-update <latitude> <longitude> [--source <name>] [--accuracy-m <meters>]|"
         "location-last|"
         "gold-price|"
+        "news-sentiment [query]|"
         "system-control|"
         "monitor-run-once|"
         "hud-run [--width N] [--height N] [--opacity X] [--duration-ms N]|"

@@ -512,6 +512,40 @@ def test_main_gold_price_custom_mock(monkeypatch, capsys):
         # For this test we just ensure the path works
 
 
+def test_main_news_sentiment_dry_run(monkeypatch, capsys):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("JARVIS_NOTES_DIR", "/tmp")
+    monkeypatch.setenv("JARVIS_AUDIT_DB", "/tmp/audit.db")
+    monkeypatch.setenv("JARVIS_USER_NAME", "Nick")
+    monkeypatch.setenv("JARVIS_NEWS_SENTIMENT_MODE", "dry_run")
+
+    rc = main(["news-sentiment", "gold market"])
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert rc == 0
+    assert payload["ok"] is True
+    assert "items" in payload
+    assert "metrics" in payload
+    assert payload["mode"] == "dry_run"
+    assert payload["metrics"]["count"] > 0
+
+
+def test_main_news_sentiment_default_query(monkeypatch, capsys):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("JARVIS_NOTES_DIR", "/tmp")
+    monkeypatch.setenv("JARVIS_AUDIT_DB", "/tmp/audit.db")
+    monkeypatch.setenv("JARVIS_USER_NAME", "Nick")
+    monkeypatch.setenv("JARVIS_NEWS_SENTIMENT_MODE", "dry_run")
+
+    rc = main(["news-sentiment"])
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert rc == 0
+    assert payload["ok"] is True
+
+
 def test_main_voice_self_test_success(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     monkeypatch.setenv("JARVIS_NOTES_DIR", str(tmp_path / "notes"))
