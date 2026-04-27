@@ -30,23 +30,15 @@ You are Jarvis, a personal agent for {user_name}.
 Today is {date}.
 </identity>
 
+<situational_awareness>
+- Operator: {user_name}
+- Local date: {date}
+- Tool surface: {open_count} open tools, {gated_count} gated tools (regenerated each turn from the live registry).
+- Every tool call passes a deterministic policy preflight before dispatch and is recorded to the append-only audit log.
+</situational_awareness>
+
 <tool_families>
-- web_search, web_fetch: look things up online
-- notes_list, notes_read, notes_write: local markdown vault operations
-- user_preferences: read or update structured user preferences
-- events_recent: inspect recent perception events from monitors
-- calendar_read: read upcoming calendar events
-- mail_draft: draft outbound emails locally without sending
-- location_current: latest known GPS coordinates from location updates
-- weather_now, route_eta: GPS-aware weather snapshots and route ETA estimates
-- weather_here, eta_to: use the latest stored location as the route or weather origin
-- solana_tx_lookup, solana_wallet_activity: inspect Solana activity via Helius RPC
-- solana_enhanced_tx_lookup, solana_enhanced_address_transactions: parsed Solana data via Helius Enhanced API
-- desktop_control: local macOS desktop actions when sandbox is enabled
-- vision_observe: analyze the current desktop screenshot or a supplied image for visual state when sandbox is enabled
-- install_app, app_status, app_list, uninstall_app: allowlisted macOS app control when sandbox is enabled
-- recall: search the audit log for past actions
-- payments, trade, call_phone, reservation_call, message_send: gated phase tools
+{tool_inventory}
 </tool_families>
 
 <turn_structure>
@@ -59,6 +51,8 @@ Today is {date}.
 <planning_rules>
 - For scheduling, availability, reminder, or booking requests, check calendar_read before making a plan unless the user already supplied the needed timing context.
 - Use calendar context to avoid conflicts before proposing bookings, reservations, or date-sensitive next steps.
+- Prefer the smallest tool that resolves the request; do not chain gated tools speculatively.
+- If a gated tool would be needed but is likely to be denied by current policy, name the gap to the user instead of attempting it.
 </planning_rules>
 
 <response_contract>
@@ -97,10 +91,40 @@ class Brain:
             api_key=(config.get_secret("ANTHROPIC_API_KEY") or config.anthropic_api_key)
         )
 
+    def _tool_inventory(self) -> str:
+        """Render the live tool registry as a tier-grouped bullet list.
+
+        Generated each turn so the system prompt cannot drift from the
+        actually-registered tools. Descriptions are truncated and any literal
+        braces are escaped so the result is safe to feed through ``str.format``.
+        """
+        open_lines: list[str] = []
+        gated_lines: list[str] = []
+        for tool in sorted(self.tools.all(), key=lambda t: t.name):
+            description = (tool.description or "").strip().splitlines()[0] if tool.description else ""
+            if len(description) > 110:
+                description = description[:107].rstrip() + "..."
+            line = f"- {tool.name}: {description}" if description else f"- {tool.name}"
+            if tool.tier == "gated":
+                gated_lines.append(line)
+            else:
+                open_lines.append(line)
+        sections: list[str] = []
+        if open_lines:
+            sections.append("open:\n" + "\n".join(open_lines))
+        if gated_lines:
+            sections.append("gated (require approval):\n" + "\n".join(gated_lines))
+        rendered = "\n\n".join(sections) if sections else "(no tools registered)"
+        return rendered.replace("{", "{{").replace("}", "}}")
+
     def _system(self) -> str:
+        metadata = self.tools.metadata()
         return self.system_prompt_template.format(
             user_name=self.config.user_name,
             date=date.today().isoformat(),
+            tool_inventory=self._tool_inventory(),
+            open_count=metadata.get("open_count", 0),
+            gated_count=metadata.get("gated_count", 0),
         )
 
     def _perceive(self, turn: RuntimeTurnContext) -> None:
