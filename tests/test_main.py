@@ -732,6 +732,53 @@ def test_main_stack_self_test_unknown_arg_errors(capsys):
     assert payload["error"] == "unknown_argument"
 
 
+def test_main_mac_pc_pipeline_self_test_reports_preview(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("JARVIS_NOTES_DIR", str(tmp_path / "notes"))
+    monkeypatch.setenv("JARVIS_AUDIT_DB", str(tmp_path / "audit.db"))
+    monkeypatch.setenv("JARVIS_USER_NAME", "Nick")
+
+    rc = main(["mac-pc-pipeline-self-test"])
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert rc == 0
+    assert payload["ok"] is True
+    assert payload["mode"] == "dry_run"
+    assert payload["source_id"] == "mac"
+    assert payload["target_id"] == "pc"
+    assert payload["packet_preview"]["command"] == "desktop_control.active_window"
+
+
+def test_main_mac_pc_pipeline_self_test_strict_fails_when_unconfigured(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("JARVIS_NOTES_DIR", str(tmp_path / "notes"))
+    monkeypatch.setenv("JARVIS_AUDIT_DB", str(tmp_path / "audit.db"))
+    monkeypatch.setenv("JARVIS_USER_NAME", "Nick")
+    monkeypatch.delenv("JARVIS_MAC_PC_PIPELINE_TARGET_URL", raising=False)
+    monkeypatch.delenv("JARVIS_MAC_PC_PIPELINE_SHARED_SECRET", raising=False)
+
+    rc = main(["mac-pc-pipeline-self-test", "--strict"])
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert rc == 2
+    assert payload["ok"] is False
+    assert payload["error"] == "mac_pc_pipeline_not_configured"
+    assert "target_url" in payload["missing"]
+    assert "shared_secret" in payload["missing"]
+
+
+def test_main_mac_pc_pipeline_self_test_unknown_arg_errors(capsys):
+    rc = main(["mac-pc-pipeline-self-test", "--bad-flag"])
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert rc == 1
+    assert payload["ok"] is False
+    assert payload["error"] == "unknown_argument"
+
+
 def test_main_audit_correlation_returns_matching_events(tmp_path, monkeypatch, capsys):
     db = tmp_path / "audit.db"
     log = AuditLog(db)

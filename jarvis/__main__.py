@@ -20,6 +20,7 @@ from .trade_review import generate_trade_review_artifact
 from .event_bus import EventBus
 from .event_automation import EventAutomation
 from .monitor_runner import MonitorRunner, register_configured_monitors
+from .mac_pc_pipeline import build_mac_pc_pipeline_report
 from .monitors import CalendarMonitor, FilesystemMonitor, RSSMonitor, VisionIngestMonitor, WebhookMonitor
 from .stack_setup import build_stack_readiness_report
 from .vision_bridge import build_shortcut_guide, build_shortcut_template
@@ -1023,6 +1024,22 @@ def _hud_run(
 
 def _stack_self_test(*, strict: bool = False) -> int:
     report = build_stack_readiness_report(strict=strict)
+    print(json.dumps(report, sort_keys=True))
+    if strict and not bool(report.get("ok", True)):
+        return 2
+    return 0
+
+
+def _mac_pc_pipeline_self_test(*, strict: bool = False) -> int:
+    config = Config.from_env()
+    report = build_mac_pc_pipeline_report(
+        mode=config.mac_pc_pipeline_mode,
+        source_id=config.mac_pc_pipeline_source_id,
+        target_id=config.mac_pc_pipeline_target_id,
+        target_url=config.mac_pc_pipeline_target_url,
+        shared_secret=config.mac_pc_pipeline_shared_secret,
+        strict=strict,
+    )
     print(json.dumps(report, sort_keys=True))
     if strict and not bool(report.get("ok", True)):
         return 2
@@ -2654,6 +2671,17 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         return _stack_self_test(strict=strict)
 
+    if args[0] == "mac-pc-pipeline-self-test":
+        strict = False
+        tail = args[1:] if len(args) >= 2 else []
+        for token in tail:
+            if token == "--strict":
+                strict = True
+                continue
+            print(json.dumps({"ok": False, "error": "unknown_argument", "arg": token}, sort_keys=True))
+            return 1
+        return _mac_pc_pipeline_self_test(strict=strict)
+
     if args[0] == "vision-analyze":
         if len(args) < 2:
             print(json.dumps({"ok": False, "error": "missing_image_arg"}, sort_keys=True))
@@ -3227,6 +3255,7 @@ def main(argv: list[str] | None = None) -> int:
         "monitor-run-once|"
         "hud-run [--width N] [--height N] [--opacity X] [--duration-ms N]|"
         "stack-self-test [--strict]|"
+        "mac-pc-pipeline-self-test [--strict]|"
         "webhook-listen [source] [host] [port]|"
         "voice-self-test [--iterations N] [--max-roundtrip-ms X]|"
         "wake-word-listen <audio_text> [--confirm <text>] [--max-confirmation-retries N]|"

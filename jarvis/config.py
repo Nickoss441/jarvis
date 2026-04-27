@@ -114,6 +114,11 @@ class Config:
     voice_tts_voice_id_male: str = ""
     voice_tts_voice_id_female: str = ""
     voice_tts_fallback_provider: str = "piper"
+    mac_pc_pipeline_mode: str = "dry_run"
+    mac_pc_pipeline_source_id: str = "mac"
+    mac_pc_pipeline_target_id: str = "pc"
+    mac_pc_pipeline_target_url: str = ""
+    mac_pc_pipeline_shared_secret: str = ""
     location_tools_mode: str = "dry_run"
     home_assistant_url: str = ""
     home_assistant_token: str = ""
@@ -268,6 +273,20 @@ class Config:
                 os.environ.get("JARVIS_VOICE_TTS_FALLBACK_PROVIDER", "piper").strip().lower()
                 or "piper"
             ),
+            mac_pc_pipeline_mode=(
+                os.environ.get("JARVIS_MAC_PC_PIPELINE_MODE", "dry_run").strip().lower()
+                or "dry_run"
+            ),
+            mac_pc_pipeline_source_id=(
+                os.environ.get("JARVIS_MAC_PC_PIPELINE_SOURCE_ID", "mac").strip()
+                or "mac"
+            ),
+            mac_pc_pipeline_target_id=(
+                os.environ.get("JARVIS_MAC_PC_PIPELINE_TARGET_ID", "pc").strip()
+                or "pc"
+            ),
+            mac_pc_pipeline_target_url=os.environ.get("JARVIS_MAC_PC_PIPELINE_TARGET_URL", "").strip(),
+            mac_pc_pipeline_shared_secret=secret_provider.get("JARVIS_MAC_PC_PIPELINE_SHARED_SECRET").strip(),
             location_tools_mode=(
                 os.environ.get("JARVIS_LOCATION_TOOLS_MODE", "dry_run").strip().lower()
                 or "dry_run"

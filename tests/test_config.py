@@ -94,6 +94,11 @@ def test_message_send_config_defaults(monkeypatch):
     assert config.voice_tts_voice_id_male == ""
     assert config.voice_tts_voice_id_female == ""
     assert config.voice_tts_fallback_provider == "piper"
+    assert config.mac_pc_pipeline_mode == "dry_run"
+    assert config.mac_pc_pipeline_source_id == "mac"
+    assert config.mac_pc_pipeline_target_id == "pc"
+    assert config.mac_pc_pipeline_target_url == ""
+    assert config.mac_pc_pipeline_shared_secret == ""
     assert config.location_tools_mode == "dry_run"
     assert config.home_assistant_url == ""
     assert config.home_assistant_token == ""
@@ -138,6 +143,11 @@ def test_message_send_config_from_env(monkeypatch, tmp_path):
     monkeypatch.setenv("JARVIS_APPROVALS_API_PORT", "9090")
     monkeypatch.setenv("JARVIS_APPROVAL_CHANNEL", "PUSHOVER")
     monkeypatch.setenv("JARVIS_TRADING_PAPER_BROKER", "FXOPEN")
+    monkeypatch.setenv("JARVIS_MAC_PC_PIPELINE_MODE", "live")
+    monkeypatch.setenv("JARVIS_MAC_PC_PIPELINE_SOURCE_ID", "mac-studio")
+    monkeypatch.setenv("JARVIS_MAC_PC_PIPELINE_TARGET_ID", "pc-gaming")
+    monkeypatch.setenv("JARVIS_MAC_PC_PIPELINE_TARGET_URL", "https://pc.example.local/bridge")
+    monkeypatch.setenv("JARVIS_MAC_PC_PIPELINE_SHARED_SECRET", "bridge-secret")
     monkeypatch.setenv("JARVIS_VISION_HOST", "127.0.0.1")
     monkeypatch.setenv("JARVIS_VISION_PORT", "9031")
     monkeypatch.setenv("JARVIS_VISION_SOURCE", "iphone")
@@ -195,6 +205,11 @@ def test_message_send_config_from_env(monkeypatch, tmp_path):
     assert config.mail_drafts_path == drafts
     assert config.approvals_api_host == "0.0.0.0"
     assert config.approvals_api_port == 9090
+    assert config.mac_pc_pipeline_mode == "live"
+    assert config.mac_pc_pipeline_source_id == "mac-studio"
+    assert config.mac_pc_pipeline_target_id == "pc-gaming"
+    assert config.mac_pc_pipeline_target_url == "https://pc.example.local/bridge"
+    assert config.mac_pc_pipeline_shared_secret == "bridge-secret"
     assert config.approval_channel == "pushover"
     assert config.trading_paper_broker == "fxopen"
     assert config.vision_host == "127.0.0.1"
