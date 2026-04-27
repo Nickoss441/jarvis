@@ -13,6 +13,8 @@ env/
 
 # Secrets
 .env
+.env.*
+!.env.example
 *.key
 
 # Jarvis runtime data
