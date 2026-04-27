@@ -74,6 +74,7 @@ export JARVIS_TRADES_MODE=dry_run
     - `docs/runbooks/kill-switch.md`
     - `docs/runbooks/incident-response.md`
     - `docs/runbooks/key-rotation.md`
+    - `docs/runbooks/wake-word-integration-evaluation.md`
     - `docs/runbooks/paper-trading-review.md`
     - `docs/runbooks/app-lifecycle-smoke-test.md`
 - Review artifact templates:
@@ -818,4 +819,6 @@ Adding a tool is three steps:
 2. Register it in `jarvis/cli.py:build_brain()`.
 3. If it does anything the policy engine should restrict, add a check in `jarvis/policy.py`.
 
-When you're ready for phase 2, voice slots in by replacing `cli.py` with a wake-word loop that pipes Whisper transcripts into `brain.turn()` — the brain itself doesn't change.
+When you're ready for phase 2, voice slots in by replacing `cli.py` with a wake-word loop that pipes Whisper transcripts into `brain.turn()`; the brain itself doesn't change.
+
+See `docs/runbooks/wake-word-integration-evaluation.md` for the evaluated integration path and implementation sequence.
