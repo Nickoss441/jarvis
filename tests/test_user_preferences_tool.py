@@ -54,3 +54,20 @@ def test_user_preferences_tool_persists_encrypted_manifest_when_secret_set(tmp_p
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert "ciphertext" in payload
     assert "profile" not in payload
+
+
+def test_user_preferences_store_contact_address_action(tmp_path: Path) -> None:
+    tool = make_user_preferences_tool(tmp_path / "preferences.json")
+
+    out = tool.handler(
+        action="store_contact_address",
+        patch={
+            "contact": {"email": "user@example.com", "phone": "+14155552671"},
+            "address": {"city": "New York", "country": "US"},
+        },
+    )
+
+    assert out["ok"] is True
+    assert out["action"] == "store_contact_address"
+    assert out["data"]["contact"]["email"] == "user@example.com"
+    assert out["data"]["address"]["country"] == "US"

@@ -39,11 +39,60 @@ def make_user_preferences_tool(storage_path: Path, manifest_secret: str = "") ->
                 return {"ok": False, "action": "update", "error": str(exc)}
             return {"ok": True, "action": "update", "data": data}
 
+        if normalized_action == "store_contact_address":
+            if not isinstance(patch, dict):
+                return {
+                    "ok": False,
+                    "action": "store_contact_address",
+                    "error": "patch must be an object",
+                }
+
+            contact = patch.get("contact")
+            address = patch.get("address")
+            merged_patch: dict[str, dict[str, Any]] = {}
+            if contact is not None:
+                if not isinstance(contact, dict):
+                    return {
+                        "ok": False,
+                        "action": "store_contact_address",
+                        "error": "contact must be an object",
+                    }
+                merged_patch["contact"] = contact
+            if address is not None:
+                if not isinstance(address, dict):
+                    return {
+                        "ok": False,
+                        "action": "store_contact_address",
+                        "error": "address must be an object",
+                    }
+                merged_patch["address"] = address
+
+            if not merged_patch:
+                return {
+                    "ok": False,
+                    "action": "store_contact_address",
+                    "error": "patch must include contact and/or address",
+                }
+
+            try:
+                data = store.update(merged_patch)
+            except ValueError as exc:
+                return {
+                    "ok": False,
+                    "action": "store_contact_address",
+                    "error": str(exc),
+                }
+            return {
+                "ok": True,
+                "action": "store_contact_address",
+                "data": data,
+            }
+
         return {
             "ok": False,
             "error": "unknown action",
             "action": normalized_action,
-            "allowed_actions": ["get", "update", "reset"],
+            "allowed_actions": ["get", "update", "store_contact_address", "reset"],
         }
 
     return Tool(
@@ -57,14 +106,15 @@ def make_user_preferences_tool(storage_path: Path, manifest_secret: str = "") ->
             "properties": {
                 "action": {
                     "type": "string",
-                    "description": "One of: get, update, reset",
+                    "description": "One of: get, update, store_contact_address, reset",
                     "default": "get",
                 },
                 "patch": {
                     "type": "object",
                     "description": (
                         "Partial preference update keyed by section: profile, "
-                        "contact, address, communication."
+                        "contact, address, communication. For store_contact_address, include "
+                        "contact and/or address sub-objects."
                     ),
                     "additionalProperties": {
                         "type": "object",
