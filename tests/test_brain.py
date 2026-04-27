@@ -100,6 +100,19 @@ def test_turn_returns_text_without_tools(tmp_path: Path, monkeypatch: pytest.Mon
     assert any(r["kind"] == "llm_response" for r in rows)
 
 
+def test_default_system_prompt_is_structured(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    responses = [_Response("end_turn", [_Block("text", text="hello")])]
+    brain, _ = _build_brain(tmp_path, monkeypatch, responses)
+
+    prompt = brain._system()
+
+    assert "<identity>" in prompt
+    assert "<tool_families>" in prompt
+    assert "<turn_structure>" in prompt
+    assert "<response_contract>" in prompt
+    assert "Nick" in prompt
+
+
 def test_turn_executes_tools_then_returns_text(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     responses = [
         _Response(
