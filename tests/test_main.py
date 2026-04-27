@@ -492,6 +492,61 @@ def test_main_voice_self_test_invalid_iterations_errors(capsys):
     assert payload["error"] == "invalid_iterations_value"
 
 
+def test_main_hud_run_calls_overlay_runner(monkeypatch, capsys):
+    import jarvis.hud as hud
+
+    captured = {}
+
+    def _fake_run(config, duration_ms=None):
+        captured["width"] = config.width
+        captured["height"] = config.height
+        captured["opacity"] = config.opacity
+        captured["duration_ms"] = duration_ms
+
+    monkeypatch.setattr(hud, "run_transparent_hud", _fake_run)
+
+    rc = main([
+        "hud-run",
+        "--width",
+        "680",
+        "--height",
+        "150",
+        "--opacity",
+        "0.77",
+        "--duration-ms",
+        "25",
+    ])
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert rc == 0
+    assert payload["ok"] is True
+    assert payload["status"] == "hud_closed"
+    assert captured == {
+        "width": 680,
+        "height": 150,
+        "opacity": 0.77,
+        "duration_ms": 25,
+    }
+
+
+def test_main_hud_run_reports_pyqt_unavailable(monkeypatch, capsys):
+    import jarvis.hud as hud
+
+    def _fake_run(config, duration_ms=None):
+        raise hud.PyQtUnavailableError("PyQt6 missing")
+
+    monkeypatch.setattr(hud, "run_transparent_hud", _fake_run)
+
+    rc = main(["hud-run"])
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert rc == 1
+    assert payload["ok"] is False
+    assert payload["error"] == "pyqt_unavailable"
+
+
 def test_main_audit_correlation_returns_matching_events(tmp_path, monkeypatch, capsys):
     db = tmp_path / "audit.db"
     log = AuditLog(db)

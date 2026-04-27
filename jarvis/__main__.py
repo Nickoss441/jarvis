@@ -875,6 +875,30 @@ def _vision_shortcut_guide(url: str | None = None) -> int:
     return 0
 
 
+def _hud_run(
+    *,
+    width: int = 720,
+    height: int = 180,
+    opacity: float = 0.82,
+    duration_ms: int | None = None,
+) -> int:
+    from .hud import PyQtUnavailableError, TransparentHudConfig, run_transparent_hud
+
+    config = TransparentHudConfig(
+        width=width,
+        height=height,
+        opacity=opacity,
+    )
+    try:
+        run_transparent_hud(config, duration_ms=duration_ms)
+    except PyQtUnavailableError as exc:
+        print(json.dumps({"ok": False, "error": "pyqt_unavailable", "message": str(exc)}, sort_keys=True))
+        return 1
+
+    print(json.dumps({"ok": True, "status": "hud_closed"}, sort_keys=True))
+    return 0
+
+
 def _vision_self_test_summary(
     input_file: str,
     mode_filter: str | None = None,
@@ -2354,6 +2378,82 @@ def main(argv: list[str] | None = None) -> int:
             max_roundtrip_ms=max_roundtrip_ms,
         )
 
+    if args[0] == "hud-run":
+        width = 720
+        height = 180
+        opacity = 0.82
+        duration_ms: int | None = None
+
+        tail = args[1:] if len(args) >= 2 else []
+        idx = 0
+        while idx < len(tail):
+            token = tail[idx]
+            parsed_value, next_idx, err = _consume_flag_value(tail, idx, "--width", "missing_width_value")
+            if err:
+                print(json.dumps({"ok": False, "error": err}, sort_keys=True))
+                return 1
+            if next_idx != idx:
+                parsed_width, error_payload = _parse_int_arg(parsed_value or "", "invalid_width_value", min_value=200)
+                if error_payload is not None:
+                    print(json.dumps(error_payload, sort_keys=True))
+                    return 1
+                width = parsed_width or width
+                idx = next_idx
+                continue
+
+            parsed_value, next_idx, err = _consume_flag_value(tail, idx, "--height", "missing_height_value")
+            if err:
+                print(json.dumps({"ok": False, "error": err}, sort_keys=True))
+                return 1
+            if next_idx != idx:
+                parsed_height, error_payload = _parse_int_arg(parsed_value or "", "invalid_height_value", min_value=80)
+                if error_payload is not None:
+                    print(json.dumps(error_payload, sort_keys=True))
+                    return 1
+                height = parsed_height or height
+                idx = next_idx
+                continue
+
+            parsed_value, next_idx, err = _consume_flag_value(tail, idx, "--duration-ms", "missing_duration_ms_value")
+            if err:
+                print(json.dumps({"ok": False, "error": err}, sort_keys=True))
+                return 1
+            if next_idx != idx:
+                parsed_duration, error_payload = _parse_int_arg(parsed_value or "", "invalid_duration_ms_value", min_value=1)
+                if error_payload is not None:
+                    print(json.dumps(error_payload, sort_keys=True))
+                    return 1
+                duration_ms = parsed_duration
+                idx = next_idx
+                continue
+
+            parsed_value, next_idx, err = _consume_flag_value(tail, idx, "--opacity", "missing_opacity_value")
+            if err:
+                print(json.dumps({"ok": False, "error": err}, sort_keys=True))
+                return 1
+            if next_idx != idx:
+                try:
+                    opacity = float(parsed_value or "")
+                except ValueError:
+                    print(json.dumps({"ok": False, "error": "invalid_opacity_value", "value": parsed_value}, sort_keys=True))
+                    return 1
+                idx = next_idx
+                continue
+
+            print(json.dumps({"ok": False, "error": "unknown_argument", "arg": token}, sort_keys=True))
+            return 1
+
+        if opacity <= 0.0 or opacity > 1.0:
+            print(json.dumps({"ok": False, "error": "invalid_opacity_value", "value": str(opacity)}, sort_keys=True))
+            return 1
+
+        return _hud_run(
+            width=width,
+            height=height,
+            opacity=opacity,
+            duration_ms=duration_ms,
+        )
+
     if args[0] == "vision-analyze":
         if len(args) < 2:
             print(json.dumps({"ok": False, "error": "missing_image_arg"}, sort_keys=True))
@@ -2924,6 +3024,7 @@ def main(argv: list[str] | None = None) -> int:
         "location-update <latitude> <longitude> [--source <name>] [--accuracy-m <meters>]|"
         "location-last|"
         "monitor-run-once|"
+        "hud-run [--width N] [--height N] [--opacity X] [--duration-ms N]|"
         "webhook-listen [source] [host] [port]|"
         "voice-self-test [--iterations N] [--max-roundtrip-ms X]|"
         "vision-listen [source] [host] [port]|"
