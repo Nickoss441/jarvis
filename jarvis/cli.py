@@ -21,6 +21,7 @@ from .tools.payments import make_payments_tool
 from .tools.trade import make_trade_tool
 from .tools.calendar_read import make_calendar_read_tool
 from .tools.mail_draft import make_mail_draft_tool
+from .tools.user_preferences import make_user_preferences_tool
 from .tools.home_assistant import make_home_assistant_tool
 from .tools.sandbox import make_shell_run_tool, make_file_write_tool
 from .tools.desktop_control import make_desktop_control_tool
@@ -54,6 +55,8 @@ def build_brain_from_config(config: Config) -> Brain:
     tools.register(make_location_current_tool(EventBus(config.event_bus_db)))
     tools.register(make_calendar_read_tool(config.calendar_ics))
     tools.register(make_mail_draft_tool(config.mail_drafts_path))
+    preferences_path = config.user_preferences_store_path or (config.audit_db.parent / "preferences.json")
+    tools.register(make_user_preferences_tool(preferences_path))
     tools.register(make_weather_now_tool(mode=config.location_tools_mode))
     tools.register(make_route_eta_tool(mode=config.location_tools_mode))
     tools.register(make_weather_here_tool(EventBus(config.event_bus_db), mode=config.location_tools_mode))

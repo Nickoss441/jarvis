@@ -88,6 +88,7 @@ class Config:
     audit_db: Path
     user_name: str
     conversation_store_path: Path | None = None
+    user_preferences_store_path: Path | None = None
     secret_provider: str = "env"
     secret_provider_impl: SecretProvider = field(
         default_factory=EnvSecretProvider,
@@ -215,6 +216,9 @@ class Config:
             )),
             conversation_store_path=Path(os.path.expanduser(
                 os.environ.get("JARVIS_CONVERSATION_STORE_PATH", "~/.jarvis/conversation.json")
+            )),
+            user_preferences_store_path=Path(os.path.expanduser(
+                os.environ.get("JARVIS_USER_PREFERENCES_STORE_PATH", "~/.jarvis/preferences.json")
             )),
             user_name=os.environ.get("JARVIS_USER_NAME", "User"),
             phase_voice=_env_bool("JARVIS_PHASE_VOICE", default=False),

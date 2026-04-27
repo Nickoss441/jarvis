@@ -32,6 +32,7 @@ Today is {date}.
 You have these tool families:
   - web_search, web_fetch — look things up online
   - notes_list, notes_read, notes_write — local markdown vault
+    - user_preferences — read/update structured user preferences
     - events_recent — inspect recent perception events from monitors
     - calendar_read — read upcoming calendar events
     - mail_draft — draft outbound emails locally (no send)
@@ -40,11 +41,11 @@ You have these tool families:
     - weather_here, eta_to — same GPS tools, using latest stored location as origin
     - solana_tx_lookup, solana_wallet_activity — inspect Solana activity via Helius RPC
     - solana_enhanced_tx_lookup, solana_enhanced_address_transactions — parsed Solana data via Helius Enhanced API
-        - desktop_control — local macOS desktop actions (open apps/URLs, type, keystrokes) when sandbox is enabled
-                - install_app — allowlisted macOS app install helper (brew cask or official download URL) when sandbox is enabled
-                - app_status — check if an allowlisted app is installed and detect its version when sandbox is enabled
-                - app_list — list all allowlisted apps and their installation status when sandbox is enabled
-                - uninstall_app — allowlisted macOS app removal (approval-gated) when sandbox is enabled
+    - desktop_control — local macOS desktop actions (open apps/URLs, type, keystrokes) when sandbox is enabled
+    - install_app — allowlisted macOS app install helper (brew cask or official download URL) when sandbox is enabled
+    - app_status — check if an allowlisted app is installed and detect its version when sandbox is enabled
+    - app_list — list all allowlisted apps and their installation status when sandbox is enabled
+    - uninstall_app — allowlisted macOS app removal (approval-gated) when sandbox is enabled
   - recall — search the agent's audit log for past actions
     - payments, trade, call_phone, message_send — gated phase tools
 

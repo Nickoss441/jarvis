@@ -72,6 +72,7 @@ def test_default_registry_tools_expose_object_input_schemas(tmp_path, monkeypatc
     assert "weather_now" in names
     assert "route_eta" in names
     assert "location_current" in names
+    assert "user_preferences" in names
     assert "weather_here" in names
     assert "eta_to" in names
     for tool in tools:
