@@ -74,6 +74,7 @@ export JARVIS_TRADES_MODE=dry_run
     - `docs/runbooks/kill-switch.md`
     - `docs/runbooks/incident-response.md`
     - `docs/runbooks/key-rotation.md`
+    - `docs/runbooks/hud-commands.md`
     - `docs/runbooks/wake-word-integration-evaluation.md`
     - `docs/runbooks/paper-trading-review.md`
     - `docs/runbooks/app-lifecycle-smoke-test.md`
@@ -314,7 +315,8 @@ Approval queue commands:
   - **App Lifecycle Panel:** Request app status checks, installations, and removals via the web UI
   - **Approval Queue Table:** Review and approve pending actions
   - **Chat Interface:** Direct messaging with Jarvis brain
-  - Navigate to `http://localhost:9010` after starting the API
+    - Navigate to `/` for the command-center UI and `/hud/react` for the React HUD viewport
+- `python3 -m jarvis hud-run [--width N] [--height N] [--opacity X] [--duration-ms N]` — run the transparent PyQt HUD overlay shell
 - `python3 -m jarvis trade-review-artifact [--reviewer <name>] [--strategy-version <ver>] [--output <path>]` — generate the live-unlock markdown review record plus audit/replay/performance artifacts
 - `python3 -m jarvis monitor-run-once` — run monitor cycle once
 - `python3 -m jarvis events-stats` — summarize event bus
@@ -331,6 +333,11 @@ Approval queue commands:
 - `python3 -m jarvis vision-self-test [json|multipart|binary|all] [--with-secret] [--report] [--fail-fast] [--max-modes N] [--modes csv] [--output-file path.json] [--output-format json|jsonl]` — run local vision pipeline self-test
 - `python3 -m jarvis vision-self-test-summary <input.jsonl> [--mode json|multipart|binary|all] [--last N] [--percentiles csv] [--strict] [--max-invalid-lines N] [--ema-alpha A] [--max-invalid-line-rate-delta X] [--max-invalid-line-rate-ema X]` — summarize self-test history artifacts
 - `python3 -m jarvis vision-analyze <file|base64|-> [--no-faces] [--no-colors] [--no-landmarks] [--max-colors N]` — detect faces, dominant colors, and facial landmarks from a frame image
+
+HUD surfaces:
+- `python3 -m jarvis hud-run --width 680 --height 150 --opacity 0.77 --duration-ms 2500` — launch the native PyQt overlay HUD
+- `python3 -m jarvis approvals-api` then open `/hud/react` — launch the browser-based React HUD served by the approval API
+- See `docs/runbooks/hud-commands.md` for the current HUD routes, examples, and runtime notes
 
 Trace-specific automation history examples:
 
