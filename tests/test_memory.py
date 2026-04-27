@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 
 from jarvis.memory import Conversation, UserPreferencesStore
 
@@ -83,3 +84,26 @@ def test_user_preferences_store_rejects_unknown_top_level_keys(tmp_path: Path) -
         assert "unknown preference section" in str(exc)
     else:
         raise AssertionError("Expected ValueError for unknown preference section")
+
+
+def test_user_preferences_store_persists_encrypted_manifest_when_secret_set(tmp_path: Path) -> None:
+    store = tmp_path / "preferences.json"
+    prefs = UserPreferencesStore(storage_path=store, encryption_secret="manifest-secret")
+
+    prefs.update({"profile": {"preferred_name": "Nick"}})
+
+    raw_payload = json.loads(store.read_text(encoding="utf-8"))
+    assert "ciphertext" in raw_payload
+    assert "profile" not in raw_payload
+
+    restored = UserPreferencesStore(storage_path=store, encryption_secret="manifest-secret")
+    assert restored.data["profile"]["preferred_name"] == "Nick"
+
+
+def test_user_preferences_store_with_wrong_manifest_secret_returns_empty(tmp_path: Path) -> None:
+    store = tmp_path / "preferences.json"
+    prefs = UserPreferencesStore(storage_path=store, encryption_secret="manifest-secret")
+    prefs.update({"profile": {"preferred_name": "Nick"}})
+
+    restored = UserPreferencesStore(storage_path=store, encryption_secret="wrong-secret")
+    assert restored.data == {}

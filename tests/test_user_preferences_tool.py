@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 
 from jarvis.tools.user_preferences import make_user_preferences_tool
 
@@ -42,3 +43,14 @@ def test_user_preferences_reset_clears_data(tmp_path: Path) -> None:
     out = tool.handler(action="reset")
 
     assert out == {"ok": True, "action": "reset", "data": {}}
+
+def test_user_preferences_tool_persists_encrypted_manifest_when_secret_set(tmp_path: Path) -> None:
+    path = tmp_path / "preferences.json"
+    tool = make_user_preferences_tool(path, manifest_secret="manifest-secret")
+
+    out = tool.handler(action="update", patch={"profile": {"preferred_name": "Nick"}})
+
+    assert out["ok"] is True
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert "ciphertext" in payload
+    assert "profile" not in payload

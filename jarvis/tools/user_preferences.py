@@ -10,8 +10,11 @@ from ..memory import UserPreferencesStore
 from . import Tool
 
 
-def make_user_preferences_tool(storage_path: Path) -> Tool:
-    store = UserPreferencesStore(storage_path=storage_path)
+def make_user_preferences_tool(storage_path: Path, manifest_secret: str = "") -> Tool:
+    store = UserPreferencesStore(
+        storage_path=storage_path,
+        encryption_secret=(manifest_secret or "").strip(),
+    )
 
     def handler(action: str = "get", patch: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
         normalized_action = str(action or "get").strip().lower()

@@ -78,7 +78,12 @@ def build_brain_from_config(config: Config) -> Brain:
     tools.register(make_calendar_read_tool(config.calendar_ics))
     tools.register(make_mail_draft_tool(config.mail_drafts_path))
     preferences_path = config.user_preferences_store_path or (config.audit_db.parent / "preferences.json")
-    tools.register(make_user_preferences_tool(preferences_path))
+    tools.register(
+        make_user_preferences_tool(
+            preferences_path,
+            manifest_secret=(config.get_secret("JARVIS_USER_MANIFEST_SECRET") or ""),
+        )
+    )
     tools.register(make_weather_now_tool(mode=config.location_tools_mode))
     tools.register(make_route_eta_tool(mode=config.location_tools_mode))
     tools.register(make_weather_here_tool(EventBus(config.event_bus_db), mode=config.location_tools_mode))

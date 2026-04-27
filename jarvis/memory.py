@@ -8,6 +8,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .manifest import (
+    decrypt_manifest_payload,
+    encrypt_manifest_payload,
+    is_encrypted_manifest_payload,
+)
+
 
 @dataclass
 class Conversation:
@@ -76,6 +82,7 @@ def _merge_nested_dict(base: dict[str, Any], patch: dict[str, Any]) -> dict[str,
 @dataclass
 class UserPreferencesStore:
     storage_path: Path
+    encryption_secret: str = ""
     data: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -88,15 +95,30 @@ class UserPreferencesStore:
             self.data = {}
             return
 
-        if isinstance(payload, dict):
-            self.data = {
-                str(key): value for key, value in payload.items() if isinstance(key, str) and isinstance(value, dict)
-            }
-        else:
+        normalized = payload
+        if self.encryption_secret and is_encrypted_manifest_payload(payload):
+            try:
+                normalized = decrypt_manifest_payload(payload, self.encryption_secret)
+            except ValueError:
+                self.data = {}
+                return
+
+        if not isinstance(normalized, dict):
             self.data = {}
+            return
+
+        self.data = {
+            str(key): value
+            for key, value in normalized.items()
+            if isinstance(key, str) and isinstance(value, dict)
+        }
 
     def _persist(self) -> None:
         self.storage_path.parent.mkdir(parents=True, exist_ok=True)
+        if self.encryption_secret:
+            envelope = encrypt_manifest_payload(self.data, self.encryption_secret)
+            self.storage_path.write_text(json.dumps(envelope), encoding="utf-8")
+            return
         self.storage_path.write_text(json.dumps(self.data), encoding="utf-8")
 
     def update(self, patch: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
