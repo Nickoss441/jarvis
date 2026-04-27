@@ -546,6 +546,40 @@ def test_main_news_sentiment_default_query(monkeypatch, capsys):
     assert payload["ok"] is True
 
 
+def test_main_youtube_sentiment_dry_run(monkeypatch, capsys):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("JARVIS_NOTES_DIR", "/tmp")
+    monkeypatch.setenv("JARVIS_AUDIT_DB", "/tmp/audit.db")
+    monkeypatch.setenv("JARVIS_USER_NAME", "Nick")
+    monkeypatch.setenv("JARVIS_YOUTUBE_SENTIMENT_MODE", "dry_run")
+
+    rc = main(["youtube-sentiment", "test-video"])
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert rc == 0
+    assert payload["ok"] is True
+    assert "comments" in payload
+    assert "metrics" in payload
+    assert payload["mode"] == "dry_run"
+    assert payload["metrics"]["count"] > 0
+
+
+def test_main_youtube_sentiment_default_video_id(monkeypatch, capsys):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("JARVIS_NOTES_DIR", "/tmp")
+    monkeypatch.setenv("JARVIS_AUDIT_DB", "/tmp/audit.db")
+    monkeypatch.setenv("JARVIS_USER_NAME", "Nick")
+    monkeypatch.setenv("JARVIS_YOUTUBE_SENTIMENT_MODE", "dry_run")
+
+    rc = main(["youtube-sentiment"])
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert rc == 0
+    assert payload["ok"] is True
+
+
 def test_main_voice_self_test_success(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     monkeypatch.setenv("JARVIS_NOTES_DIR", str(tmp_path / "notes"))

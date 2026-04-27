@@ -652,6 +652,26 @@ def _news_sentiment(query: str = "gold market") -> int:
         return 1
 
 
+def _youtube_sentiment(video_id: str = "dQw4w9WgXcQ") -> int:
+    """Analyze sentiment from YouTube video comments."""
+    from .tools.youtube import get_youtube_sentiment
+
+    config = Config.from_env()
+    try:
+        result = get_youtube_sentiment(
+            video_id=video_id,
+            mode=config.youtube_sentiment_mode,
+        )
+        print(json.dumps(result, sort_keys=True))
+        return 0
+    except RuntimeError as e:
+        print(json.dumps({"ok": False, "error": "youtube_sentiment_fetch_failed", "reason": str(e)}, sort_keys=True))
+        return 1
+    except ValueError as e:
+        print(json.dumps({"ok": False, "error": "youtube_sentiment_invalid_mode", "reason": str(e)}, sort_keys=True))
+        return 1
+
+
 def _consume_flag_value(
     tokens: list[str],
     idx: int,
@@ -2503,6 +2523,10 @@ def main(argv: list[str] | None = None) -> int:
         query = args[1] if len(args) >= 2 else "market"
         return _news_sentiment(query=query)
 
+    if args[0] == "youtube-sentiment":
+        video_id = args[1] if len(args) >= 2 else "dQw4w9WgXcQ"
+        return _youtube_sentiment(video_id=video_id)
+
     if args[0] == "monitor-run-once":
         return _monitor_run_once()
 
@@ -3331,6 +3355,7 @@ def main(argv: list[str] | None = None) -> int:
         "location-last|"
         "gold-price|"
         "news-sentiment [query]|"
+        "youtube-sentiment [video_id]|"
         "system-control|"
         "monitor-run-once|"
         "hud-run [--width N] [--height N] [--opacity X] [--duration-ms N]|"

@@ -122,6 +122,7 @@ class Config:
     location_tools_mode: str = "dry_run"
     gold_market_mode: str = "dry_run"
     news_sentiment_mode: str = "dry_run"
+    youtube_sentiment_mode: str = "dry_run"
     home_assistant_url: str = ""
     home_assistant_token: str = ""
     home_assistant_timeout_seconds: int = 10
@@ -301,6 +302,10 @@ class Config:
             ),
             news_sentiment_mode=(
                 os.environ.get("JARVIS_NEWS_SENTIMENT_MODE", "dry_run").strip().lower()
+                or "dry_run"
+            ),
+            youtube_sentiment_mode=(
+                os.environ.get("JARVIS_YOUTUBE_SENTIMENT_MODE", "dry_run").strip().lower()
                 or "dry_run"
             ),
             home_assistant_url=os.environ.get("JARVIS_HOME_ASSISTANT_URL", "").strip(),
