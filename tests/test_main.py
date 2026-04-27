@@ -25,6 +25,20 @@ def test_main_no_args_calls_repl(monkeypatch):
     assert called["repl"] is True
 
 
+def test_main_system_control_calls_dedicated_repl(monkeypatch):
+    called = {"repl": False}
+
+    def _fake_repl():
+        called["repl"] = True
+
+    monkeypatch.setattr("jarvis.__main__.repl_system_control", _fake_repl)
+
+    rc = main(["system-control"])
+
+    assert rc == 0
+    assert called["repl"] is True
+
+
 def test_main_stop_creates_sentinel_file(tmp_path, monkeypatch, capsys):
     sentinel = tmp_path / "stopped"
     monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)

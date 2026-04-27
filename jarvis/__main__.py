@@ -14,7 +14,7 @@ from statistics import median
 from .approval_service import ApprovalService
 from .approval_api import create_approval_api_server
 from .audit import AuditLog
-from .cli import repl
+from .cli import repl, repl_system_control
 from .config import Config
 from .trade_review import generate_trade_review_artifact
 from .event_bus import EventBus
@@ -1510,6 +1510,10 @@ def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
     if not args:
         repl()
+        return 0
+
+    if args[0] == "system-control":
+        repl_system_control()
         return 0
 
     if args[0] == "audit-verify":
@@ -3023,6 +3027,7 @@ def main(argv: list[str] | None = None) -> int:
         "events-prune-actions [days]|"
         "location-update <latitude> <longitude> [--source <name>] [--accuracy-m <meters>]|"
         "location-last|"
+        "system-control|"
         "monitor-run-once|"
         "hud-run [--width N] [--height N] [--opacity X] [--duration-ms N]|"
         "webhook-listen [source] [host] [port]|"

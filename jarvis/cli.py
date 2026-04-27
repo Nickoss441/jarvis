@@ -36,6 +36,26 @@ from .tools.route_eta import make_route_eta_tool
 from .tools.eta_to import make_eta_to_tool
 
 
+SYSTEM_CONTROL_PROMPT = """You are Jarvis System Control, a local system-control agent for {user_name}.
+
+Today is {date}.
+
+You only have tools for local desktop and allowlisted app control:
+    - desktop_control — inspect the active window, open or focus apps, open URLs, send keystrokes, type text, and take screenshots
+    - app_status — check whether an allowlisted macOS app is installed
+    - app_list — list allowlisted macOS apps and installation status
+    - install_app — request install of an allowlisted app
+    - uninstall_app — request uninstall of an allowlisted app
+
+Operating style:
+- Be concise and execution-focused.
+- Prefer checking app or window state before acting when that can prevent mistakes.
+- Do not claim desktop changes succeeded unless a tool result confirms it.
+- If a request needs unavailable tools, say so briefly rather than improvising.
+- Ask one focused clarifying question if the target app or action is ambiguous.
+"""
+
+
 def build_brain_from_config(config: Config) -> Brain:
     audit = AuditLog(config.audit_db)
     policy_path = Path(__file__).parent.parent / "policies.yaml"
@@ -146,10 +166,56 @@ def build_brain_from_config(config: Config) -> Brain:
     return Brain(config, audit, policy, tools)
 
 
+def build_system_control_brain_from_config(config: Config) -> Brain:
+    if not config.phase_sandbox:
+        raise ValueError("system-control requires JARVIS_PHASE_SANDBOX=true")
+
+    audit = AuditLog(config.audit_db)
+    policy_path = Path(__file__).parent.parent / "policies.yaml"
+    policy = Policy.from_file(
+        policy_path,
+        enabled_phases=config.enabled_phases(),
+    )
+    approval_service = ApprovalService(config)
+
+    tools = ToolRegistry()
+    tools.register(make_desktop_control_tool(mode="live"))
+    tools.register(make_app_status_tool(mode="live"))
+    tools.register(make_app_list_tool(mode="live"))
+    tools.register(
+        make_install_app_tool(
+            mode="live",
+            request_approval=approval_service.request,
+            get_approval=approval_service.store.get,
+        )
+    )
+    tools.register(
+        make_uninstall_app_tool(
+            mode="live",
+            request_approval=approval_service.request,
+            get_approval=approval_service.store.get,
+        )
+    )
+
+    return Brain(
+        config,
+        audit,
+        policy,
+        tools,
+        system_prompt_template=SYSTEM_CONTROL_PROMPT,
+    )
+
+
 def build_brain() -> Brain:
     config = Config.from_env()
     config.validate()
     return build_brain_from_config(config)
+
+
+def build_system_control_brain() -> Brain:
+    config = Config.from_env()
+    config.validate()
+    return build_system_control_brain_from_config(config)
 
 
 def repl() -> None:
@@ -164,6 +230,40 @@ def repl() -> None:
     while True:
         try:
             user = input("you > ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+
+        if not user:
+            continue
+        if user.lower() in ("quit", "exit"):
+            break
+        if user.lower() == "reset":
+            brain.conversation.reset()
+            print("(conversation cleared)\n")
+            continue
+
+        try:
+            reply = brain.turn(user)
+            print(f"jarvis > {reply}\n")
+        except KeyboardInterrupt:
+            print("\n(interrupted)\n")
+        except Exception as e:
+            print(f"(error: {e.__class__.__name__}: {e})\n")
+
+
+def repl_system_control() -> None:
+    print("Jarvis System Control — type 'quit' to exit, 'reset' to clear conversation.\n")
+
+    try:
+        brain = build_system_control_brain()
+    except Exception as e:
+        print(f"Startup error: {e}")
+        sys.exit(1)
+
+    while True:
+        try:
+            user = input("system > ").strip()
         except (EOFError, KeyboardInterrupt):
             print()
             break

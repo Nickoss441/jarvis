@@ -68,12 +68,14 @@ class Brain:
         policy: Policy,
         tools: ToolRegistry,
         retry_policy: RetryPolicy | None = None,
+        system_prompt_template: str | None = None,
     ):
         self.config = config
         self.audit = audit
         self.policy = policy
         self.tools = tools
         self.retry_policy = retry_policy or RetryPolicy()
+        self.system_prompt_template = system_prompt_template or SYSTEM_PROMPT
         self.conversation = Conversation(storage_path=config.conversation_store_path)
         self.runtime = RuntimeOrchestrator(MAX_ITERATIONS)
 
@@ -85,7 +87,7 @@ class Brain:
         )
 
     def _system(self) -> str:
-        return SYSTEM_PROMPT.format(
+        return self.system_prompt_template.format(
             user_name=self.config.user_name,
             date=date.today().isoformat(),
         )
