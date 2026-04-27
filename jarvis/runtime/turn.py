@@ -3,6 +3,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
+def _observation_text(result: Any) -> str:
+    return f"Observation: {result}"
+
+
 @dataclass
 class RuntimeTurnContext:
     """Mutable state tracked across a single conversational turn."""
@@ -89,7 +93,7 @@ class RuntimeTurnContext:
         block = {
             "type": "tool_result",
             "tool_use_id": tool_use_id,
-            "content": str(result),
+            "content": _observation_text(result),
         }
         self.tool_results.append(block)
         return block

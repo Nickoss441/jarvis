@@ -51,7 +51,7 @@ Today is {date}.
 <turn_structure>
 1. Understand the request and current context.
 2. Decide whether to answer directly, ask one clarifying question, or use a tool.
-3. If a tool is needed, say one short sentence about the next action, then call the tool.
+3. If a tool is needed, emit exactly one short text block that starts with "Thought:" and then call the tool.
 4. Use tool results to continue until the task is resolved or a clarification is required.
 </turn_structure>
 
@@ -127,18 +127,36 @@ class Brain:
             return list(cast(tuple[Any, ...], raw_content))
         return []
 
+    @staticmethod
+    def _normalize_thought_text(text: str) -> str:
+        normalized = text.strip()
+        if normalized.lower().startswith("thought:"):
+            return normalized[len("thought:") :].strip()
+        return normalized
+
+    @classmethod
+    def _ensure_thought_prefix(cls, text: str) -> str:
+        normalized = cls._normalize_thought_text(text)
+        if not normalized:
+            return ""
+        return f"Thought: {normalized}"
+
     def _observe(self, response: Any, correlation_id: str) -> list[dict[str, Any]]:
         blocks = self._content_blocks(response)
         text = self.runtime.text_from_blocks(blocks)
         stop_reason = str(getattr(response, "stop_reason", "unknown"))
+        thought_text = self._normalize_thought_text(text)
         if stop_reason == "tool_use":
-            turn_text = text.strip()
-            if turn_text:
+            if thought_text:
                 # Record the model's reasoning text for the current ReAct cycle.
-                self._active_turn.record_thought(turn_text)
+                self._active_turn.record_thought(thought_text)
         elif text.strip():
             self._active_turn.complete_react_cycle(final_text=text)
         content_blocks = [self._block_to_dict(b) for b in blocks]
+        if stop_reason == "tool_use":
+            for block in content_blocks:
+                if block.get("type") == "text":
+                    block["text"] = self._ensure_thought_prefix(str(block.get("text", "")))
         self.audit.append("llm_response", {
             "stop_reason": stop_reason,
             "content": content_blocks,

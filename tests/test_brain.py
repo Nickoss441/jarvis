@@ -118,7 +118,7 @@ def test_turn_executes_tools_then_returns_text(tmp_path: Path, monkeypatch: pyte
         _Response(
             "tool_use",
             [
-                _Block("text", text="Looking that up..."),
+                _Block("text", text="Thought: Looking that up..."),
                 _Block("tool_use", id="t1", name="echo", input={"text": "pong"}),
             ],
         ),
@@ -131,9 +131,12 @@ def test_turn_executes_tools_then_returns_text(tmp_path: Path, monkeypatch: pyte
     assert out == "done"
     # user + assistant(tool_use) + user(tool_result) + assistant(text)
     assert len(brain.conversation.messages) == 4
+    assistant_tool_use_msg = brain.conversation.messages[1]
+    assert assistant_tool_use_msg["content"][0] == {"type": "text", "text": "Thought: Looking that up..."}
     tool_result_msg = brain.conversation.messages[2]
     assert tool_result_msg["role"] == "user"
     assert tool_result_msg["content"][0]["type"] == "tool_result"
+    assert tool_result_msg["content"][0]["content"].startswith("Observation: ")
     assert "pong" in tool_result_msg["content"][0]["content"]
     rows = brain.audit.recent(limit=20)
     assert any(r["kind"] == "tool_call" for r in rows)
@@ -144,6 +147,30 @@ def test_turn_executes_tools_then_returns_text(tmp_path: Path, monkeypatch: pyte
     assert brain._active_turn.react_cycles[0]["observations"][0]["result"] == {"echo": "pong"}
     assert brain._active_turn.react_cycles[0]["completed"] is True
     assert brain._active_turn.react_cycles[1]["final_text"] == "done"
+
+
+def test_turn_normalizes_plain_text_into_thought_prefix_for_tool_cycle(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    responses = [
+        _Response(
+            "tool_use",
+            [
+                _Block("text", text="Looking that up..."),
+                _Block("tool_use", id="t1", name="echo", input={"text": "pong"}),
+            ],
+        ),
+        _Response("end_turn", [_Block("text", text="done")]),
+    ]
+    brain, _ = _build_brain(tmp_path, monkeypatch, responses)
+
+    out = brain.turn("ping")
+
+    assert out == "done"
+    assistant_tool_use_msg = brain.conversation.messages[1]
+    assert assistant_tool_use_msg["content"][0] == {"type": "text", "text": "Thought: Looking that up..."}
+    assert brain._active_turn.react_cycles[0]["thought"] == "Looking that up..."
 
 
 def test_turn_handles_non_object_tool_input_with_typed_error(

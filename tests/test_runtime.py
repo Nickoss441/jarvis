@@ -28,7 +28,7 @@ def test_runtime_turn_context_tracks_iterations_and_tool_results():
     assert block == {
         "type": "tool_result",
         "tool_use_id": "tool-1",
-        "content": "{'ok': True}",
+        "content": "Observation: {'ok': True}",
     }
     assert not turn.exhausted
 
