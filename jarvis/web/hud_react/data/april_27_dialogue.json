@@ -1,0 +1,37 @@
+{
+    "dataset_id": "april-27-dialogue-v1",
+    "date": "2026-04-27",
+    "timezone": "UTC",
+    "items": [
+        {
+            "ts": "2026-04-27T08:14:00Z",
+            "speaker": "user",
+            "text": "Queue a reservation call and keep me posted.",
+            "intent": "reservation_call_request"
+        },
+        {
+            "ts": "2026-04-27T08:14:05Z",
+            "speaker": "jarvis",
+            "text": "I can draft the call script and route it through approval.",
+            "intent": "approval_guidance"
+        },
+        {
+            "ts": "2026-04-27T08:14:17Z",
+            "speaker": "user",
+            "text": "Send Mom a short status text after the call.",
+            "intent": "message_followup"
+        },
+        {
+            "ts": "2026-04-27T08:14:22Z",
+            "speaker": "jarvis",
+            "text": "Understood. I will prepare an SMS action and wait for confirmation.",
+            "intent": "action_confirmation"
+        },
+        {
+            "ts": "2026-04-27T08:14:38Z",
+            "speaker": "user",
+            "text": "Keep everything logged for review.",
+            "intent": "audit_requirement"
+        }
+    ]
+}

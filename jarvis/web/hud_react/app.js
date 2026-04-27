@@ -44,6 +44,31 @@ function ActiveAgentLoop({ activeIndex }) {
     );
 }
 
+function DialogueDatasetPanel({ rows, loading, error }) {
+    return React.createElement(
+        "section",
+        { className: "hud-dialogue-panel", "aria-label": "April 27 dialogue dataset" },
+        React.createElement("div", { className: "hud-dialogue-title" }, "April 27 Dialogue Dataset"),
+        loading
+            ? React.createElement("div", { className: "hud-dialogue-meta" }, "Loading dataset...")
+            : error
+                ? React.createElement("div", { className: "hud-dialogue-meta" }, error)
+                : React.createElement("div", { className: "hud-dialogue-meta" }, `${rows.length} lines loaded`),
+        React.createElement(
+            "div",
+            { className: "hud-dialogue-list" },
+            rows.slice(0, 4).map((item, idx) =>
+                React.createElement(
+                    "div",
+                    { key: `${item.ts || "row"}-${idx}`, className: "hud-dialogue-row" },
+                    React.createElement("span", { className: "hud-dialogue-speaker" }, item.speaker || "unknown"),
+                    React.createElement("span", { className: "hud-dialogue-text" }, item.text || "")
+                )
+            )
+        )
+    );
+}
+
 function BurstWidget({ label, tone, delayMs }) {
     const classes = `burst-widget tone-${tone}`;
     const style = { animationDelay: `${delayMs}ms` };
@@ -241,6 +266,9 @@ function SlidePanel({ marker }) {
 function HudViewport() {
     const [selectedMarker, setSelectedMarker] = React.useState(null);
     const [activeAgentIndex, setActiveAgentIndex] = React.useState(0);
+    const [dialogueRows, setDialogueRows] = React.useState([]);
+    const [dialogueLoading, setDialogueLoading] = React.useState(true);
+    const [dialogueError, setDialogueError] = React.useState("");
     const now = new Date();
     const iso = now.toISOString();
 
@@ -249,6 +277,38 @@ function HudViewport() {
             setActiveAgentIndex((current) => (current + 1) % ACTIVE_AGENTS.length);
         }, 1400);
         return () => window.clearInterval(timer);
+    }, []);
+
+    React.useEffect(() => {
+        let cancelled = false;
+        const loadDataset = async () => {
+            try {
+                const response = await fetch("/hud/react/data/april_27_dialogue.json");
+                if (!response.ok) {
+                    throw new Error(`dataset_http_${response.status}`);
+                }
+                const payload = await response.json();
+                if (!cancelled) {
+                    const items = Array.isArray(payload.items) ? payload.items : [];
+                    setDialogueRows(items);
+                    setDialogueError("");
+                }
+            } catch (err) {
+                if (!cancelled) {
+                    setDialogueRows([]);
+                    setDialogueError("Dataset unavailable");
+                }
+            } finally {
+                if (!cancelled) {
+                    setDialogueLoading(false);
+                }
+            }
+        };
+
+        loadDataset();
+        return () => {
+            cancelled = true;
+        };
     }, []);
 
     return React.createElement(
@@ -268,6 +328,11 @@ function HudViewport() {
             React.createElement(MetricCard, { label: "Runtime Mode", value: "paper" }),
             React.createElement(MetricCard, { label: "Viewport Rev", value: "v0" })
         ),
+        React.createElement(DialogueDatasetPanel, {
+            rows: dialogueRows,
+            loading: dialogueLoading,
+            error: dialogueError,
+        }),
         React.createElement(ActiveAgentLoop, { activeIndex: activeAgentIndex }),
         React.createElement(BurstWidgetStrip),
         React.createElement(GlobeLayer, { onMarkerSelect: setSelectedMarker }),

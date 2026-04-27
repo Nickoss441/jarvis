@@ -247,6 +247,7 @@ def test_approval_api_serves_react_hud_viewport_and_assets(tmp_path):
         viewport_html = _get_text(f"http://{host}:{port}/hud/react")
         app_js = _get_text(f"http://{host}:{port}/hud/react/app.js")
         styles_css = _get_text(f"http://{host}:{port}/hud/react/styles.css")
+        dataset_json = json.loads(_get_text(f"http://{host}:{port}/hud/react/data/april_27_dialogue.json"))
 
         assert "Jarvis React HUD" in viewport_html
         assert "/hud/react/app.js" in viewport_html
@@ -267,6 +268,8 @@ def test_approval_api_serves_react_hud_viewport_and_assets(tmp_path):
         assert "ActiveAgentLoop" in app_js
         assert "setInterval" in app_js
         assert "ACTIVE_AGENTS" in app_js
+        assert "DialogueDatasetPanel" in app_js
+        assert "/hud/react/data/april_27_dialogue.json" in app_js
         assert "No critical alerts" in app_js
 
         assert ".hud-shell" in styles_css
@@ -279,8 +282,15 @@ def test_approval_api_serves_react_hud_viewport_and_assets(tmp_path):
         assert ".hud-agent-loop" in styles_css
         assert ".agent-chip.is-active" in styles_css
         assert "@keyframes active-chip-glow" in styles_css
+        assert ".hud-dialogue-panel" in styles_css
+        assert ".hud-dialogue-row" in styles_css
         assert "radial-gradient" in styles_css
         assert "@media (max-width: 760px)" in styles_css
+
+        assert dataset_json["dataset_id"] == "april-27-dialogue-v1"
+        assert dataset_json["date"] == "2026-04-27"
+        assert isinstance(dataset_json["items"], list)
+        assert len(dataset_json["items"]) >= 5
     finally:
         server.shutdown()
         server.server_close()

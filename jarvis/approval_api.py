@@ -29,6 +29,7 @@ REACT_HUD_ASSETS = {
     "index.html": "text/html; charset=utf-8",
     "app.js": "application/javascript; charset=utf-8",
     "styles.css": "text/css; charset=utf-8",
+    "data/april_27_dialogue.json": "application/json; charset=utf-8",
 }
 REACT_HUD_DIR = Path(__file__).resolve().parent / "web" / "hud_react"
 
@@ -1222,8 +1223,8 @@ def create_approval_api_server(
                 self._send_text(200, body, content_type)
                 return
 
-            if parsed.path in {"/hud/react/app.js", "/hud/react/styles.css"}:
-                filename = Path(parsed.path).name
+            if parsed.path.startswith("/hud/react/"):
+                filename = parsed.path[len("/hud/react/") :]
                 asset = _load_react_hud_asset(filename)
                 if asset is None:
                     self._send(404, {"error": "react hud asset unavailable"})
