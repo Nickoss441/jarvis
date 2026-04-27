@@ -14,6 +14,7 @@ tool_phase_requirements:
   payments: payments
   trade: trading
   call_phone: telephony
+  reservation_call: telephony
   message_send: approvals
   install_app: sandbox
 
@@ -67,6 +68,7 @@ quiet_hours:
     end_hour: 21
     blocked_tools:
       - call_phone
+      - reservation_call
 
 # Schedule-based restrictions (weekday: Monday=0 ... Sunday=6)
 schedule_rules: []

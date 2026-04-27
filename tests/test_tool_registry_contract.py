@@ -75,6 +75,7 @@ def test_default_registry_tools_expose_object_input_schemas(tmp_path, monkeypatc
     assert "user_preferences" in names
     assert "weather_here" in names
     assert "eta_to" in names
+    assert "reservation_call" in names
     for tool in tools:
         schema = tool.schema()
         assert schema["name"] == tool.name
@@ -133,6 +134,27 @@ def test_registry_includes_desktop_control_when_sandbox_enabled(tmp_path, monkey
             "call_phone",
             {"phone_number": "+14155552671", "message": "hello"},
             ["phone_number", "message"],
+        ),
+        (
+            "reservation_call",
+            {
+                "venue_name": "Lupa",
+                "phone_number": "+14155552671",
+                "party_size": 2,
+                "date_label": "Saturday",
+                "time_label": "7:00 PM",
+                "contact_name": "Nick",
+                "callback_number": "+14155552671",
+            },
+            [
+                "venue_name",
+                "phone_number",
+                "party_size",
+                "date_label",
+                "time_label",
+                "contact_name",
+                "callback_number",
+            ],
         ),
         (
             "payments",

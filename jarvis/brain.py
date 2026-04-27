@@ -46,7 +46,7 @@ Today is {date}.
 - vision_observe: analyze the current desktop screenshot or a supplied image for visual state when sandbox is enabled
 - install_app, app_status, app_list, uninstall_app: allowlisted macOS app control when sandbox is enabled
 - recall: search the audit log for past actions
-- payments, trade, call_phone, message_send: gated phase tools
+- payments, trade, call_phone, reservation_call, message_send: gated phase tools
 </tool_families>
 
 <turn_structure>

@@ -17,6 +17,7 @@ from .tools.events_recent import make_events_recent_tool
 from .tools.location_current import make_location_current_tool
 from .tools.message_send import make_message_send_tool
 from .tools.call_phone import make_call_phone_tool
+from .tools.reservation_call import make_reservation_call_tool
 from .tools.payments import make_payments_tool
 from .tools.trade import make_trade_tool
 from .tools.calendar_read import make_calendar_read_tool
@@ -150,6 +151,13 @@ def build_brain_from_config(config: Config) -> Brain:
         make_call_phone_tool(
             request_approval=approval_service.request,
             get_approval=approval_service.store.get,
+        )
+    )
+    tools.register(
+        make_reservation_call_tool(
+            request_approval=approval_service.request,
+            get_approval=approval_service.store.get,
+            user_name=config.user_name,
         )
     )
     tools.register(

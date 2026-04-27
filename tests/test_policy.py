@@ -360,6 +360,20 @@ def test_policy_check_tool_allows_call_phone_inside_contact_allowlist() -> None:
     assert decision.allowed
 
 
+def test_policy_check_tool_denies_reservation_call_outside_contact_allowlist() -> None:
+    policy = Policy(
+        rules={"call_contact_allowlist": ["+1415555*", "+44207*"]},
+    )
+
+    decision = policy.check_tool(
+        "reservation_call",
+        {"phone_number": "+33123456789"},
+    )
+
+    assert not decision.allowed
+    assert "call_contact_allowlist" in decision.reason
+
+
 def test_schedule_rule_blocks_weekend_spend_tool() -> None:
     p = Policy(
         rules={},

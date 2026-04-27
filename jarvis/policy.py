@@ -573,7 +573,7 @@ class Policy:
                 )
 
         # Telephony contact allowlist check.
-        if tool_name == "call_phone":
+        if tool_name in {"call_phone", "reservation_call"}:
             call_contact_allowlist = [
                 item.strip()
                 for item in (self.rules.get("call_contact_allowlist") or [])
@@ -582,7 +582,7 @@ class Policy:
             if call_contact_allowlist:
                 phone_number = str(args.get("phone_number") or "").strip()
                 if not phone_number:
-                    return PolicyDecision(False, "call_phone requires phone_number for allowlist check")
+                    return PolicyDecision(False, f"{tool_name} requires phone_number for allowlist check")
                 if not any(fnmatch.fnmatch(phone_number, pattern) for pattern in call_contact_allowlist):
                     return PolicyDecision(
                         False,
