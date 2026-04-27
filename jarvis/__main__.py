@@ -606,6 +606,32 @@ def _location_last() -> int:
     return 0
 
 
+def _gold_price() -> int:
+    """Fetch XAUUSD (gold) spot price."""
+    from .tools.gold import get_gold_market_data
+
+    config = Config.from_env()
+    try:
+        data = get_gold_market_data(mode=config.gold_market_mode)
+        print(
+            json.dumps(
+                {
+                    "ok": True,
+                    "price": data["price"],
+                    "currency": data["currency"],
+                    "metal": data["metal"],
+                    "source": data["source"],
+                    "timestamp": data["timestamp"],
+                },
+                sort_keys=True,
+            )
+        )
+        return 0
+    except RuntimeError as e:
+        print(json.dumps({"ok": False, "error": "gold_price_fetch_failed", "reason": str(e)}, sort_keys=True))
+        return 1
+
+
 def _consume_flag_value(
     tokens: list[str],
     idx: int,
@@ -2450,6 +2476,9 @@ def main(argv: list[str] | None = None) -> int:
     if args[0] == "location-last":
         return _location_last()
 
+    if args[0] == "gold-price":
+        return _gold_price()
+
     if args[0] == "monitor-run-once":
         return _monitor_run_once()
 
@@ -3276,6 +3305,7 @@ def main(argv: list[str] | None = None) -> int:
         "events-prune-actions [days]|"
         "location-update <latitude> <longitude> [--source <name>] [--accuracy-m <meters>]|"
         "location-last|"
+        "gold-price|"
         "system-control|"
         "monitor-run-once|"
         "hud-run [--width N] [--height N] [--opacity X] [--duration-ms N]|"

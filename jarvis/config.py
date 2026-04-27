@@ -120,6 +120,7 @@ class Config:
     mac_pc_pipeline_target_url: str = ""
     mac_pc_pipeline_shared_secret: str = ""
     location_tools_mode: str = "dry_run"
+    gold_market_mode: str = "dry_run"
     home_assistant_url: str = ""
     home_assistant_token: str = ""
     home_assistant_timeout_seconds: int = 10
@@ -291,6 +292,10 @@ class Config:
             mac_pc_pipeline_shared_secret=secret_provider.get("JARVIS_MAC_PC_PIPELINE_SHARED_SECRET").strip(),
             location_tools_mode=(
                 os.environ.get("JARVIS_LOCATION_TOOLS_MODE", "dry_run").strip().lower()
+                or "dry_run"
+            ),
+            gold_market_mode=(
+                os.environ.get("JARVIS_GOLD_MARKET_MODE", "dry_run").strip().lower()
                 or "dry_run"
             ),
             home_assistant_url=os.environ.get("JARVIS_HOME_ASSISTANT_URL", "").strip(),
