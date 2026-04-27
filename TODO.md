@@ -244,3 +244,63 @@ Use this as the build-order checklist from architecture to production-ready scaf
 - [x] Add `audit verify` CLI command.
 - [x] Scaffold `calendar_read` and `mail_draft` tools.
 - [x] Implement approval TTL + auto-deny for stale pending items, with tests.
+
+## Open Backlog (28 April 2026)
+
+### P0 — Blockers
+- [ ] Generate signed paper-performance review artifact (`python3 -m jarvis trade-review-artifact --reviewer <name> --strategy-version <ver>`)
+- [ ] Fill in reviewer name + signoff in `docs/reviews/paper-performance-review-template.md`
+- [ ] Tick "Live trading unlock" checkbox in §13 once review is signed
+
+### P1 — High-value polish
+- [ ] Pin explicit `JARVIS_MODEL` in `.env.local` (e.g. `claude-sonnet-4-5`); currently empty → falls through to suspect default `claude-sonnet-4-6`
+- [ ] Add nav chip from `/` (UI_HTML in `jarvis/approval_api.py`) linking to `/hud/cc`
+- [ ] Add nav chip from `/hud/react` linking to `/hud/cc`
+- [ ] Add `run` alias subcommand in `jarvis/__main__.py` so `python3 -m jarvis run` enters the REPL (currently exits 1)
+- [ ] Live agent E2E smoke: launch REPL, exercise vocal trigger ("respond vocally: status report")
+
+### P2 — Operational hygiene
+- [ ] Document port-fallback behavior (8080 busy → 8081) in `README.md`
+- [ ] Audit committed log files for leaked secrets
+- [ ] Verify `.env.local` stays gitignored across future commits (already added to `.gitignore`)
+
+### P3 — Command Center wiring (currently static demo numbers)
+- [ ] Wire CC `Bitcoin $79,016` panel to real data via `crypto_portfolio` tool
+- [ ] Wire CC `Social Monitoring +356` panel to `monitors-status` output
+- [ ] Wire CC `Oil & Gold` panel to `gold-price` tool + market mode config
+- [ ] Wire CC `Tracking / Strategy` panel to live approval + event counts (`/approvals`, `/events`)
+- [ ] Replace top/bottom marquee placeholder text with `audit-export` tail
+- [ ] Add WebSocket or SSE bridge so HUD reflects live brain Thought:/Observation: cycles
+
+### P3 — Voice & docs
+- [ ] Add `docs/runbooks/voice-output.md` describing recognized vocal-reply trigger phrases and disable mechanism
+- [ ] Cross-link new runbook from `README.md` docs index
+
+### P3 — Desktop overlay shell (Tauri-based, recommended over Electron)
+- [ ] Choose framework: Tauri (recommended for vanilla ESM frontend) vs Electron
+- [ ] Scaffold `src-tauri/` alongside existing `jarvis/web/command_center/`
+- [ ] Configure transparent frameless always-on-top window pointing at `http://127.0.0.1:8081/hud/cc`
+- [ ] Wire global hotkey `Cmd+Shift+J` (macOS) / `Ctrl+Shift+J` (Windows) for show/hide toggle
+- [ ] Add `/hud/show` + `/hud/hide` endpoints to `jarvis/approval_api.py`
+- [ ] Bridge Python wake-word detector → POST `/hud/show`
+- [ ] Add system tray icon with quit + toggle items
+- [ ] Implement click-through on transparent regions (`window.setIgnoreCursorEvents` toggling)
+- [ ] Handle multi-display + display-change events
+- [ ] Sign + notarize for macOS distribution
+- [ ] Build Windows `.exe` via Tauri cross-compile
+
+### P4 — Phase 7 (post live-trading unlock)
+- [ ] Pick production deployment target (laptop / home server / VPS)
+- [ ] Stand up live Alpaca broker connection (separate from paper)
+- [ ] Configure real ntfy or Pushover push channel (config exists but unused in prod)
+- [ ] Harden remote approval channel (currently localhost-only web UI)
+- [ ] Add health/uptime monitoring for the always-on server
+- [ ] Implement remote access strategy (Tailscale / Cloudflare Tunnel / VPN)
+- [ ] Document backup + restore procedure for `audit.db` and event bus DB
+
+### Windows PC Setup Notes
+- `.env.local` is gitignored — must be recreated manually with `ANTHROPIC_API_KEY` + `JARVIS_MODEL`
+- Use `python -m venv .venv && .venv\Scripts\activate && pip install -r requirements.txt`
+- Run server: `python -m jarvis approvals-api` then open `http://127.0.0.1:8080/hud/cc`
+- macOS-specific tools (PyObjC vision landmarks) will gracefully degrade on Windows
+
