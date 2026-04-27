@@ -25,6 +25,8 @@ class TransparentHudConfig:
     subtitle: str = "Transparent overlay scaffold active"
     status_label: str = "SYSTEM READY"
     neon_rgb: tuple[int, int, int] = (58, 196, 255)
+    pulse_enabled: bool = True
+    pulse_ms: int = 1800
 
 
 def _clamp_opacity(value: float) -> float:
@@ -33,6 +35,14 @@ def _clamp_opacity(value: float) -> float:
     if value > 1.0:
         return 1.0
     return value
+
+
+def pulse_opacity_bounds(base_opacity: float) -> tuple[float, float]:
+    """Return start/end opacity bounds for pulse animation."""
+    baseline = _clamp_opacity(base_opacity)
+    start = max(0.18, baseline - 0.08)
+    end = min(1.0, baseline + 0.08)
+    return start, end
 
 
 def build_overlay_stylesheet(config: TransparentHudConfig) -> str:
@@ -154,6 +164,19 @@ def run_transparent_hud(
 
     window.setStyleSheet(build_overlay_stylesheet(cfg))
     window.show()
+
+    window.setWindowOpacity(_clamp_opacity(cfg.opacity))
+    if cfg.pulse_enabled:
+        start, end = pulse_opacity_bounds(cfg.opacity)
+        animation = qtcore.QPropertyAnimation(window, b"windowOpacity")
+        animation.setDuration(max(400, int(cfg.pulse_ms)))
+        animation.setStartValue(start)
+        animation.setEndValue(end)
+        animation.setLoopCount(-1)
+        animation.setEasingCurve(qtcore.QEasingCurve.Type.InOutSine)
+        animation.start()
+        # Keep a reference alive on the window object.
+        window._jarvis_pulse_animation = animation  # type: ignore[attr-defined]
 
     if duration_ms is not None and duration_ms > 0:
         qtcore.QTimer.singleShot(int(duration_ms), app.quit)

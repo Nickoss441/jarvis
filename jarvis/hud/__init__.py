@@ -5,6 +5,7 @@ from .pyqt_overlay import (
     TransparentHudConfig,
     build_overlay_stylesheet,
     compute_window_flags,
+    pulse_opacity_bounds,
     run_transparent_hud,
 )
 
@@ -13,5 +14,6 @@ __all__ = [
     "TransparentHudConfig",
     "build_overlay_stylesheet",
     "compute_window_flags",
+    "pulse_opacity_bounds",
     "run_transparent_hud",
 ]

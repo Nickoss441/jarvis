@@ -1,9 +1,12 @@
 from types import SimpleNamespace
 
+import pytest
+
 from jarvis.hud.pyqt_overlay import (
     TransparentHudConfig,
     build_overlay_stylesheet,
     compute_window_flags,
+    pulse_opacity_bounds,
 )
 
 
@@ -47,3 +50,17 @@ def test_build_overlay_stylesheet_contains_neon_surface_values():
     assert "QFrame#hudScanlineTop" in css
     assert "rgba(100, 200, 255" in css
     assert "qlineargradient" in css
+
+
+def test_pulse_opacity_bounds_are_centered_around_baseline():
+    start, end = pulse_opacity_bounds(0.8)
+
+    assert start == pytest.approx(0.72)
+    assert end == pytest.approx(0.88)
+
+
+def test_pulse_opacity_bounds_are_clamped_to_visible_range():
+    start, end = pulse_opacity_bounds(1.0)
+
+    assert start == pytest.approx(0.92)
+    assert end == pytest.approx(1.0)
