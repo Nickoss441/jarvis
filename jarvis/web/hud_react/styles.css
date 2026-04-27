@@ -205,6 +205,56 @@ body {
     color: #ddf4ff;
 }
 
+.hud-mission-grid {
+    margin-top: 14px;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.hud-mission-card {
+    border: 1px solid rgba(91, 200, 255, 0.26);
+    border-radius: 12px;
+    background: rgba(6, 11, 22, 0.82);
+    padding: 10px;
+}
+
+.hud-mission-title {
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #d9f4ff;
+}
+
+.hud-mission-impact {
+    margin-top: 8px;
+    font-size: 18px;
+    font-weight: 700;
+    color: #ffdcb7;
+}
+
+.hud-mission-progress {
+    margin-top: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: rgba(91, 200, 255, 0.18);
+    overflow: hidden;
+}
+
+.hud-mission-fill {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #5bc8ff, #ffc67a);
+    box-shadow: 0 0 10px rgba(91, 200, 255, 0.5);
+}
+
+.hud-mission-meta {
+    margin-top: 7px;
+    font-size: 11px;
+    color: var(--muted);
+}
+
 .agent-chip {
     border: 1px solid rgba(91, 200, 255, 0.3);
     border-radius: 999px;
@@ -342,6 +392,10 @@ body {
     }
 
     .hud-burst-strip {
+        grid-template-columns: 1fr;
+    }
+
+    .hud-mission-grid {
         grid-template-columns: 1fr;
     }
 

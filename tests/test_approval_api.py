@@ -270,6 +270,9 @@ def test_approval_api_serves_react_hud_viewport_and_assets(tmp_path):
         assert "ACTIVE_AGENTS" in app_js
         assert "DialogueDatasetPanel" in app_js
         assert "/hud/react/data/april_27_dialogue.json" in app_js
+        assert "FinancialSocialMissionWidgets" in app_js
+        assert "SOCIAL_MISSION_WIDGETS" in app_js
+        assert "Education Fund" in app_js
         assert "No critical alerts" in app_js
 
         assert ".hud-shell" in styles_css
@@ -284,6 +287,8 @@ def test_approval_api_serves_react_hud_viewport_and_assets(tmp_path):
         assert "@keyframes active-chip-glow" in styles_css
         assert ".hud-dialogue-panel" in styles_css
         assert ".hud-dialogue-row" in styles_css
+        assert ".hud-mission-grid" in styles_css
+        assert ".hud-mission-fill" in styles_css
         assert "radial-gradient" in styles_css
         assert "@media (max-width: 760px)" in styles_css
 

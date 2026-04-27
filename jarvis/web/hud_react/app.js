@@ -26,6 +26,26 @@ function MetricCard({ label, value }) {
 }
 
 const ACTIVE_AGENTS = ["Planner", "Trader", "Comms"];
+const SOCIAL_MISSION_WIDGETS = [
+    {
+        id: "education",
+        title: "Education Fund",
+        impact: "42 grants",
+        progress: 68,
+    },
+    {
+        id: "microcredit",
+        title: "Microcredit Pool",
+        impact: "$84k deployed",
+        progress: 54,
+    },
+    {
+        id: "food",
+        title: "Food Relief",
+        impact: "1,920 meals",
+        progress: 81,
+    },
+];
 
 function ActiveAgentLoop({ activeIndex }) {
     return React.createElement(
@@ -64,6 +84,30 @@ function DialogueDatasetPanel({ rows, loading, error }) {
                     React.createElement("span", { className: "hud-dialogue-speaker" }, item.speaker || "unknown"),
                     React.createElement("span", { className: "hud-dialogue-text" }, item.text || "")
                 )
+            )
+        )
+    );
+}
+
+function FinancialSocialMissionWidgets() {
+    return React.createElement(
+        "section",
+        { className: "hud-mission-grid", "aria-label": "Financial social mission widgets" },
+        SOCIAL_MISSION_WIDGETS.map((widget) =>
+            React.createElement(
+                "article",
+                { key: widget.id, className: "hud-mission-card" },
+                React.createElement("div", { className: "hud-mission-title" }, widget.title),
+                React.createElement("div", { className: "hud-mission-impact" }, widget.impact),
+                React.createElement(
+                    "div",
+                    { className: "hud-mission-progress" },
+                    React.createElement("span", {
+                        className: "hud-mission-fill",
+                        style: { width: `${widget.progress}%` },
+                    })
+                ),
+                React.createElement("div", { className: "hud-mission-meta" }, `${widget.progress}% target coverage`)
             )
         )
     );
@@ -333,6 +377,7 @@ function HudViewport() {
             loading: dialogueLoading,
             error: dialogueError,
         }),
+        React.createElement(FinancialSocialMissionWidgets),
         React.createElement(ActiveAgentLoop, { activeIndex: activeAgentIndex }),
         React.createElement(BurstWidgetStrip),
         React.createElement(GlobeLayer, { onMarkerSelect: setSelectedMarker }),
