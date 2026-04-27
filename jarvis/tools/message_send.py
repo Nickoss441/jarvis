@@ -7,7 +7,14 @@ from typing import Any, Callable
 
 from . import Tool
 
-_ALLOWED_CHANNELS = {"email", "sms", "slack", "push"}
+_ALLOWED_CHANNELS = {"email", "sms", "imessage", "slack", "push"}
+_CHANNEL_ACTION = {
+    "email": "email_send",
+    "sms": "sms_send",
+    "imessage": "imessage_send",
+    "slack": "slack_send",
+    "push": "push_send",
+}
 
 
 def dispatch_message_send(
@@ -49,6 +56,7 @@ def dispatch_message_send(
         "ts": time.time(),
         "mode": mode,
         "channel": channel_normalized,
+        "action": _CHANNEL_ACTION.get(channel_normalized, "message_send"),
         "recipient": recipient,
         "subject": subject,
         "body": body,
@@ -62,6 +70,7 @@ def dispatch_message_send(
         "status": "dry_run_sent",
         "message_id": event["id"],
         "channel": event["channel"],
+        "action": event["action"],
         "recipient": event["recipient"],
         "outbox_path": str(outbox_path),
     }
@@ -113,7 +122,7 @@ def make_message_send_tool(
     return Tool(
         name="message_send",
         description=(
-            "Send outbound messages (email/SMS/chat). "
+            "Send outbound messages (email/SMS/iMessage/chat). "
             "Current implementation supports dry-run outbox delivery."
         ),
         input_schema={
@@ -121,7 +130,7 @@ def make_message_send_tool(
             "properties": {
                 "channel": {
                     "type": "string",
-                    "description": "Message channel: email, sms, slack, or push",
+                    "description": "Message channel: email, sms, imessage, slack, or push",
                 },
                 "recipient": {
                     "type": "string",
