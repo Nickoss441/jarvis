@@ -23,8 +23,12 @@ class RuntimeOrchestrator:
         )
 
     @staticmethod
-    def final_text_from_blocks(blocks: Iterable[Any]) -> str:
-        text = "".join(
+    def text_from_blocks(blocks: Iterable[Any]) -> str:
+        return "".join(
             block.text for block in blocks if getattr(block, "type", None) == "text"
         ).strip()
+
+    @classmethod
+    def final_text_from_blocks(cls, blocks: Iterable[Any]) -> str:
+        text = cls.text_from_blocks(blocks)
         return text or "(no text response)"

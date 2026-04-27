@@ -101,6 +101,7 @@ class Brain:
 
     def _plan(self, turn: RuntimeTurnContext) -> Any:
         turn.advance_iteration()
+        turn.begin_react_cycle()
         # Anthropic types are stricter than our dynamic tool/message shapes.
         tools_payload: Any = self.tools.schemas()
         messages_payload: Any = self.conversation.messages
@@ -123,9 +124,18 @@ class Brain:
 
     def _observe(self, response: Any, correlation_id: str) -> list[dict[str, Any]]:
         blocks = self._content_blocks(response)
+        text = self.runtime.text_from_blocks(blocks)
+        stop_reason = str(getattr(response, "stop_reason", "unknown"))
+        if stop_reason == "tool_use":
+            turn_text = text.strip()
+            if turn_text:
+                # Record the model's reasoning text for the current ReAct cycle.
+                self._active_turn.record_thought(turn_text)
+        elif text.strip():
+            self._active_turn.complete_react_cycle(final_text=text)
         content_blocks = [self._block_to_dict(b) for b in blocks]
         self.audit.append("llm_response", {
-            "stop_reason": str(getattr(response, "stop_reason", "unknown")),
+            "stop_reason": stop_reason,
             "content": content_blocks,
             "correlation_id": correlation_id,
         })
@@ -238,12 +248,14 @@ class Brain:
                 continue
 
             args = cast(dict[str, Any], raw_input)
+            turn.record_action(tool_name, args, tool_use_id=tool_use_id)
             result = self._dispatch(
                 tool_name,
                 args,
                 correlation_id=turn.correlation_id,
                 tool_use_id=tool_use_id,
             )
+            turn.record_observation(tool_name, result, tool_use_id=tool_use_id)
             tool_results.append(turn.add_tool_result(tool_use_id, result))
         return tool_results
 
@@ -251,6 +263,7 @@ class Brain:
         """One conversational turn. Returns the agent's final text."""
         correlation_id = str(uuid4())
         turn = self.runtime.start_turn(user_input, correlation_id)
+        self._active_turn = turn
         self._perceive(turn)
 
         while not turn.exhausted:
@@ -263,6 +276,7 @@ class Brain:
                 return self.runtime.final_text_from_blocks(blocks)
 
             tool_results = self._dispatch_requested_tools(response, turn)
+            turn.complete_react_cycle()
             self.conversation.add_tool_results(tool_results)
 
         return "(stopped after max iterations — task too long for one turn)"

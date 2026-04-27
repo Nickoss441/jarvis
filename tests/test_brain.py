@@ -125,6 +125,12 @@ def test_turn_executes_tools_then_returns_text(tmp_path: Path, monkeypatch: pyte
     rows = brain.audit.recent(limit=20)
     assert any(r["kind"] == "tool_call" for r in rows)
     assert any(r["kind"] == "tool_result" for r in rows)
+    assert len(brain._active_turn.react_cycles) == 2
+    assert brain._active_turn.react_cycles[0]["thought"] == "Looking that up..."
+    assert brain._active_turn.react_cycles[0]["actions"][0]["tool_name"] == "echo"
+    assert brain._active_turn.react_cycles[0]["observations"][0]["result"] == {"echo": "pong"}
+    assert brain._active_turn.react_cycles[0]["completed"] is True
+    assert brain._active_turn.react_cycles[1]["final_text"] == "done"
 
 
 def test_turn_handles_non_object_tool_input_with_typed_error(

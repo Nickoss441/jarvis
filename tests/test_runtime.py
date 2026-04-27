@@ -36,12 +36,52 @@ def test_runtime_turn_context_tracks_iterations_and_tool_results():
     assert turn.exhausted
 
 
+def test_runtime_turn_context_tracks_react_cycle_state():
+    turn = RuntimeTurnContext(user_input="hello", correlation_id="corr", max_iterations=2)
+
+    turn.advance_iteration()
+    turn.begin_react_cycle()
+    turn.record_thought("Need to inspect state")
+    turn.record_action("desktop_control", {"action": "active_window"}, tool_use_id="tool-1")
+    turn.record_observation("desktop_control", {"ok": True, "app": "Safari"}, tool_use_id="tool-1")
+    cycle = turn.complete_react_cycle(final_text="done")
+
+    assert cycle == {
+        "iteration": 1,
+        "thought": "Need to inspect state",
+        "actions": [
+            {
+                "tool_name": "desktop_control",
+                "tool_use_id": "tool-1",
+                "args": {"action": "active_window"},
+            }
+        ],
+        "observations": [
+            {
+                "tool_name": "desktop_control",
+                "tool_use_id": "tool-1",
+                "result": {"ok": True, "app": "Safari"},
+            }
+        ],
+        "final_text": "done",
+        "completed": True,
+    }
+
+
 def test_runtime_orchestrator_collects_final_text_blocks():
     blocks = [_Block("text", "hello "), _Block("text", "world"), _Block("tool_use")]
 
     result = RuntimeOrchestrator.final_text_from_blocks(blocks)
 
     assert result == "hello world"
+
+
+def test_runtime_orchestrator_collects_plain_text_without_default_fallback():
+    blocks = [_Block("text", "think "), _Block("text", "first")]
+
+    result = RuntimeOrchestrator.text_from_blocks(blocks)
+
+    assert result == "think first"
 
 
 def test_runtime_orchestrator_returns_default_for_missing_text():
