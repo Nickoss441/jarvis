@@ -5,6 +5,7 @@ It supports a small set of actions:
 - active_window: inspect the current frontmost app/window
 - focus_app: bring an app to the foreground by name
 - close_window: close the current frontmost window
+- minimize_window: minimize the current frontmost window
 - open_app: launch or focus an app by name
 - open_url: open a URL with the default handler
 - open_chrome_url: open a URL specifically in Google Chrome
@@ -26,7 +27,7 @@ from typing import Any
 from . import Tool
 
 _MAX_TEXT_CHARS = 500
-_VALID_ACTIONS = {"active_window", "focus_app", "close_window", "screenshot", "open_app", "open_url", "open_chrome_url", "keystroke", "type_text"}
+_VALID_ACTIONS = {"active_window", "focus_app", "close_window", "minimize_window", "screenshot", "open_app", "open_url", "open_chrome_url", "keystroke", "type_text"}
 _KEY_COMBO_PATTERN = re.compile(r"^[A-Za-z0-9+\-_ ]{1,60}$")
 
 
@@ -161,6 +162,22 @@ def make_desktop_control_tool(mode: str = "live") -> Tool:
                 return {"ok": False, "action": act, "error": "no front window to close"}
             return {"ok": ok, "action": act, "detail": detail}
 
+        if act == "minimize_window":
+            script = (
+                'tell application "System Events"\n'
+                '  set frontApp to first application process whose frontmost is true\n'
+                '  if (count of windows of frontApp) = 0 then\n'
+                '    return "no-window"\n'
+                '  end if\n'
+                '  set value of attribute "AXMinimized" of front window of frontApp to true\n'
+                '  return name of frontApp\n'
+                'end tell'
+            )
+            ok, detail = _run_command(["osascript", "-e", script])
+            if ok and detail == "no-window":
+                return {"ok": False, "action": act, "error": "no front window to minimize"}
+            return {"ok": ok, "action": act, "detail": detail}
+
         if act == "screenshot":
             try:
                 image_bytes = _capture_screenshot_png()
@@ -221,14 +238,14 @@ def make_desktop_control_tool(mode: str = "live") -> Tool:
         name="desktop_control",
         description=(
             "Control local macOS desktop actions: inspect the active window, focus an app, close the current window, "
-            "take a screenshot, open an app, open a URL, open a URL in Google Chrome, send keystrokes, or type text into the focused app. Use carefully and only for explicit user requests."
+            "minimize the current window, take a screenshot, open an app, open a URL, open a URL in Google Chrome, send keystrokes, or type text into the focused app. Use carefully and only for explicit user requests."
         ),
         input_schema={
             "type": "object",
             "properties": {
                 "action": {
                     "type": "string",
-                    "description": "One of: active_window, focus_app, close_window, screenshot, open_app, open_url, open_chrome_url, keystroke, type_text",
+                    "description": "One of: active_window, focus_app, close_window, minimize_window, screenshot, open_app, open_url, open_chrome_url, keystroke, type_text",
                 },
                 "app": {"type": "string", "description": "App name for open_app or focus_app (e.g., 'Safari')."},
                 "url": {"type": "string", "description": "URL for open_url or open_chrome_url."},

@@ -53,6 +53,21 @@ def test_desktop_control_close_window_reports_no_front_window(monkeypatch):
     }
 
 
+def test_desktop_control_minimize_window_reports_no_front_window(monkeypatch):
+    tool = make_desktop_control_tool(mode="live")
+
+    monkeypatch.setattr(desktop_control.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(desktop_control, "_run_command", lambda _argv: (True, "no-window"))
+
+    out = tool.handler(action="minimize_window")
+
+    assert out == {
+        "ok": False,
+        "action": "minimize_window",
+        "error": "no front window to minimize",
+    }
+
+
 def test_desktop_control_focus_app_activates_named_app(monkeypatch):
     tool = make_desktop_control_tool(mode="live")
 
@@ -77,6 +92,16 @@ def test_desktop_control_dry_run_screenshot():
     assert out["ok"] is True
     assert out["mode"] == "dry_run"
     assert out["action"] == "screenshot"
+
+
+def test_desktop_control_dry_run_minimize_window():
+    tool = make_desktop_control_tool(mode="dry_run")
+
+    out = tool.handler(action="minimize_window")
+
+    assert out["ok"] is True
+    assert out["mode"] == "dry_run"
+    assert out["action"] == "minimize_window"
 
 
 def test_desktop_control_screenshot_returns_base64_payload(monkeypatch):
@@ -162,3 +187,18 @@ def test_desktop_control_open_chrome_url_uses_google_chrome(monkeypatch):
         "url": "https://example.com",
     }
     assert captured["argv"] == ["open", "-a", "Google Chrome", "https://example.com"]
+
+
+def test_desktop_control_minimize_window_minimizes_front_window(monkeypatch):
+    tool = make_desktop_control_tool(mode="live")
+
+    monkeypatch.setattr(desktop_control.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(desktop_control, "_run_command", lambda _argv: (True, "Safari"))
+
+    out = tool.handler(action="minimize_window")
+
+    assert out == {
+        "ok": True,
+        "action": "minimize_window",
+        "detail": "Safari",
+    }
