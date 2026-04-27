@@ -43,5 +43,7 @@ def test_build_overlay_stylesheet_contains_neon_surface_values():
 
     assert "QWidget#hudRoot" in css
     assert "QLabel#hudTitle" in css
+    assert "QLabel#hudStatusChip" in css
+    assert "QFrame#hudScanlineTop" in css
     assert "rgba(100, 200, 255" in css
-    assert "rgba(7, 13, 24, 0.75)" in css
+    assert "qlineargradient" in css

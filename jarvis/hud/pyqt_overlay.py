@@ -22,6 +22,8 @@ class TransparentHudConfig:
     x: int | None = 24
     y: int | None = 24
     click_through: bool = True
+    subtitle: str = "Transparent overlay scaffold active"
+    status_label: str = "SYSTEM READY"
     neon_rgb: tuple[int, int, int] = (58, 196, 255)
 
 
@@ -34,16 +36,17 @@ def _clamp_opacity(value: float) -> float:
 
 
 def build_overlay_stylesheet(config: TransparentHudConfig) -> str:
-    """Build a minimal neon/glass stylesheet for the overlay shell."""
+    """Build a neon-forward stylesheet for the overlay shell."""
     opacity = _clamp_opacity(config.opacity)
     r, g, b = config.neon_rgb
-    glow = f"rgba({r}, {g}, {b}, 0.38)"
+    glow = f"rgba({r}, {g}, {b}, 0.42)"
     frame = f"rgba({r}, {g}, {b}, 0.65)"
     surface = f"rgba(7, 13, 24, {opacity:.2f})"
+    line = f"rgba({r}, {g}, {b}, 0.85)"
 
     return (
         "QWidget#hudRoot {"
-        f"background: {surface};"
+        f"background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {surface}, stop:1 rgba(5, 9, 18, {opacity:.2f}));"
         f"border: 1px solid {frame};"
         "border-radius: 14px;"
         f"box-shadow: 0 0 24px {glow};"
@@ -57,6 +60,21 @@ def build_overlay_stylesheet(config: TransparentHudConfig) -> str:
         "QLabel#hudSubline {"
         "color: #8dcde9;"
         "font-size: 12px;"
+        "}"
+        "QLabel#hudStatusChip {"
+        f"color: {line};"
+        "font-size: 11px;"
+        "font-weight: 700;"
+        "padding: 4px 8px;"
+        "border-radius: 10px;"
+        f"border: 1px solid {line};"
+        f"background: rgba({r}, {g}, {b}, 0.14);"
+        "}"
+        "QFrame#hudScanlineTop, QFrame#hudScanlineBottom {"
+        f"background: {line};"
+        "min-height: 1px;"
+        "max-height: 1px;"
+        "border: none;"
         "}"
     )
 
@@ -114,13 +132,25 @@ def run_transparent_hud(
     layout.setContentsMargins(16, 14, 16, 14)
     layout.setSpacing(4)
 
+    scanline_top = qtwidgets.QFrame()
+    scanline_top.setObjectName("hudScanlineTop")
+    layout.addWidget(scanline_top)
+
     title = qtwidgets.QLabel(cfg.title)
     title.setObjectName("hudTitle")
     layout.addWidget(title)
 
-    subline = qtwidgets.QLabel("Transparent overlay scaffold active")
+    status = qtwidgets.QLabel(cfg.status_label)
+    status.setObjectName("hudStatusChip")
+    layout.addWidget(status)
+
+    subline = qtwidgets.QLabel(cfg.subtitle)
     subline.setObjectName("hudSubline")
     layout.addWidget(subline)
+
+    scanline_bottom = qtwidgets.QFrame()
+    scanline_bottom.setObjectName("hudScanlineBottom")
+    layout.addWidget(scanline_bottom)
 
     window.setStyleSheet(build_overlay_stylesheet(cfg))
     window.show()
