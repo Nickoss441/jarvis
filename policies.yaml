@@ -1,0 +1,136 @@
+# Jarvis policy file — phase 1
+#
+# Hard rules enforced BEFORE any tool call. The agent cannot reason its way
+# around these. Edit freely.
+
+# Tools the agent must not call. Useful for disabling something temporarily
+# without deleting code.
+blocked_tools: []
+  # - notes_write
+  # - web_fetch
+
+# Tools that require specific phase flags.
+tool_phase_requirements:
+  payments: payments
+  trade: trading
+  call_phone: telephony
+  message_send: approvals
+  install_app: sandbox
+
+# Smart-home entities that are considered critical and must not be mutated
+# without going through approval-oriented flows.
+critical_smart_home_entities:
+  - lock.*
+  - alarm_control_panel.*
+  - cover.garage*
+  - switch.oven*
+  - climate.oven*
+
+# Home-assistant style actions that mutate state.
+smart_home_write_actions:
+  - turn_on
+  - turn_off
+  - toggle
+  - lock
+  - unlock
+  - open
+  - close
+  - arm
+  - disarm
+  - set_temperature
+  - call_service
+
+# Substrings that, if found in a URL or query, cause web tools to refuse.
+# Use to keep the agent away from auth pages, internal admin tools, etc.
+blocked_domains:
+  - login.microsoftonline.com
+  - accounts.google.com
+  - id.atlassian.com
+  # add domains the agent should never touch
+
+# Optional allowlist. If non-empty, URL/domain targets must match at least
+# one entry here.
+allowed_domains: []
+  # - example.com
+  # - docs.example.com
+
+# Allowed outbound call contacts. Supports exact E.164 values or shell-style
+# patterns (for example `+1415555*`). If non-empty, `call_phone` must target
+# one of these entries.
+call_contact_allowlist:
+  - +1415555*
+  - +44207*
+
+# Quiet hours for telephony: calls only allowed between 08:00 and 21:00 local.
+quiet_hours:
+  - start_hour: 8
+    end_hour: 21
+    blocked_tools:
+      - call_phone
+
+# Schedule-based restrictions (weekday: Monday=0 ... Sunday=6)
+schedule_rules: []
+  # - weekdays: [5, 6]  # weekend
+  #   blocked_tools:
+  #     - payments
+  #     - trade
+
+# Per-tool rate limits in rolling windows.
+rate_limits:
+  - tool_pattern: payments
+    max_calls: 3
+    window_seconds: 3600
+  - tool_pattern: message_send
+    max_calls: 30
+    window_seconds: 3600
+
+# Sandbox execution profiles for risky tool families.
+sandbox_profiles:
+  shell_run:
+    max_command_chars: 240
+    blocked_prefixes:
+      - rm
+      - sudo
+      - dd
+      - diskutil
+      - launchctl
+      - pkill
+      - kill
+    blocked_tokens:
+      - --no-preserve-root
+      - /dev/sda
+  web_fetch:
+    max_chars_cap: 12000
+    blocked_hosts:
+      - localhost
+      - "127.0.0.1"
+      - "0.0.0.0"
+      - ::1
+      - "169.254."
+      - "10."
+      - "192.168."
+      - "172.16."
+
+# === Phase 4+ rules (NOT active in phase 1, kept here as design notes) ===
+#
+# spending:
+#   monthly_cap_eur: 100
+#   per_transaction_cap_eur: 50
+#   tier_thresholds:
+#     auto_eur: 10           # below this: act + notify
+#     one_tap_eur: 100       # below this: push for one-tap approval
+#                            # above this: reasoning required + 5s cooldown
+#   blocked_categories:
+#     - gambling
+#     - cash_advance
+#     - crypto
+#
+# trading:
+#   mode: paper              # paper | live (live needs explicit per-session unlock)
+#   max_position_pct: 2.0    # of account equity
+#   daily_drawdown_kill_pct: 5.0
+#
+# calling:
+#   allowed_window_local: ["08:00", "21:00"]
+#   disclosure_required: true
+#   max_calls_per_day: 10

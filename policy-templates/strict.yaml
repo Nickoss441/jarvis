@@ -1,0 +1,34 @@
+blocked_tools:
+  - shell_run
+  - file_write
+
+tool_phase_requirements:
+  payments: payments
+  trade: trading
+  call_phone: telephony
+  message_send: approvals
+
+allowed_domains:
+  - docs.python.org
+  - github.com
+
+blocked_domains:
+  - login.microsoftonline.com
+  - accounts.google.com
+
+call_contact_allowlist:
+  - +1415555*
+
+quiet_hours:
+  - start_hour: 9
+    end_hour: 18
+    blocked_tools:
+      - call_phone
+
+rate_limits:
+  - tool_pattern: payments
+    max_calls: 1
+    window_seconds: 3600
+  - tool_pattern: trade
+    max_calls: 3
+    window_seconds: 3600

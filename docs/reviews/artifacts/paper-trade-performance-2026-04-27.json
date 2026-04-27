@@ -1,0 +1,41 @@
+{
+  "anomalies": {
+    "latency_count": 0,
+    "latency_threshold_ms": 1000.0,
+    "slippage_count": 0,
+    "slippage_threshold_bps": 50.0
+  },
+  "audit": {
+    "dispatch_failure_count": 0,
+    "policy_violation_count": 0
+  },
+  "meets_minimum_window": false,
+  "minimum_window": {
+    "trades": 100,
+    "trading_days": 20
+  },
+  "mode": "paper",
+  "ok": true,
+  "pnl": {
+    "average_loss": -25.0,
+    "average_per_trade": 25.0,
+    "average_win": 75.0,
+    "gross_loss": 25.0,
+    "gross_profit": 75.0,
+    "net": 50.0,
+    "profit_factor": 3.0,
+    "win_rate": 0.5
+  },
+  "risk": {
+    "max_drawdown": 25.0
+  },
+  "trade_count": 2,
+  "trades_log": "/private/var/folders/t2/cj_b_sds6xbb5k66p25j93680000gn/T/pytest-of-nickos/pytest-3/test_main_trade_review_artifac0/trades.jsonl",
+  "trading_days": 2,
+  "window": {
+    "end": "2024-04-23T00:00:00+00:00",
+    "end_ts": 1713830400.0,
+    "start": "2024-04-22T00:00:00+00:00",
+    "start_ts": 1713744000.0
+  }
+}

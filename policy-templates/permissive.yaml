@@ -1,0 +1,23 @@
+blocked_tools: []
+
+tool_phase_requirements:
+  payments: payments
+  trade: trading
+  call_phone: telephony
+  message_send: approvals
+
+allowed_domains: []
+blocked_domains: []
+call_contact_allowlist: []
+quiet_hours: []
+schedule_rules: []
+rate_limits: []
+
+sandbox_profiles:
+  shell_run:
+    max_command_chars: 500
+    blocked_prefixes: []
+    blocked_tokens: []
+  web_fetch:
+    max_chars_cap: 20000
+    blocked_hosts: []

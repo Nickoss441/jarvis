@@ -1,0 +1,2 @@
+{"approvals_created": 1, "emitted": 1, "ephemeral_secret_used": false, "failures": 0, "http_accepted": true, "listener_url": "http://127.0.0.1:51770/frame", "mode": "json", "ok": true, "processed": 1, "signing_enabled": false}
+{"approvals_created": 1, "emitted": 1, "ephemeral_secret_used": false, "failures": 0, "http_accepted": true, "listener_url": "http://127.0.0.1:51775/frame", "mode": "binary", "ok": true, "processed": 1, "signing_enabled": false}

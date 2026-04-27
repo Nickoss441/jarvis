@@ -1,0 +1,32 @@
+{
+  "count": 1,
+  "failure_count": 0,
+  "mode_counts": {
+    "unknown": 1
+  },
+  "ok": true,
+  "status_counts": {
+    "pending_approval": 1
+  },
+  "success_count": 0,
+  "trades": [
+    {
+      "approval_id": "trade-1",
+      "approved_ts": null,
+      "correlation_id": "trade-corr-1",
+      "dispatch_result": null,
+      "dispatched_ts": null,
+      "instrument": "AAPL",
+      "live_confirm": false,
+      "rationale": "Trend",
+      "rejected_ts": null,
+      "requested_ts": 1777300715.83423,
+      "side": "buy",
+      "size": 3,
+      "status": "pending_approval",
+      "stop_loss": null,
+      "success": null,
+      "take_profit": null
+    }
+  ]
+}
