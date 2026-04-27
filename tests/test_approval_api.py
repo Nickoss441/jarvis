@@ -963,6 +963,129 @@ def test_chat_twilio_returns_twiml_by_default(tmp_path):
         thread.join(timeout=2)
 
 
+def test_twilio_webhook_bridge_returns_503_when_not_configured(tmp_path):
+    cfg = _cfg(tmp_path)
+    cfg.twilio_webhook_token = ""
+
+    server = create_approval_api_server(cfg, host="127.0.0.1", port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address
+
+    try:
+        status, payload = _post_form_with_status(
+            f"http://{host}:{port}/webhooks/twilio?token=anything",
+            {"MessageSid": "SM123", "Body": "hello"},
+        )
+        assert status == 503
+        assert "not configured" in payload["error"]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_twilio_webhook_bridge_rejects_invalid_token(tmp_path):
+    cfg = _cfg(tmp_path)
+    cfg.twilio_webhook_token = "bridge-secret"
+
+    server = create_approval_api_server(cfg, host="127.0.0.1", port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address
+
+    try:
+        status, payload = _post_form_with_status(
+            f"http://{host}:{port}/webhooks/twilio?token=wrong",
+            {"MessageSid": "SM123", "Body": "hello"},
+        )
+        assert status == 401
+        assert payload["error"] == "unauthorized"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_twilio_webhook_bridge_accepts_sms_payload_and_emits_event(tmp_path):
+    cfg = _cfg(tmp_path)
+    cfg.twilio_webhook_token = "bridge-secret"
+
+    server = create_approval_api_server(cfg, host="127.0.0.1", port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address
+
+    try:
+        status, payload = _post_form_with_status(
+            f"http://{host}:{port}/webhooks/twilio?token=bridge-secret",
+            {
+                "AccountSid": "AC123",
+                "MessageSid": "SM123",
+                "From": "+15551234567",
+                "To": "+15557654321",
+                "Body": "ping from twilio",
+                "SmsStatus": "received",
+            },
+        )
+        assert status == 200
+        assert payload["status"] == "accepted"
+        assert payload["event_id"]
+
+        events = EventBus(cfg.event_bus_db).recent(limit=5, kind="twilio_webhook")
+        assert len(events) >= 1
+        latest = events[0]
+        assert latest.source == "twilio_webhook_bridge"
+        assert latest.payload["event_type"] == "sms"
+        assert latest.payload["message_sid"] == "SM123"
+        assert latest.payload["from"] == "+15551234567"
+        assert latest.payload["body"] == "ping from twilio"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_twilio_webhook_bridge_accepts_voice_payload_and_emits_event(tmp_path):
+    cfg = _cfg(tmp_path)
+    cfg.twilio_webhook_token = "bridge-secret"
+
+    server = create_approval_api_server(cfg, host="127.0.0.1", port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address
+
+    try:
+        status, payload = _post_form_with_status(
+            f"http://{host}:{port}/webhooks/twilio?token=bridge-secret",
+            {
+                "AccountSid": "AC123",
+                "CallSid": "CA123",
+                "From": "+15551234567",
+                "To": "+15557654321",
+                "CallStatus": "completed",
+                "RecordingSid": "RE123",
+                "RecordingUrl": "https://api.twilio.test/recordings/RE123",
+            },
+        )
+        assert status == 200
+        assert payload["status"] == "accepted"
+        assert payload["event_id"]
+
+        events = EventBus(cfg.event_bus_db).recent(limit=5, kind="twilio_webhook")
+        assert len(events) >= 1
+        latest = events[0]
+        assert latest.source == "twilio_webhook_bridge"
+        assert latest.payload["event_type"] == "voice_call"
+        assert latest.payload["call_sid"] == "CA123"
+        assert latest.payload["call_status"] == "completed"
+        assert latest.payload["recording_sid"] == "RE123"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
 def test_chat_inbound_returns_503_when_not_configured(tmp_path):
     cfg = _cfg(tmp_path)
     cfg.chat_account_id = ""

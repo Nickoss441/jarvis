@@ -185,6 +185,7 @@ class Config:
     ntfy_url: str = "https://ntfy.sh"
     ntfy_priority: str = "high"
     ntfy_token: str = ""
+    twilio_webhook_token: str = ""
     trading_paper_broker: str = "alpaca"
     helius_api_key: str = ""
     helius_network: str = "mainnet"
@@ -473,6 +474,10 @@ class Config:
                 or "high"
             ),
             ntfy_token=os.environ.get("JARVIS_NTFY_TOKEN", "").strip(),
+            twilio_webhook_token=(
+                secret_provider.get("JARVIS_TWILIO_WEBHOOK_TOKEN")
+                or os.environ.get("JARVIS_TWILIO_WEBHOOK_TOKEN", "")
+            ).strip(),
             trading_paper_broker=(
                 os.environ.get("JARVIS_TRADING_PAPER_BROKER", "alpaca").strip().lower()
                 or "alpaca"

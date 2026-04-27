@@ -1439,6 +1439,54 @@ def create_approval_api_server(
                     )
                 return
 
+            if parsed.path == "/webhooks/twilio":
+                if not config.twilio_webhook_token.strip():
+                    self._send(503, {"error": "twilio webhook bridge is not configured"})
+                    return
+
+                query = parse_qs(parsed.query)
+                form = parse_qs(raw_body.decode("utf-8", errors="ignore"))
+                token = str(
+                    (query.get("token", [""])[0] or form.get("token", [""])[0])
+                ).strip()
+                if not token:
+                    self._send(400, {"error": "token is required"})
+                    return
+                if token != config.twilio_webhook_token:
+                    self._send(401, {"error": "unauthorized"})
+                    return
+
+                message_sid = str(form.get("MessageSid", [""])[0]).strip()
+                call_sid = str(form.get("CallSid", [""])[0]).strip()
+                event_type = "unknown"
+                if message_sid:
+                    event_type = "sms"
+                elif call_sid:
+                    event_type = "voice_call"
+
+                event = RuntimeEventEnvelope(
+                    kind="twilio_webhook",
+                    source="twilio_webhook_bridge",
+                    payload={
+                        "event_type": event_type,
+                        "account_sid": str(form.get("AccountSid", [""])[0]).strip(),
+                        "message_sid": message_sid,
+                        "call_sid": call_sid,
+                        "from": str(form.get("From", [""])[0]).strip(),
+                        "to": str(form.get("To", [""])[0]).strip(),
+                        "body": str(form.get("Body", [""])[0]),
+                        "sms_status": str(form.get("SmsStatus", [""])[0]).strip(),
+                        "call_status": str(form.get("CallStatus", [""])[0]).strip(),
+                        "recording_sid": str(form.get("RecordingSid", [""])[0]).strip(),
+                        "recording_url": str(form.get("RecordingUrl", [""])[0]).strip(),
+                        "raw_form": {key: values[0] if values else "" for key, values in form.items()},
+                    },
+                )
+                EventBus(config.event_bus_db).emit(event)
+
+                self._send(200, {"status": "accepted", "event_id": event.id})
+                return
+
             body = self._read_json(raw_body)
             if body.get("_invalid_json"):
                 self._send(400, {"error": "invalid json"})

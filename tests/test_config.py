@@ -23,6 +23,7 @@ def test_config_feature_flags_parse_truthy(monkeypatch):
     monkeypatch.setenv("JARVIS_PHASE_VOICE", "true")
     monkeypatch.setenv("JARVIS_PHASE_APPROVALS", "1")
     monkeypatch.setenv("JARVIS_PHASE_TRADING", "YES")
+    monkeypatch.setenv("JARVIS_TWILIO_WEBHOOK_TOKEN", "twilio-bridge-token")
 
     config = Config.from_env()
 
@@ -31,6 +32,7 @@ def test_config_feature_flags_parse_truthy(monkeypatch):
     assert config.phase_voice
     assert config.phase_approvals
     assert config.phase_trading
+    assert config.twilio_webhook_token == "twilio-bridge-token"
 
 
 def test_enabled_phases_returns_active_phase_names(tmp_path):
