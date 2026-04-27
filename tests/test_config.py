@@ -83,6 +83,8 @@ def test_message_send_config_defaults(monkeypatch):
     config = Config.from_env()
 
     assert config.message_send_mode == "dry_run"
+    assert config.messaging_primary_channel == "sms"
+    assert config.messaging_fallback_channels == ("imessage", "slack", "push", "email")
     assert str(config.message_outbox).endswith(".jarvis/message-outbox.jsonl")
     assert config.approval_channel == "ntfy"
     assert config.trading_paper_broker == "alpaca"
@@ -128,6 +130,8 @@ def test_message_send_config_from_env(monkeypatch, tmp_path):
     calendar = tmp_path / "calendar.ics"
     drafts = tmp_path / "mail-drafts.jsonl"
     monkeypatch.setenv("JARVIS_MESSAGE_SEND_MODE", "dry_run")
+    monkeypatch.setenv("JARVIS_MESSAGING_PRIMARY_CHANNEL", "slack")
+    monkeypatch.setenv("JARVIS_MESSAGING_FALLBACK_CHANNELS", "sms,push,email")
     monkeypatch.setenv("JARVIS_MESSAGE_OUTBOX", str(outbox))
     monkeypatch.setenv("JARVIS_APPROVAL_DB", str(approvals))
     monkeypatch.setenv("JARVIS_APPROVALS_TTL_SECONDS", "1200")
@@ -192,6 +196,8 @@ def test_message_send_config_from_env(monkeypatch, tmp_path):
     config = Config.from_env()
 
     assert config.message_send_mode == "dry_run"
+    assert config.messaging_primary_channel == "slack"
+    assert config.messaging_fallback_channels == ("sms", "push", "email")
     assert config.message_outbox == outbox
     assert config.approval_db == approvals
     assert config.approvals_ttl_seconds == 1200

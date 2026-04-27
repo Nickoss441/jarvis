@@ -132,6 +132,8 @@ class Config:
         "to {purpose}. Is that alright to proceed?"
     )
     message_send_mode: str = "dry_run"
+    messaging_primary_channel: str = "sms"
+    messaging_fallback_channels: tuple[str, ...] = ("imessage", "slack", "push", "email")
     message_outbox: Path = Path(os.path.expanduser("~/.jarvis/message-outbox.jsonl"))
     call_phone_mode: str = "dry_run"
     calls_log_path: Path = Path(os.path.expanduser("~/.jarvis/calls-log.jsonl"))
@@ -313,6 +315,12 @@ class Config:
                 or "Hello, this is an AI assistant calling on behalf of {user_name} to {purpose}. Is that alright to proceed?"
             ),
             message_send_mode=os.environ.get("JARVIS_MESSAGE_SEND_MODE", "dry_run"),
+            messaging_primary_channel=(
+                os.environ.get("JARVIS_MESSAGING_PRIMARY_CHANNEL", "sms").strip().lower()
+                or "sms"
+            ),
+            messaging_fallback_channels=_env_csv("JARVIS_MESSAGING_FALLBACK_CHANNELS")
+            or ("imessage", "slack", "push", "email"),
             message_outbox=Path(os.path.expanduser(
                 os.environ.get(
                     "JARVIS_MESSAGE_OUTBOX",

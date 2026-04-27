@@ -779,6 +779,52 @@ def test_main_mac_pc_pipeline_self_test_unknown_arg_errors(capsys):
     assert payload["error"] == "unknown_argument"
 
 
+def test_main_messaging_strategy_self_test_selects_primary(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("JARVIS_NOTES_DIR", str(tmp_path / "notes"))
+    monkeypatch.setenv("JARVIS_AUDIT_DB", str(tmp_path / "audit.db"))
+    monkeypatch.setenv("JARVIS_USER_NAME", "Nick")
+    monkeypatch.setenv("JARVIS_MESSAGING_PRIMARY_CHANNEL", "sms")
+    monkeypatch.setenv("JARVIS_MESSAGING_FALLBACK_CHANNELS", "imessage,slack,email")
+
+    rc = main(["messaging-strategy-self-test"])
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert rc == 0
+    assert payload["ok"] is True
+    assert payload["selected_channel"] == "sms"
+    assert payload["strategy_order"] == ["sms", "imessage", "slack", "email"]
+
+
+def test_main_messaging_strategy_self_test_strict_fails_when_no_channel_available(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("JARVIS_NOTES_DIR", str(tmp_path / "notes"))
+    monkeypatch.setenv("JARVIS_AUDIT_DB", str(tmp_path / "audit.db"))
+    monkeypatch.setenv("JARVIS_USER_NAME", "Nick")
+    monkeypatch.setenv("JARVIS_MESSAGING_PRIMARY_CHANNEL", "pager")
+    monkeypatch.setenv("JARVIS_MESSAGING_FALLBACK_CHANNELS", "fax,irc")
+
+    rc = main(["messaging-strategy-self-test", "--strict"])
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert rc == 2
+    assert payload["ok"] is False
+    assert payload["error"] == "no_available_messaging_channel"
+    assert payload["selected_channel"] == ""
+
+
+def test_main_messaging_strategy_self_test_unknown_arg_errors(capsys):
+    rc = main(["messaging-strategy-self-test", "--bogus"])
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert rc == 1
+    assert payload["ok"] is False
+    assert payload["error"] == "unknown_argument"
+
+
 def test_main_audit_correlation_returns_matching_events(tmp_path, monkeypatch, capsys):
     db = tmp_path / "audit.db"
     log = AuditLog(db)
