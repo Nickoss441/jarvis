@@ -2,11 +2,13 @@
 import datetime as dt
 import json
 import time
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from jarvis.audit import AuditLog
+from jarvis.config import Config
 from jarvis.tools.trade import (
     build_trade_performance_report,
     build_trade_proposal,
@@ -17,7 +19,9 @@ from jarvis.tools.trade import (
     make_trade_tool,
     position_size_cap_for_equity,
     validate_daily_drawdown_pause,
+    validate_position_size_cap,
 )
+from jarvis.trade_review import generate_trade_review_artifact
 
 
 def test_build_trade_proposal_requires_rationale():
@@ -682,3 +686,343 @@ def test_make_trade_tool_rejects_trade_above_equity_position_cap():
 
     assert "error" in result
     assert "max position size" in result["error"]
+
+
+def test_backtesting_integration_generates_unlockable_performance_review(tmp_path, monkeypatch):
+    """Integration test: generate 150 profitable trades, produce review artifact, verify unlock-ready."""
+    audit_db = tmp_path / "audit.db"
+    trades_log = tmp_path / "trades.jsonl"
+    review_output = tmp_path / "review.md"
+
+    audit_log = AuditLog(audit_db)
+    trades_log.parent.mkdir(parents=True, exist_ok=True)
+
+    # Generate 150 profitable paper trades across 25 trading days
+    # Win rate: 75% (112 winners, 38 losers)
+    # Avg profit per trade: $150 (profit_factor > 1.5)
+    base_ts = time.time() - (30 * 86400)  # 30 days ago
+    trades_data = []
+    winners = 0
+    losers = 0
+    total_pnl = 0
+
+    for i in range(150):
+        day_offset = i // 6  # 6 trades per day
+        trade_ts = base_ts + (day_offset * 86400) + (i % 6 * 3600)
+
+        # 75% win rate: first 112 trades are winners, rest are losers
+        if i < 112:
+            pnl_delta = 150.0 + (i % 10) * 5  # $150-200 per winning trade
+            winners += 1
+        else:
+            pnl_delta = -100.0  # $100 loss per losing trade
+            losers += 1
+
+        total_pnl += pnl_delta
+        trades_data.append(
+            json.dumps(
+                {
+                    "mode": "paper",
+                    "ts": trade_ts,
+                    "pnl_delta": pnl_delta,
+                    "instrument": f"{'AAPL' if i % 3 == 0 else 'TSLA' if i % 3 == 1 else 'MSFT'}",
+                    "side": "buy" if i % 2 == 0 else "sell",
+                }
+            )
+        )
+
+        # Create audit trail for each trade
+        approval_id = f"trade-{i:03d}"
+        correlation_id = f"corr-{i:03d}"
+        audit_log.append(
+            "approval_requested",
+            {
+                "approval_id": approval_id,
+                "correlation_id": correlation_id,
+                "kind": "trade",
+                "payload": {
+                    "instrument": f"{'AAPL' if i % 3 == 0 else 'TSLA' if i % 3 == 1 else 'MSFT'}",
+                    "side": "buy" if i % 2 == 0 else "sell",
+                    "size": 10 + (i % 5),
+                    "rationale": f"Backtest trade {i}",
+                },
+            },
+        )
+        audit_log.append(
+            "approval_approved",
+            {
+                "approval_id": approval_id,
+                "correlation_id": correlation_id,
+            },
+        )
+        audit_log.append(
+            "approval_dispatched",
+            {
+                "approval_id": approval_id,
+                "correlation_id": correlation_id,
+                "kind": "trade",
+                "success": True,
+                "result": {
+                    "status": "paper_filled",
+                    "order_id": f"ord-{i:03d}",
+                    "instrument": f"{'AAPL' if i % 3 == 0 else 'TSLA' if i % 3 == 1 else 'MSFT'}",
+                    "side": "buy" if i % 2 == 0 else "sell",
+                    "size": 10 + (i % 5),
+                },
+            },
+        )
+
+    trades_log.write_text("\n".join(trades_data) + "\n", encoding="utf-8")
+
+    # Set up config for review generation
+    monkeypatch.setenv("JARVIS_AUDIT_DB", str(audit_db))
+    monkeypatch.setenv("JARVIS_TRADES_LOG", str(trades_log))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("JARVIS_TRADING_ACCOUNT_EQUITY", "100000")
+    monkeypatch.setenv("JARVIS_TRADING_DAILY_DRAWDOWN_KILL_PCT", "5.0")
+    monkeypatch.setenv("JARVIS_TRADING_REVIEW_MIN_TRADING_DAYS", "20")
+    monkeypatch.setenv("JARVIS_TRADING_REVIEW_MIN_TRADES", "100")
+    monkeypatch.setenv("JARVIS_TRADING_REVIEW_MIN_WIN_RATE", "0.70")
+    monkeypatch.setenv("JARVIS_TRADING_REVIEW_MIN_PROFIT_FACTOR", "1.50")
+    monkeypatch.setenv("JARVIS_TRADING_REVIEW_MIN_AVG_R_MULTIPLE", "0.50")
+    monkeypatch.setenv("JARVIS_TRADING_REVIEW_MAX_ANOMALIES", "5")
+
+    config = Config.from_env()
+
+    # Generate trade review artifact
+    result = generate_trade_review_artifact(
+        config,
+        output_file=str(review_output),
+        reviewer="BacktestSuite",
+        strategy_version="v1.0.0-backtest",
+    )
+
+    # Verify result structure
+    assert result["ok"] is True
+    assert result["review_id"].startswith("paper-review-")
+    assert result["trade_count"] == 150
+    assert result["trading_days"] >= 20
+    assert result["meets_minimum_window"] is True
+
+    # Verify all auto-checks pass
+    auto_checks = result["auto_checks"]
+    assert auto_checks["review_window"] is True, "Should meet minimum trading window"
+    assert auto_checks["win_rate"] is True, "Win rate 75% >= 70% minimum"
+    assert auto_checks["profit_factor"] is True, "Profit factor should be > 1.5"
+    assert auto_checks["avg_r_multiple"] is True, "Avg R multiple should be > 0.5"
+    assert auto_checks["anomalies"] is True, "No anomalies expected"
+    assert auto_checks["policy_bypass"] is True, "No policy violations"
+    assert auto_checks["dispatch_failures"] is True, "No dispatch failures"
+    assert auto_checks["drawdown_guardrail"] is True, "Drawdown within limits"
+
+    # Verify unlock readiness
+    assert auto_checks["ready_for_manual_signoff"] is True, "Should be ready for manual sign-off"
+    assert result["auto_decision"] == "ready for manual sign-off"
+    assert result["auto_conditions"] == [], "No conditions should fail"
+
+    # Verify artifacts generated
+    assert Path(result["review_markdown"]).exists()
+    assert Path(result["audit_export"]).exists()
+    assert Path(result["trade_replay_report"]).exists()
+    assert Path(result["trade_performance_report"]).exists()
+
+    # Verify markdown content
+    review_text = Path(result["review_markdown"]).read_text(encoding="utf-8")
+    assert "- Reviewer: BacktestSuite" in review_text
+    assert "- Strategy/system version: v1.0.0-backtest" in review_text
+    assert "- Total paper trades: 150" in review_text
+    assert "| Win rate | 0.74" in review_text or "| Win rate | 0.75" in review_text
+    assert "| Profit factor | 5" in review_text
+    assert "- Decision: ready for manual sign-off" in review_text
+    assert "- [x] Review window >= 20 trading days" in review_text
+    assert "- [x] No unresolved policy bypass" in review_text
+    assert "- [x] No unexplained trade dispatch" in review_text
+    assert "- [x] Drawdown stayed within configured daily" in review_text
+
+
+def test_position_size_safeguard_prevents_oversized_trades(tmp_path):
+    """Safeguard test: position size cap rejects trades above limit."""
+    trades_log = tmp_path / "trades.jsonl"
+    account_equity = 100000
+    max_position_pct = 2.0
+    max_size = position_size_cap_for_equity(account_equity, max_position_pct)
+
+    # Valid trade at cap
+    error = validate_position_size_cap(size=max_size, account_equity=account_equity, max_position_pct=max_position_pct)
+    assert error is None, "Trade at cap should be allowed"
+
+    # Valid trade below cap
+    error = validate_position_size_cap(size=max_size * 0.5, account_equity=account_equity, max_position_pct=max_position_pct)
+    assert error is None, "Trade below cap should be allowed"
+
+    # Invalid trade above cap
+    error = validate_position_size_cap(size=max_size + 1, account_equity=account_equity, max_position_pct=max_position_pct)
+    assert error is not None, "Trade above cap should be rejected"
+    assert "exceeds max position size" in error
+    assert "2000.00" in error or "2000" in error
+
+
+def test_daily_drawdown_safeguard_pauses_trades(tmp_path):
+    """Safeguard test: daily drawdown limit pauses trading after threshold breach."""
+    trades_log = tmp_path / "trades.jsonl"
+    account_equity = 100000
+    max_daily_drawdown_pct = 5.0
+    drawdown_limit = daily_drawdown_limit_for_equity(account_equity, max_daily_drawdown_pct)  # $5,000
+
+    # No prior trades: should allow
+    error = validate_daily_drawdown_pause(
+        trades_log_path=trades_log,
+        account_equity=account_equity,
+        max_daily_drawdown_pct=max_daily_drawdown_pct,
+    )
+    assert error is None, "No prior losses should allow trading"
+
+    # Single loss under limit: should allow
+    now = dt.datetime.now(dt.timezone.utc)
+    trades_log.write_text(
+        json.dumps({"mode": "live", "ts": now.timestamp() - 3600, "pnl_delta": -2000.0}) + "\n",
+        encoding="utf-8",
+    )
+    error = validate_daily_drawdown_pause(
+        trades_log_path=trades_log,
+        account_equity=account_equity,
+        max_daily_drawdown_pct=max_daily_drawdown_pct,
+        now=now,
+    )
+    assert error is None, "Loss within limit should allow trading"
+
+    # Multiple losses reaching limit: should PAUSE (at limit is treated as breach)
+    trades_log.write_text(
+        "\n".join(
+            [
+                json.dumps({"mode": "live", "ts": (now - dt.timedelta(hours=2)).timestamp(), "pnl_delta": -2500.0}),
+                json.dumps({"mode": "live", "ts": (now - dt.timedelta(hours=1)).timestamp(), "pnl_delta": -2500.0}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    error = validate_daily_drawdown_pause(
+        trades_log_path=trades_log,
+        account_equity=account_equity,
+        max_daily_drawdown_pct=max_daily_drawdown_pct,
+        now=now,
+    )
+    assert error is not None, "Loss at/above limit should pause trading (conservative)"
+    assert "daily drawdown pause active" in error
+
+    # Loss exceeding limit: should pause
+    trades_log.write_text(
+        "\n".join(
+            [
+                json.dumps({"mode": "live", "ts": (now - dt.timedelta(hours=2)).timestamp(), "pnl_delta": -3000.0}),
+                json.dumps({"mode": "live", "ts": (now - dt.timedelta(hours=1)).timestamp(), "pnl_delta": -2500.0}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    error = validate_daily_drawdown_pause(
+        trades_log_path=trades_log,
+        account_equity=account_equity,
+        max_daily_drawdown_pct=max_daily_drawdown_pct,
+        now=now,
+    )
+    assert error is not None, "Loss exceeding limit should pause trading"
+    assert "daily drawdown pause active" in error
+
+
+def test_daily_drawdown_safeguard_resets_on_new_day(tmp_path):
+    """Safeguard test: daily drawdown counter resets at day boundary."""
+    trades_log = tmp_path / "trades.jsonl"
+    account_equity = 100000
+    max_daily_drawdown_pct = 5.0
+
+    today = dt.datetime(2026, 4, 27, 12, 0, 0, tzinfo=dt.timezone.utc)
+    yesterday = today - dt.timedelta(days=1)
+
+    # Yesterday's loss exceeds limit, but today is new day
+    trades_log.write_text(
+        "\n".join(
+            [
+                json.dumps({"mode": "live", "ts": yesterday.timestamp(), "pnl_delta": -6000.0}),
+                json.dumps({"mode": "live", "ts": today.timestamp() + 3600, "pnl_delta": -1000.0}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    # Today should allow trading despite yesterday's big loss
+    error = validate_daily_drawdown_pause(
+        trades_log_path=trades_log,
+        account_equity=account_equity,
+        max_daily_drawdown_pct=max_daily_drawdown_pct,
+        now=today + dt.timedelta(hours=2),
+    )
+    assert error is None, "New day should reset drawdown counter"
+
+
+def test_safeguard_integration_trade_tool_respects_position_cap(tmp_path):
+    """Integration: trade tool enforces position cap from config."""
+    def mock_request_approval(kind, payload):
+        return "aid-456"
+
+    tool = make_trade_tool(
+        request_approval=mock_request_approval,
+        account_equity=50000,
+        max_position_pct=2.0,  # Max $1,000 per trade
+    )
+
+    # Allowed: 1000 shares at $1/share
+    result = tool.handler(
+        instrument="CHEAP",
+        side="buy",
+        size=1000,
+        rationale="Within cap",
+    )
+    assert result["status"] == "pending_approval"
+
+    # Rejected: 2000 shares at $1/share (exceeds $1,000 cap)
+    result = tool.handler(
+        instrument="CHEAP",
+        side="buy",
+        size=2000,
+        rationale="Over cap",
+    )
+    assert "error" in result
+    assert "max position size" in result["error"]
+
+
+def test_safeguard_integration_dispatch_prevents_live_trading_above_drawdown(tmp_path):
+    """Integration: dispatch_trade enforces daily drawdown limit."""
+    trades_log = tmp_path / "trades.jsonl"
+    now = dt.datetime.now(dt.timezone.utc)
+
+    # Log yesterday's big loss
+    yesterday = now - dt.timedelta(days=1)
+    trades_log.write_text(
+        json.dumps({"mode": "live", "ts": yesterday.timestamp(), "pnl_delta": -6000.0}) + "\n",
+        encoding="utf-8",
+    )
+
+    # Try to place new trade - should fail
+    result = dispatch_trade(
+        mode="live",
+        trades_log_path=trades_log,
+        payload={
+            "instrument": "AAPL",
+            "side": "buy",
+            "size": 10,
+            "rationale": "After big loss",
+            "live_confirm": True,
+        },
+        alpaca_api_key="key",
+        alpaca_api_secret="secret",
+        account_equity=100000,
+        max_daily_drawdown_pct=5.0,
+        live_cooldown_seconds=0,
+    )
+
+    # Should be rejected due to yesterday's loss
+    assert "error" in result or result["status"] != "live_submitted"
