@@ -123,6 +123,31 @@ class TestCollegeSavingsPlanner:
         assert plan.projected_shortfall_without_change == pytest.approx(0)
         assert plan.monthly_contribution_required == pytest.approx(0)
 
+    def test_estimate_required_monthly_contribution_when_college_starts_now(self):
+        self.planner.set_student_profile(
+            student_name="Ava",
+            current_age=18,
+            college_start_age=18,
+            years_of_college=2,
+            education_stage=EducationStage.IN_STATE_PUBLIC,
+            education_inflation_pct=5,
+            created_at=NOW,
+        )
+        self.planner.set_savings_account(
+            account_type=SavingsAccountType.PLAN_529,
+            current_balance=5000,
+            annual_contribution=0,
+            expected_return_pct=6,
+            created_at=NOW,
+        )
+
+        plan = self.planner.estimate_required_monthly_contribution(current_annual_cost=10000)
+
+        assert plan.years_until_college == 0
+        assert plan.target_amount == pytest.approx(20500)
+        assert plan.projected_shortfall_without_change == pytest.approx(15500)
+        assert plan.monthly_contribution_required == pytest.approx(15500)
+
     def test_get_funding_snapshot_underfunded(self):
         snapshot = self.planner.get_funding_snapshot()
         assert isinstance(snapshot, FundingSnapshot)
