@@ -524,6 +524,9 @@ def test_main_wake_word_listen_success(tmp_path, monkeypatch, capsys):
     assert payload["stt_triggered"] is True
     assert payload["stt"]["provider"] == "faster-whisper"
     assert payload["stt"]["text"] == "hello jarvis"
+    assert payload["confirmation"]["confirmed"] is True
+    assert payload["confirmation"]["attempts_used"] == 1
+    assert payload["action_outcome"] == "confirmed"
 
 
 def test_main_wake_word_listen_no_trigger_skips_stt(tmp_path, monkeypatch, capsys):
@@ -540,6 +543,8 @@ def test_main_wake_word_listen_no_trigger_skips_stt(tmp_path, monkeypatch, capsy
     assert payload["ok"] is True
     assert payload["triggered"] is False
     assert payload["stt_triggered"] is False
+    assert payload["action_outcome"] == "wake_word_not_detected"
+    assert payload["confirmation"]["attempts_used"] == 0
     assert "stt" not in payload
 
 
@@ -551,6 +556,73 @@ def test_main_wake_word_listen_missing_audio_text_errors(capsys):
     assert rc == 1
     assert payload["ok"] is False
     assert payload["error"] == "missing_audio_text"
+
+
+def test_main_wake_word_listen_confirmation_retries_until_confirmed(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("JARVIS_NOTES_DIR", str(tmp_path / "notes"))
+    monkeypatch.setenv("JARVIS_AUDIT_DB", str(tmp_path / "audit.db"))
+    monkeypatch.setenv("JARVIS_USER_NAME", "Nick")
+
+    rc = main([
+        "wake-word-listen",
+        "hello",
+        "jarvis",
+        "--confirm",
+        "no",
+        "--confirm",
+        "yes",
+        "--max-confirmation-retries",
+        "3",
+    ])
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert rc == 0
+    assert payload["ok"] is True
+    assert payload["triggered"] is True
+    assert payload["confirmation"]["confirmed"] is True
+    assert payload["confirmation"]["attempts_used"] == 2
+    assert payload["confirmation"]["max_retries"] == 3
+    assert payload["action_outcome"] == "confirmed"
+
+
+def test_main_wake_word_listen_confirmation_retries_can_fail(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("JARVIS_NOTES_DIR", str(tmp_path / "notes"))
+    monkeypatch.setenv("JARVIS_AUDIT_DB", str(tmp_path / "audit.db"))
+    monkeypatch.setenv("JARVIS_USER_NAME", "Nick")
+
+    rc = main([
+        "wake-word-listen",
+        "hello",
+        "jarvis",
+        "--confirm",
+        "no",
+        "--confirm",
+        "later",
+        "--max-confirmation-retries",
+        "2",
+    ])
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert rc == 0
+    assert payload["ok"] is True
+    assert payload["triggered"] is True
+    assert payload["confirmation"]["confirmed"] is False
+    assert payload["confirmation"]["attempts_used"] == 2
+    assert payload["action_outcome"] == "confirmation_failed"
+
+
+def test_main_wake_word_listen_invalid_max_confirmation_retries_errors(capsys):
+    rc = main(["wake-word-listen", "hello", "jarvis", "--max-confirmation-retries", "oops"])
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert rc == 1
+    assert payload["ok"] is False
+    assert payload["error"] == "invalid_max_confirmation_retries_value"
 
 
 def test_main_hud_run_calls_overlay_runner(monkeypatch, capsys):

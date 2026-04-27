@@ -779,8 +779,59 @@ def _voice_self_test(
     return 0 if ok else 2
 
 
-def _wake_word_listen(audio_text: str) -> int:
-    """Run a single wake-word listener ingestion over provided text audio."""
+def _run_confirmation_retry_loop(
+    confirmation_inputs: list[str],
+    max_confirmation_retries: int,
+) -> dict[str, object]:
+    affirmative = {
+        "y",
+        "yes",
+        "ok",
+        "okay",
+        "confirm",
+        "confirmed",
+        "proceed",
+        "go ahead",
+    }
+
+    attempts: list[dict[str, object]] = []
+    attempts_budget = max(1, max_confirmation_retries)
+    for idx in range(attempts_budget):
+        provided = confirmation_inputs[idx] if idx < len(confirmation_inputs) else ""
+        normalized = " ".join(provided.strip().lower().split())
+        accepted = normalized in affirmative
+        attempts.append(
+            {
+                "attempt": idx + 1,
+                "input": provided,
+                "accepted": accepted,
+            }
+        )
+        if accepted:
+            return {
+                "confirmed": True,
+                "attempts_used": idx + 1,
+                "max_retries": attempts_budget,
+                "attempts": attempts,
+            }
+
+    return {
+        "confirmed": False,
+        "attempts_used": attempts_budget,
+        "max_retries": attempts_budget,
+        "attempts": attempts,
+    }
+
+
+def _wake_word_listen_with_confirmation(
+    audio_text: str,
+    confirmation_inputs: list[str] | None = None,
+    max_confirmation_retries: int = 2,
+) -> int:
+    """Run wake-word ingestion and apply confirmation retries before action."""
+    if max_confirmation_retries <= 0:
+        max_confirmation_retries = 1
+
     config = Config.from_env()
     stack = build_voice_adapter_stack(
         wake_word=config.voice_wake_word,
@@ -798,17 +849,53 @@ def _wake_word_listen(audio_text: str) -> int:
     listener = WakeWordListener(adapter=stack.wake_word)
     audio_chunk = (audio_text or "").encode("utf-8")
     out = listener.ingest(audio_chunk)
-    payload = {
+
+    payload: dict[str, object] = {
         "ok": True,
         "wake_word": config.voice_wake_word,
         "audio_text": audio_text,
         **out,
     }
-    if bool(out.get("triggered")):
-        payload["stt_triggered"] = True
-        payload["stt"] = stack.stt.transcribe(audio_chunk, language="en")
-    else:
+
+    if not bool(out.get("triggered")):
         payload["stt_triggered"] = False
+        payload["confirmation"] = {
+            "confirmed": False,
+            "attempts_used": 0,
+            "max_retries": max_confirmation_retries,
+            "attempts": [],
+        }
+        payload["action_outcome"] = "wake_word_not_detected"
+        payload["outcome_message"] = "Wake word was not detected; no action was taken."
+        print(json.dumps(payload, sort_keys=True))
+        return 0
+
+    payload["stt_triggered"] = True
+    stt_out = stack.stt.transcribe(audio_chunk, language="en")
+    payload["stt"] = stt_out
+    if stt_out.get("error"):
+        payload["confirmation"] = {
+            "confirmed": False,
+            "attempts_used": 0,
+            "max_retries": max_confirmation_retries,
+            "attempts": [],
+        }
+        payload["action_outcome"] = "stt_error"
+        payload["outcome_message"] = "Wake word detected but speech transcription failed."
+        print(json.dumps(payload, sort_keys=True))
+        return 0
+
+    retry_result = _run_confirmation_retry_loop(
+        confirmation_inputs=confirmation_inputs or ["yes"],
+        max_confirmation_retries=max_confirmation_retries,
+    )
+    payload["confirmation"] = retry_result
+    if bool(retry_result.get("confirmed")):
+        payload["action_outcome"] = "confirmed"
+        payload["outcome_message"] = "Command confirmed after retry loop."
+    else:
+        payload["action_outcome"] = "confirmation_failed"
+        payload["outcome_message"] = "Confirmation failed after retry attempts; action was canceled."
     print(json.dumps(payload, sort_keys=True))
     return 0
 
@@ -2417,10 +2504,59 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     if args[0] == "wake-word-listen":
-        if len(args) < 2:
+        tail = args[1:] if len(args) >= 2 else []
+        audio_tokens: list[str] = []
+        confirmation_inputs: list[str] = []
+        max_confirmation_retries = 2
+        idx = 0
+        while idx < len(tail):
+            parsed_value, next_idx, err = _consume_flag_value(tail, idx, "--confirm", "missing_confirm_value")
+            if err:
+                print(json.dumps({"ok": False, "error": err}, sort_keys=True))
+                return 1
+            if next_idx != idx:
+                confirmation_inputs.append(parsed_value or "")
+                idx = next_idx
+                continue
+
+            parsed_value, next_idx, err = _consume_flag_value(
+                tail,
+                idx,
+                "--max-confirmation-retries",
+                "missing_max_confirmation_retries_value",
+            )
+            if err:
+                print(json.dumps({"ok": False, "error": err}, sort_keys=True))
+                return 1
+            if next_idx != idx:
+                parsed_max_retries, error_payload = _parse_int_arg(
+                    parsed_value or "",
+                    "invalid_max_confirmation_retries_value",
+                    min_value=1,
+                    max_value=10,
+                )
+                if error_payload is not None:
+                    print(json.dumps(error_payload, sort_keys=True))
+                    return 1
+                max_confirmation_retries = parsed_max_retries or max_confirmation_retries
+                idx = next_idx
+                continue
+
+            token = tail[idx]
+            if token.startswith("--"):
+                print(json.dumps({"ok": False, "error": "unknown_argument", "arg": token}, sort_keys=True))
+                return 1
+            audio_tokens.append(token)
+            idx += 1
+
+        if not audio_tokens:
             print(json.dumps({"ok": False, "error": "missing_audio_text"}, sort_keys=True))
             return 1
-        return _wake_word_listen(audio_text=" ".join(args[1:]))
+        return _wake_word_listen_with_confirmation(
+            audio_text=" ".join(audio_tokens),
+            confirmation_inputs=confirmation_inputs,
+            max_confirmation_retries=max_confirmation_retries,
+        )
 
     if args[0] == "hud-run":
         width = 720
@@ -3072,7 +3208,7 @@ def main(argv: list[str] | None = None) -> int:
         "hud-run [--width N] [--height N] [--opacity X] [--duration-ms N]|"
         "webhook-listen [source] [host] [port]|"
         "voice-self-test [--iterations N] [--max-roundtrip-ms X]|"
-        "wake-word-listen <audio_text>|"
+        "wake-word-listen <audio_text> [--confirm <text>] [--max-confirmation-retries N]|"
         "vision-listen [source] [host] [port]|"
         "vision-shortcut-template [url]|"
         "vision-shortcut-guide [url]|"
