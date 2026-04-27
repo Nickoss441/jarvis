@@ -107,6 +107,41 @@ body {
     letter-spacing: 0.03em;
 }
 
+.hud-slide-panel {
+    margin-top: 12px;
+    border: 1px solid rgba(91, 200, 255, 0.34);
+    border-radius: 12px;
+    background: rgba(6, 11, 22, 0.86);
+    padding: 12px;
+    transform: translateX(28px);
+    opacity: 0.75;
+    transition: transform 260ms ease, opacity 260ms ease, border-color 260ms ease;
+}
+
+.hud-slide-panel.is-open {
+    transform: translateX(0);
+    opacity: 1;
+    border-color: rgba(255, 155, 179, 0.75);
+}
+
+.hud-slide-title {
+    font-size: 17px;
+    font-weight: 700;
+}
+
+.hud-slide-sub {
+    margin-top: 5px;
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.hud-slide-id {
+    margin-top: 8px;
+    color: #ffdbe5;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+}
+
 .hud-alert {
     color: var(--alert);
     font-weight: 700;

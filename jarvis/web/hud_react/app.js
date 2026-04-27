@@ -25,7 +25,7 @@ function MetricCard({ label, value }) {
     );
 }
 
-function GlobeLayer() {
+function GlobeLayer({ onMarkerSelect }) {
     const containerRef = React.useRef(null);
 
     React.useEffect(() => {
@@ -105,6 +105,9 @@ function GlobeLayer() {
         });
         scene.add(markerGroup);
 
+        const raycaster = new THREE.Raycaster();
+        const pointer = new THREE.Vector2();
+
         let rafId = 0;
         const animate = () => {
             globe.rotation.y += 0.0035;
@@ -125,8 +128,25 @@ function GlobeLayer() {
         };
         window.addEventListener("resize", onResize);
 
+        const onClick = (event) => {
+            const rect = renderer.domElement.getBoundingClientRect();
+            if (!rect.width || !rect.height) {
+                return;
+            }
+            pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+            raycaster.setFromCamera(pointer, camera);
+
+            const hits = raycaster.intersectObjects(markerGroup.children, false);
+            if (hits.length && hits[0].object?.userData && onMarkerSelect) {
+                onMarkerSelect(hits[0].object.userData);
+            }
+        };
+        renderer.domElement.addEventListener("click", onClick);
+
         return () => {
             window.removeEventListener("resize", onResize);
+            renderer.domElement.removeEventListener("click", onClick);
             cancelAnimationFrame(rafId);
             pointsGeometry.dispose();
             pointsMaterial.dispose();
@@ -157,7 +177,27 @@ function GlobeLayer() {
     });
 }
 
+function SlidePanel({ marker }) {
+    const title = marker?.label || "Marker Details";
+    const coord = marker
+        ? `lat ${Number(marker.lat).toFixed(4)}, lon ${Number(marker.lon).toFixed(4)}`
+        : "Select a globe marker to inspect details.";
+    const markerId = marker?.id || "none";
+
+    return React.createElement(
+        "aside",
+        {
+            className: `hud-slide-panel ${marker ? "is-open" : ""}`,
+            "aria-live": "polite",
+        },
+        React.createElement("div", { className: "hud-slide-title" }, title),
+        React.createElement("div", { className: "hud-slide-sub" }, coord),
+        React.createElement("div", { className: "hud-slide-id" }, `id: ${markerId}`)
+    );
+}
+
 function HudViewport() {
+    const [selectedMarker, setSelectedMarker] = React.useState(null);
     const now = new Date();
     const iso = now.toISOString();
 
@@ -178,7 +218,8 @@ function HudViewport() {
             React.createElement(MetricCard, { label: "Runtime Mode", value: "paper" }),
             React.createElement(MetricCard, { label: "Viewport Rev", value: "v0" })
         ),
-        React.createElement(GlobeLayer),
+        React.createElement(GlobeLayer, { onMarkerSelect: setSelectedMarker }),
+        React.createElement(SlidePanel, { marker: selectedMarker }),
         React.createElement(
             "div",
             { className: "hud-footnotes" },

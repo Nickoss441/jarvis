@@ -259,11 +259,16 @@ def test_approval_api_serves_react_hud_viewport_and_assets(tmp_path):
         assert "GLOBE_MARKERS" in app_js
         assert "Hormuz" in app_js
         assert "Kabul" in app_js
+        assert "Raycaster" in app_js
+        assert "SlidePanel" in app_js
+        assert "onMarkerSelect" in app_js
         assert "No critical alerts" in app_js
 
         assert ".hud-shell" in styles_css
         assert ".globe-frame" in styles_css
         assert ".hud-footnotes" in styles_css
+        assert ".hud-slide-panel" in styles_css
+        assert ".hud-slide-panel.is-open" in styles_css
         assert "radial-gradient" in styles_css
         assert "@media (max-width: 760px)" in styles_css
     finally:
