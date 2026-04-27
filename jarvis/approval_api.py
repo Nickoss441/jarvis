@@ -15,7 +15,7 @@ from .config import Config
 from .event_bus import EventBus
 from .monitor_runner import MonitorRunner, register_configured_monitors
 from .payments_ledger import PaymentsBudgetLedger
-from .perception.chat import build_chat_registry
+from .perception.chat import build_chat_registry, parse_sms_command
 from .runtime import RuntimeEventEnvelope
 from .trade_review import (
     generate_trade_review_artifact,
@@ -1381,20 +1381,26 @@ def create_approval_api_server(
                     self._send(400, {"error": str(parsed_chat.get("error"))})
                     return
 
+                text = str(parsed_chat.get("text") or "").strip()
+                sms_command = parse_sms_command(text)
+
                 event = RuntimeEventEnvelope(
                     kind="chat_message",
                     source="chat_twilio_sms",
                     payload={
                         **parsed_chat,
                         "account_id": account_id,
+                        "sms_command": sms_command,
                     },
                 )
                 EventBus(config.event_bus_db).emit(event)
 
-                text = str(parsed_chat.get("text") or "").strip()
                 if not text:
                     if wants_json:
-                        self._send(200, {"status": "accepted", "event_id": event.id})
+                        payload_out = {"status": "accepted", "event_id": event.id}
+                        if sms_command.get("recognized"):
+                            payload_out["sms_command"] = sms_command
+                        self._send(200, payload_out)
                     else:
                         self._send_xml(
                             200,
@@ -1420,6 +1426,8 @@ def create_approval_api_server(
                     "status": "accepted",
                     "event_id": event.id,
                 }
+                if sms_command.get("recognized"):
+                    payload_out["sms_command"] = sms_command
                 if reply:
                     payload_out["reply"] = reply
                 if reply_error:

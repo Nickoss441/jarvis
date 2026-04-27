@@ -1,4 +1,4 @@
-from jarvis.perception.chat import build_chat_registry, extract_command
+from jarvis.perception.chat import build_chat_registry, extract_command, parse_sms_command
 from jarvis.perception.chat.bot import BotChatAdapter
 from jarvis.perception.chat.shortcuts import ShortcutsChatAdapter
 
@@ -93,3 +93,37 @@ def test_chat_registry_reports_unknown_source():
     out = reg.parse("discord", {"text": "hello"})
 
     assert "unknown chat source" in out["error"]
+
+
+def test_parse_sms_command_approve_intent() -> None:
+    out = parse_sms_command("approve approval-123 because looks good")
+
+    assert out["recognized"] is True
+    assert out["intent"] == "approve"
+    assert out["approval_id"] == "approval-123"
+    assert out["reason"] == "because looks good"
+
+
+def test_parse_sms_command_reject_intent() -> None:
+    out = parse_sms_command("/reject approval-999 unsafe")
+
+    assert out["recognized"] is True
+    assert out["intent"] == "reject"
+    assert out["approval_id"] == "approval-999"
+
+
+def test_parse_sms_command_list_and_help_intents() -> None:
+    list_out = parse_sms_command("list approvals")
+    help_out = parse_sms_command("help")
+
+    assert list_out["recognized"] is True
+    assert list_out["intent"] == "list_approvals"
+    assert help_out["recognized"] is True
+    assert help_out["intent"] == "help"
+
+
+def test_parse_sms_command_unknown_for_plain_text() -> None:
+    out = parse_sms_command("book me dinner tonight")
+
+    assert out["recognized"] is False
+    assert out["intent"] == ""

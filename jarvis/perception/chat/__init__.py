@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .bot import BotChatAdapter, extract_command
+from .bot import BotChatAdapter, extract_command, parse_sms_command
 from .shortcuts import ShortcutsChatAdapter
 
 
@@ -37,5 +37,6 @@ __all__ = [
     "BotChatAdapter",
     "ChatAdapterRegistry",
     "extract_command",
+    "parse_sms_command",
     "build_chat_registry",
 ]

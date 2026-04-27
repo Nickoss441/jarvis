@@ -900,6 +900,7 @@ def test_chat_twilio_accepts_form_payload_and_emits_event(tmp_path):
         assert latest.payload["account_id"] == "nick"
         assert latest.payload["sender"] == "+15551234567"
         assert latest.payload["text"] == "schedule dentist tomorrow"
+        assert latest.payload["sms_command"]["recognized"] is False
         assert latest.source == "chat_twilio_sms"
     finally:
         server.shutdown()
@@ -957,6 +958,43 @@ def test_chat_twilio_returns_twiml_by_default(tmp_path):
         assert "application/xml" in content_type
         assert "<Response>" in body
         assert "<Message>" in body
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_chat_twilio_parses_command_and_returns_it_in_json_response(tmp_path):
+    cfg = _cfg(tmp_path)
+    cfg.chat_account_id = "nick"
+    cfg.chat_auth_token = "chat-secret"
+
+    server = create_approval_api_server(cfg, host="127.0.0.1", port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address
+
+    try:
+        status, payload = _post_form_with_status(
+            f"http://{host}:{port}/chat/twilio?account_id=nick&token=chat-secret&response_format=json",
+            {
+                "From": "+15551234567",
+                "To": "+15557654321",
+                "Body": "approve approval-123 looks good",
+                "MessageSid": "SM-CMD-1",
+            },
+        )
+        assert status == 200
+        assert payload["status"] == "accepted"
+        assert payload["sms_command"]["recognized"] is True
+        assert payload["sms_command"]["intent"] == "approve"
+        assert payload["sms_command"]["approval_id"] == "approval-123"
+
+        events = EventBus(cfg.event_bus_db).recent(limit=5, kind="chat_message")
+        assert len(events) >= 1
+        latest = events[0]
+        assert latest.payload["sms_command"]["recognized"] is True
+        assert latest.payload["sms_command"]["intent"] == "approve"
     finally:
         server.shutdown()
         server.server_close()
