@@ -1,10 +1,14 @@
 :root {
-    --bg-a: #04070f;
-    --bg-b: #0a1426;
+    --bg-a: #03060d;
+    --bg-b: #0a1120;
+    --panel: rgba(7, 14, 28, 0.72);
+    --panel-strong: rgba(5, 10, 20, 0.88);
     --line: #5bc8ff;
+    --line-soft: rgba(91, 200, 255, 0.28);
     --text: #e4f5ff;
     --muted: #8fb8ce;
     --alert: #ff6b88;
+    --gold: #ffd166;
 }
 
 * {
@@ -18,34 +22,58 @@ body {
     color: var(--text);
     background:
         radial-gradient(circle at 18% 15%, rgba(91, 200, 255, 0.22), transparent 42%),
-        radial-gradient(circle at 80% 76%, rgba(255, 107, 136, 0.16), transparent 36%),
+        radial-gradient(circle at 80% 76%, rgba(255, 107, 136, 0.14), transparent 36%),
         linear-gradient(135deg, var(--bg-a), var(--bg-b));
 }
 
 #root {
-    max-width: 980px;
+    max-width: 1320px;
     margin: 28px auto;
-    padding: 0 16px;
+    padding: 0 16px 28px;
 }
 
 .hud-shell {
     border: 1px solid rgba(91, 200, 255, 0.5);
-    border-radius: 18px;
-    background: rgba(7, 14, 28, 0.72);
-    backdrop-filter: blur(10px);
-    box-shadow: 0 0 36px rgba(91, 200, 255, 0.25);
-    padding: 18px;
+    border-radius: 24px;
+    background: var(--panel);
+    backdrop-filter: blur(14px);
+    box-shadow: 0 0 36px rgba(91, 200, 255, 0.18), inset 0 0 80px rgba(91, 200, 255, 0.04);
+    padding: 20px;
+}
+
+.hud-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid rgba(91, 200, 255, 0.34);
+    border-radius: 999px;
+    padding: 6px 10px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: #bde8ff;
+    background: rgba(7, 14, 28, 0.62);
 }
 
 .hud-title {
-    margin: 0;
-    font-size: 30px;
+    margin: 14px 0 0;
+    font-size: 34px;
+    line-height: 1;
     letter-spacing: 0.06em;
 }
 
 .hud-subline {
-    margin-top: 6px;
+    max-width: 840px;
+    margin-top: 8px;
     color: var(--muted);
+    font-size: 14px;
+}
+
+.hud-command-deck {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 18px;
 }
 
 .hud-grid {
@@ -56,10 +84,81 @@ body {
 }
 
 .hud-card {
-    border: 1px solid rgba(91, 200, 255, 0.28);
-    border-radius: 12px;
-    background: rgba(7, 14, 28, 0.62);
+    border: 1px solid var(--line-soft);
+    border-radius: 14px;
+    background: rgba(7, 14, 28, 0.64);
     padding: 12px;
+    min-height: 102px;
+}
+
+.hud-card.tone-rose {
+    border-color: rgba(255, 123, 149, 0.4);
+    box-shadow: inset 0 0 30px rgba(255, 123, 149, 0.06);
+}
+
+.hud-card.tone-gold {
+    border-color: rgba(255, 209, 102, 0.35);
+    box-shadow: inset 0 0 30px rgba(255, 209, 102, 0.05);
+}
+
+.hud-card-meta {
+    margin-top: 10px;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.hud-marker-ribbon {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 16px;
+}
+
+.hud-marker-pill {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    border: 1px solid var(--line-soft);
+    border-radius: 14px;
+    background: rgba(8, 16, 30, 0.74);
+    color: var(--text);
+    padding: 11px 12px;
+    cursor: pointer;
+    transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.hud-marker-pill:hover {
+    transform: translateY(-1px);
+    border-color: rgba(125, 219, 255, 0.65);
+}
+
+.hud-marker-pill.is-active {
+    border-color: rgba(255, 148, 171, 0.72);
+    box-shadow: 0 0 20px rgba(255, 107, 136, 0.18);
+}
+
+.hud-marker-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    box-shadow: 0 0 12px currentColor;
+    flex: 0 0 auto;
+}
+
+.hud-marker-name {
+    flex: 1 1 auto;
+    text-align: left;
+    font-size: 12px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.hud-marker-priority {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: #ffdbe5;
 }
 
 .hud-label {
@@ -75,57 +174,108 @@ body {
     font-weight: 700;
 }
 
+.hud-theatre {
+    display: grid;
+    grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.9fr);
+    gap: 16px;
+    margin-top: 16px;
+    align-items: start;
+}
+
+.hud-main-column,
+.hud-side-column {
+    display: grid;
+    gap: 14px;
+}
+
 .hud-footer {
-    margin-top: 14px;
+    margin-top: 16px;
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 12px;
     color: var(--muted);
     font-size: 12px;
 }
 
 .globe-frame {
-    margin-top: 14px;
+    position: relative;
     border: 1px solid rgba(91, 200, 255, 0.34);
-    border-radius: 12px;
-    background: radial-gradient(circle at 50% 40%, rgba(91, 200, 255, 0.12), rgba(4, 8, 16, 0.86));
-    min-height: 280px;
-    box-shadow: inset 0 0 28px rgba(42, 163, 219, 0.22);
+    border-radius: 18px;
+    background: radial-gradient(circle at 50% 40%, rgba(91, 200, 255, 0.12), rgba(4, 8, 16, 0.92));
+    min-height: 420px;
+    box-shadow: inset 0 0 28px rgba(42, 163, 219, 0.18), 0 0 24px rgba(91, 200, 255, 0.08);
     overflow: hidden;
 }
 
-.globe-frame canvas {
+.globe-canvas,
+.globe-canvas canvas {
     display: block;
     width: 100%;
-    height: 280px;
+    height: 420px;
+}
+
+.globe-status-chip {
+    position: absolute;
+    top: 14px;
+    left: 14px;
+    z-index: 1;
+    border: 1px solid rgba(91, 200, 255, 0.38);
+    border-radius: 999px;
+    padding: 6px 10px;
+    background: rgba(6, 12, 23, 0.84);
+    color: #d7f4ff;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.globe-scanline {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to bottom, transparent 0%, rgba(91, 200, 255, 0.06) 48%, transparent 52%);
+    animation: scanline 4.6s linear infinite;
+    pointer-events: none;
 }
 
 .hud-footnotes {
-    margin-top: 10px;
     color: var(--muted);
     font-size: 12px;
     letter-spacing: 0.03em;
 }
 
+.hud-slide-panel,
+.hud-dialogue-panel,
+.hud-mission-card,
+.burst-widget {
+    border: 1px solid var(--line-soft);
+    border-radius: 16px;
+    background: var(--panel-strong);
+}
+
 .hud-slide-panel {
-    margin-top: 12px;
-    border: 1px solid rgba(91, 200, 255, 0.34);
-    border-radius: 12px;
-    background: rgba(6, 11, 22, 0.86);
-    padding: 12px;
-    transform: translateX(28px);
-    opacity: 0.75;
-    transition: transform 260ms ease, opacity 260ms ease, border-color 260ms ease;
+    padding: 14px;
+    min-height: 360px;
 }
 
 .hud-slide-panel.is-open {
-    transform: translateX(0);
-    opacity: 1;
     border-color: rgba(255, 155, 179, 0.75);
+    box-shadow: 0 0 24px rgba(255, 123, 149, 0.12);
+}
+
+.hud-panel-kicker,
+.hud-panel-section-title,
+.hud-dialogue-title,
+.hud-mission-title {
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #d9f4ff;
 }
 
 .hud-slide-title {
-    font-size: 17px;
+    margin-top: 10px;
+    font-size: 22px;
     font-weight: 700;
 }
 
@@ -135,8 +285,76 @@ body {
     font-size: 13px;
 }
 
-.hud-slide-id {
+.hud-slide-summary {
+    margin: 12px 0 0;
+    color: #dff4ff;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.hud-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 14px;
+}
+
+.hud-stat-card {
+    border: 1px solid rgba(91, 200, 255, 0.18);
+    border-radius: 12px;
+    background: rgba(8, 16, 30, 0.64);
+    padding: 10px;
+}
+
+.hud-stat-card span {
+    display: block;
+    color: var(--muted);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.hud-stat-card strong {
+    display: block;
     margin-top: 8px;
+    font-size: 18px;
+    font-weight: 700;
+    color: #fff2f6;
+}
+
+.hud-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.hud-info-chip {
+    border: 1px solid rgba(91, 200, 255, 0.22);
+    border-radius: 999px;
+    background: rgba(10, 18, 34, 0.78);
+    padding: 6px 10px;
+    font-size: 11px;
+    color: #d9f4ff;
+    letter-spacing: 0.06em;
+}
+
+.hud-protocol-list {
+    display: grid;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.hud-protocol-item {
+    border-left: 2px solid rgba(255, 123, 149, 0.6);
+    padding: 8px 10px;
+    background: rgba(9, 15, 28, 0.72);
+    color: #e6f6ff;
+    font-size: 12px;
+}
+
+.hud-slide-id {
+    margin-top: 12px;
     color: #ffdbe5;
     font-size: 12px;
     letter-spacing: 0.04em;
