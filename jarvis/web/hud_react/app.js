@@ -25,6 +25,25 @@ function MetricCard({ label, value }) {
     );
 }
 
+const ACTIVE_AGENTS = ["Planner", "Trader", "Comms"];
+
+function ActiveAgentLoop({ activeIndex }) {
+    return React.createElement(
+        "section",
+        { className: "hud-agent-loop", "aria-label": "Active agent loop" },
+        ACTIVE_AGENTS.map((name, idx) =>
+            React.createElement(
+                "div",
+                {
+                    key: name,
+                    className: `agent-chip ${idx === activeIndex ? "is-active" : ""}`,
+                },
+                name
+            )
+        )
+    );
+}
+
 function BurstWidget({ label, tone, delayMs }) {
     const classes = `burst-widget tone-${tone}`;
     const style = { animationDelay: `${delayMs}ms` };
@@ -221,8 +240,16 @@ function SlidePanel({ marker }) {
 
 function HudViewport() {
     const [selectedMarker, setSelectedMarker] = React.useState(null);
+    const [activeAgentIndex, setActiveAgentIndex] = React.useState(0);
     const now = new Date();
     const iso = now.toISOString();
+
+    React.useEffect(() => {
+        const timer = window.setInterval(() => {
+            setActiveAgentIndex((current) => (current + 1) % ACTIVE_AGENTS.length);
+        }, 1400);
+        return () => window.clearInterval(timer);
+    }, []);
 
     return React.createElement(
         "main",
@@ -241,6 +268,7 @@ function HudViewport() {
             React.createElement(MetricCard, { label: "Runtime Mode", value: "paper" }),
             React.createElement(MetricCard, { label: "Viewport Rev", value: "v0" })
         ),
+        React.createElement(ActiveAgentLoop, { activeIndex: activeAgentIndex }),
         React.createElement(BurstWidgetStrip),
         React.createElement(GlobeLayer, { onMarkerSelect: setSelectedMarker }),
         React.createElement(SlidePanel, { marker: selectedMarker }),

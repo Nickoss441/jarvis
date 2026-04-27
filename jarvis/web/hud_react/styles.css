@@ -149,6 +149,32 @@ body {
     gap: 10px;
 }
 
+.hud-agent-loop {
+    margin-top: 14px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.agent-chip {
+    border: 1px solid rgba(91, 200, 255, 0.3);
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: rgba(7, 14, 28, 0.7);
+    transition: border-color 220ms ease, color 220ms ease, box-shadow 220ms ease;
+}
+
+.agent-chip.is-active {
+    border-color: rgba(255, 165, 188, 0.92);
+    color: #ffe6ee;
+    box-shadow: 0 0 18px rgba(255, 129, 163, 0.35);
+    animation: active-chip-glow 1s ease-in-out infinite alternate;
+}
+
 .burst-widget {
     position: relative;
     border: 1px solid rgba(91, 200, 255, 0.3);
@@ -231,6 +257,15 @@ body {
     }
 }
 
+@keyframes active-chip-glow {
+    from {
+        transform: translateY(0);
+    }
+    to {
+        transform: translateY(-1px);
+    }
+}
+
 .hud-alert {
     color: var(--alert);
     font-weight: 700;
@@ -253,5 +288,9 @@ body {
 
     .hud-burst-strip {
         grid-template-columns: 1fr;
+    }
+
+    .hud-agent-loop {
+        gap: 6px;
     }
 }

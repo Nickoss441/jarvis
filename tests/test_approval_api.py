@@ -264,6 +264,9 @@ def test_approval_api_serves_react_hud_viewport_and_assets(tmp_path):
         assert "onMarkerSelect" in app_js
         assert "BurstWidgetStrip" in app_js
         assert "burst-widget" in app_js
+        assert "ActiveAgentLoop" in app_js
+        assert "setInterval" in app_js
+        assert "ACTIVE_AGENTS" in app_js
         assert "No critical alerts" in app_js
 
         assert ".hud-shell" in styles_css
@@ -273,6 +276,9 @@ def test_approval_api_serves_react_hud_viewport_and_assets(tmp_path):
         assert ".hud-slide-panel.is-open" in styles_css
         assert ".hud-burst-strip" in styles_css
         assert "@keyframes burst-ring" in styles_css
+        assert ".hud-agent-loop" in styles_css
+        assert ".agent-chip.is-active" in styles_css
+        assert "@keyframes active-chip-glow" in styles_css
         assert "radial-gradient" in styles_css
         assert "@media (max-width: 760px)" in styles_css
     finally:
