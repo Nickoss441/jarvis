@@ -14,13 +14,14 @@ class RuntimeTask:
     name: str
     payload: dict[str, Any]
     created_ts: float
+    priority: int = 0
     status: str = "pending"
     attempts: int = 0
     last_error: str = ""
 
 
 class RuntimeTaskQueue:
-    """Deterministic in-memory FIFO queue for orchestrator tasks."""
+    """Deterministic in-memory priority queue for orchestrator tasks."""
 
     def __init__(self) -> None:
         self._pending: list[RuntimeTask] = []
@@ -29,10 +30,18 @@ class RuntimeTaskQueue:
         self._failed: dict[str, RuntimeTask] = {}
         self._counter: int = 0
 
-    def enqueue(self, name: str, payload: dict[str, Any] | None = None) -> RuntimeTask:
+    def enqueue(
+        self,
+        name: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        priority: int = 0,
+    ) -> RuntimeTask:
         task_name = str(name or "").strip()
         if not task_name:
             raise ValueError("task name is required")
+        if not isinstance(priority, int):
+            raise ValueError("task priority must be an integer")
 
         self._counter += 1
         task = RuntimeTask(
@@ -40,17 +49,51 @@ class RuntimeTaskQueue:
             name=task_name,
             payload=dict(payload or {}),
             created_ts=time(),
+            priority=priority,
         )
         self._pending.append(task)
         return task
 
-    def dequeue(self) -> RuntimeTask | None:
+    def _highest_priority_pending_index(self) -> int | None:
         if not self._pending:
             return None
-        task = self._pending.pop(0)
+        best_index = 0
+        best_priority = self._pending[0].priority
+        for idx, task in enumerate(self._pending[1:], start=1):
+            if task.priority > best_priority:
+                best_priority = task.priority
+                best_index = idx
+        return best_index
+
+    def dequeue(self) -> RuntimeTask | None:
+        selected = self._highest_priority_pending_index()
+        if selected is None:
+            return None
+        task = self._pending.pop(selected)
         task.status = "in_progress"
         self._in_progress[task.id] = task
         return task
+
+    def preempt_if_needed(self, task_id: str) -> RuntimeTask | None:
+        current = self._in_progress.get(task_id)
+        selected = self._highest_priority_pending_index()
+        if current is None or selected is None:
+            return None
+
+        candidate = self._pending[selected]
+        if candidate.priority <= current.priority:
+            return None
+
+        self._in_progress.pop(task_id, None)
+        current.status = "pending"
+        current.attempts += 1
+        current.last_error = f"preempted_by:{candidate.id}"
+        self._pending.append(current)
+
+        promoted = self._pending.pop(selected)
+        promoted.status = "in_progress"
+        self._in_progress[promoted.id] = promoted
+        return promoted
 
     def complete(self, task_id: str) -> bool:
         task = self._in_progress.pop(task_id, None)
@@ -111,8 +154,14 @@ class RuntimeOrchestrator:
             max_iterations=self.max_iterations,
         )
 
-    def enqueue_task(self, name: str, payload: dict[str, Any] | None = None) -> RuntimeTask:
-        return self.task_queue.enqueue(name=name, payload=payload)
+    def enqueue_task(
+        self,
+        name: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        priority: int = 0,
+    ) -> RuntimeTask:
+        return self.task_queue.enqueue(name=name, payload=payload, priority=priority)
 
     def next_task(self) -> RuntimeTask | None:
         return self.task_queue.dequeue()
@@ -122,6 +171,9 @@ class RuntimeOrchestrator:
 
     def fail_task(self, task_id: str, *, error: str = "") -> bool:
         return self.task_queue.fail(task_id, error=error)
+
+    def preempt_task_if_needed(self, task_id: str) -> RuntimeTask | None:
+        return self.task_queue.preempt_if_needed(task_id)
 
     @staticmethod
     def text_from_blocks(blocks: Iterable[Any]) -> str:

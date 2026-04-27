@@ -153,6 +153,46 @@ def test_runtime_task_queue_requeue_increments_attempts():
     assert again.last_error == "transient"
 
 
+def test_runtime_task_queue_dequeues_highest_priority_first():
+    orchestrator = RuntimeOrchestrator(max_iterations=2)
+    low = orchestrator.enqueue_task("low", priority=1)
+    high = orchestrator.enqueue_task("high", priority=5)
+    medium = orchestrator.enqueue_task("medium", priority=3)
+
+    first = orchestrator.next_task()
+    assert first is not None
+    assert first.id == high.id
+
+    second = orchestrator.next_task()
+    assert second is not None
+    assert second.id == medium.id
+
+    third = orchestrator.next_task()
+    assert third is not None
+    assert third.id == low.id
+
+
+def test_runtime_task_queue_preempts_lower_priority_task_when_needed():
+    orchestrator = RuntimeOrchestrator(max_iterations=2)
+    low = orchestrator.enqueue_task("capture", priority=1)
+    running = orchestrator.next_task()
+    assert running is not None
+    assert running.id == low.id
+
+    high = orchestrator.enqueue_task("interrupt", priority=10)
+    preempted = orchestrator.preempt_task_if_needed(running.id)
+
+    assert preempted is not None
+    assert preempted.id == high.id
+    assert preempted.status == "in_progress"
+
+    resumed = orchestrator.next_task()
+    assert resumed is not None
+    assert resumed.id == low.id
+    assert resumed.attempts == 1
+    assert resumed.last_error == f"preempted_by:{high.id}"
+
+
 def test_runtime_event_envelope_defaults_correlation_id_to_event_id():
     event = RuntimeEventEnvelope(kind="webhook", source="webhook_demo", payload={"ok": True})
 
