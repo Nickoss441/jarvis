@@ -21,6 +21,7 @@ from .event_bus import EventBus
 from .event_automation import EventAutomation
 from .monitor_runner import MonitorRunner, register_configured_monitors
 from .monitors import CalendarMonitor, FilesystemMonitor, RSSMonitor, VisionIngestMonitor, WebhookMonitor
+from .stack_setup import build_stack_readiness_report
 from .vision_bridge import build_shortcut_guide, build_shortcut_template
 from .vision_analyze import analyze_frame_b64
 from .tools.trade import (
@@ -1017,6 +1018,14 @@ def _hud_run(
         return 1
 
     print(json.dumps({"ok": True, "status": "hud_closed"}, sort_keys=True))
+    return 0
+
+
+def _stack_self_test(*, strict: bool = False) -> int:
+    report = build_stack_readiness_report(strict=strict)
+    print(json.dumps(report, sort_keys=True))
+    if strict and not bool(report.get("ok", True)):
+        return 2
     return 0
 
 
@@ -2634,6 +2643,17 @@ def main(argv: list[str] | None = None) -> int:
             duration_ms=duration_ms,
         )
 
+    if args[0] == "stack-self-test":
+        strict = False
+        tail = args[1:] if len(args) >= 2 else []
+        for token in tail:
+            if token == "--strict":
+                strict = True
+                continue
+            print(json.dumps({"ok": False, "error": "unknown_argument", "arg": token}, sort_keys=True))
+            return 1
+        return _stack_self_test(strict=strict)
+
     if args[0] == "vision-analyze":
         if len(args) < 2:
             print(json.dumps({"ok": False, "error": "missing_image_arg"}, sort_keys=True))
@@ -3206,6 +3226,7 @@ def main(argv: list[str] | None = None) -> int:
         "system-control|"
         "monitor-run-once|"
         "hud-run [--width N] [--height N] [--opacity X] [--duration-ms N]|"
+        "stack-self-test [--strict]|"
         "webhook-listen [source] [host] [port]|"
         "voice-self-test [--iterations N] [--max-roundtrip-ms X]|"
         "wake-word-listen <audio_text> [--confirm <text>] [--max-confirmation-retries N]|"

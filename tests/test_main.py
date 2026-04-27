@@ -680,6 +680,58 @@ def test_main_hud_run_reports_pyqt_unavailable(monkeypatch, capsys):
     assert payload["error"] == "pyqt_unavailable"
 
 
+def test_main_stack_self_test_reports_components(monkeypatch, capsys):
+    import jarvis.stack_setup as stack_setup
+
+    monkeypatch.setattr(
+        stack_setup,
+        "_find_spec",
+        lambda name: object() if name in {"langchain", "PyQt6", "cv2"} else None,
+    )
+
+    rc = main(["stack-self-test"])
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert rc == 0
+    assert payload["ok"] is True
+    assert payload["ready"] is True
+    assert payload["components"]["langchain"] is True
+    assert payload["components"]["pyqt6"] is True
+    assert payload["components"]["opencv"] is True
+
+
+def test_main_stack_self_test_strict_fails_when_dependency_missing(monkeypatch, capsys):
+    import jarvis.stack_setup as stack_setup
+
+    monkeypatch.setattr(
+        stack_setup,
+        "_find_spec",
+        lambda name: object() if name == "langchain" else None,
+    )
+
+    rc = main(["stack-self-test", "--strict"])
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert rc == 2
+    assert payload["ok"] is False
+    assert payload["error"] == "stack_dependencies_missing"
+    assert payload["ready"] is False
+    assert "pyqt6" in payload["missing_components"]
+    assert "opencv" in payload["missing_components"]
+
+
+def test_main_stack_self_test_unknown_arg_errors(capsys):
+    rc = main(["stack-self-test", "--nope"])
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+
+    assert rc == 1
+    assert payload["ok"] is False
+    assert payload["error"] == "unknown_argument"
+
+
 def test_main_audit_correlation_returns_matching_events(tmp_path, monkeypatch, capsys):
     db = tmp_path / "audit.db"
     log = AuditLog(db)
