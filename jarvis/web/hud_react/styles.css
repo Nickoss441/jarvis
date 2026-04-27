@@ -1,0 +1,100 @@
+:root {
+    --bg-a: #04070f;
+    --bg-b: #0a1426;
+    --line: #5bc8ff;
+    --text: #e4f5ff;
+    --muted: #8fb8ce;
+    --alert: #ff6b88;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    min-height: 100vh;
+    font-family: "Space Grotesk", "Avenir Next", "Segoe UI", sans-serif;
+    color: var(--text);
+    background:
+        radial-gradient(circle at 18% 15%, rgba(91, 200, 255, 0.22), transparent 42%),
+        radial-gradient(circle at 80% 76%, rgba(255, 107, 136, 0.16), transparent 36%),
+        linear-gradient(135deg, var(--bg-a), var(--bg-b));
+}
+
+#root {
+    max-width: 980px;
+    margin: 28px auto;
+    padding: 0 16px;
+}
+
+.hud-shell {
+    border: 1px solid rgba(91, 200, 255, 0.5);
+    border-radius: 18px;
+    background: rgba(7, 14, 28, 0.72);
+    backdrop-filter: blur(10px);
+    box-shadow: 0 0 36px rgba(91, 200, 255, 0.25);
+    padding: 18px;
+}
+
+.hud-title {
+    margin: 0;
+    font-size: 30px;
+    letter-spacing: 0.06em;
+}
+
+.hud-subline {
+    margin-top: 6px;
+    color: var(--muted);
+}
+
+.hud-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 14px;
+}
+
+.hud-card {
+    border: 1px solid rgba(91, 200, 255, 0.28);
+    border-radius: 12px;
+    background: rgba(7, 14, 28, 0.62);
+    padding: 12px;
+}
+
+.hud-label {
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-size: 11px;
+    color: var(--muted);
+}
+
+.hud-value {
+    margin-top: 8px;
+    font-size: 26px;
+    font-weight: 700;
+}
+
+.hud-footer {
+    margin-top: 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.hud-alert {
+    color: var(--alert);
+    font-weight: 700;
+}
+
+@media (max-width: 760px) {
+    .hud-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .hud-title {
+        font-size: 26px;
+    }
+}

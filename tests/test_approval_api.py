@@ -235,6 +235,36 @@ def test_approval_api_serves_web_ui_root(tmp_path):
         thread.join(timeout=2)
 
 
+def test_approval_api_serves_react_hud_viewport_and_assets(tmp_path):
+    cfg = _cfg(tmp_path)
+
+    server = create_approval_api_server(cfg, host="127.0.0.1", port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address
+
+    try:
+        viewport_html = _get_text(f"http://{host}:{port}/hud/react")
+        app_js = _get_text(f"http://{host}:{port}/hud/react/app.js")
+        styles_css = _get_text(f"http://{host}:{port}/hud/react/styles.css")
+
+        assert "Jarvis React HUD" in viewport_html
+        assert "/hud/react/app.js" in viewport_html
+        assert "/hud/react/styles.css" in viewport_html
+
+        assert "createRoot" in app_js
+        assert "HudViewport" in app_js
+        assert "No critical alerts" in app_js
+
+        assert ".hud-shell" in styles_css
+        assert "radial-gradient" in styles_css
+        assert "@media (max-width: 760px)" in styles_css
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
 def test_approval_api_dispatch_endpoint(tmp_path):
     cfg = _cfg(tmp_path)
     service = ApprovalService(cfg)

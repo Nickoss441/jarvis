@@ -25,6 +25,14 @@ from .trade_review import (
 )
 
 
+REACT_HUD_ASSETS = {
+    "index.html": "text/html; charset=utf-8",
+    "app.js": "application/javascript; charset=utf-8",
+    "styles.css": "text/css; charset=utf-8",
+}
+REACT_HUD_DIR = Path(__file__).resolve().parent / "web" / "hud_react"
+
+
 UI_HTML = """<!doctype html>
 <html lang="en">
 <head>
@@ -1107,6 +1115,16 @@ def _chat_auth_ok(config: Config, account_id: str, token: str) -> bool:
     return hmac.compare_digest(expected, token or "")
 
 
+def _load_react_hud_asset(filename: str) -> tuple[str, str] | None:
+    content_type = REACT_HUD_ASSETS.get(filename)
+    if content_type is None:
+        return None
+    path = REACT_HUD_DIR / filename
+    if not path.exists() or not path.is_file():
+        return None
+    return content_type, path.read_text(encoding="utf-8")
+
+
 def _payments_signature_ok(secret: str, raw_body: bytes, provided_sig: str) -> bool:
     if not secret.strip() or not provided_sig.strip():
         return False
@@ -1181,10 +1199,37 @@ def create_approval_api_server(
             self.end_headers()
             self.wfile.write(data)
 
+        def _send_text(self, status: int, text: str, content_type: str) -> None:
+            data = text.encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
         def do_GET(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
             if parsed.path == "/":
                 self._send_html(200, _render_ui_html(config))
+                return
+
+            if parsed.path == "/hud/react":
+                asset = _load_react_hud_asset("index.html")
+                if asset is None:
+                    self._send(404, {"error": "react hud viewport unavailable"})
+                    return
+                content_type, body = asset
+                self._send_text(200, body, content_type)
+                return
+
+            if parsed.path in {"/hud/react/app.js", "/hud/react/styles.css"}:
+                filename = Path(parsed.path).name
+                asset = _load_react_hud_asset(filename)
+                if asset is None:
+                    self._send(404, {"error": "react hud asset unavailable"})
+                    return
+                content_type, body = asset
+                self._send_text(200, body, content_type)
                 return
 
             if parsed.path == "/health":
