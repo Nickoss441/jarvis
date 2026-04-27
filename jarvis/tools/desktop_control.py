@@ -7,6 +7,7 @@ It supports a small set of actions:
 - close_window: close the current frontmost window
 - open_app: launch or focus an app by name
 - open_url: open a URL with the default handler
+- open_chrome_url: open a URL specifically in Google Chrome
 - keystroke: send a key combo using AppleScript System Events
 - type_text: type plain text into the focused app
 
@@ -25,7 +26,7 @@ from typing import Any
 from . import Tool
 
 _MAX_TEXT_CHARS = 500
-_VALID_ACTIONS = {"active_window", "focus_app", "close_window", "screenshot", "open_app", "open_url", "keystroke", "type_text"}
+_VALID_ACTIONS = {"active_window", "focus_app", "close_window", "screenshot", "open_app", "open_url", "open_chrome_url", "keystroke", "type_text"}
 _KEY_COMBO_PATTERN = re.compile(r"^[A-Za-z0-9+\-_ ]{1,60}$")
 
 
@@ -174,13 +175,16 @@ def make_desktop_control_tool(mode: str = "live") -> Tool:
                 "byte_count": len(image_bytes),
             }
 
-        if act == "open_url":
+        if act in {"open_url", "open_chrome_url"}:
             target = url.strip()
             if not target:
-                return {"ok": False, "error": "url is required for open_url"}
+                return {"ok": False, "error": f"url is required for {act}"}
             if not (target.startswith("http://") or target.startswith("https://") or target.startswith("file://")):
                 return {"ok": False, "error": "url must start with http://, https://, or file://"}
-            ok, detail = _run_command(["open", target])
+            command = ["open", target]
+            if act == "open_chrome_url":
+                command = ["open", "-a", "Google Chrome", target]
+            ok, detail = _run_command(command)
             return {"ok": ok, "action": act, "detail": detail, "url": target}
 
         if act == "keystroke":
@@ -217,17 +221,17 @@ def make_desktop_control_tool(mode: str = "live") -> Tool:
         name="desktop_control",
         description=(
             "Control local macOS desktop actions: inspect the active window, focus an app, close the current window, "
-            "take a screenshot, open an app, open a URL, send keystrokes, or type text into the focused app. Use carefully and only for explicit user requests."
+            "take a screenshot, open an app, open a URL, open a URL in Google Chrome, send keystrokes, or type text into the focused app. Use carefully and only for explicit user requests."
         ),
         input_schema={
             "type": "object",
             "properties": {
                 "action": {
                     "type": "string",
-                    "description": "One of: active_window, focus_app, close_window, screenshot, open_app, open_url, keystroke, type_text",
+                    "description": "One of: active_window, focus_app, close_window, screenshot, open_app, open_url, open_chrome_url, keystroke, type_text",
                 },
                 "app": {"type": "string", "description": "App name for open_app or focus_app (e.g., 'Safari')."},
-                "url": {"type": "string", "description": "URL for open_url."},
+                "url": {"type": "string", "description": "URL for open_url or open_chrome_url."},
                 "key_combo": {"type": "string", "description": "Key combo for keystroke action."},
                 "text": {"type": "string", "description": "Text to type for type_text action."},
             },

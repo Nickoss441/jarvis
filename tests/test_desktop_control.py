@@ -127,3 +127,38 @@ def test_desktop_control_open_url_requires_scheme():
 
     assert out["ok"] is False
     assert "must start with" in out["error"]
+
+
+def test_desktop_control_dry_run_open_chrome_url():
+    tool = make_desktop_control_tool(mode="dry_run")
+
+    out = tool.handler(action="open_chrome_url", url="https://example.com")
+
+    assert out["ok"] is True
+    assert out["mode"] == "dry_run"
+    assert out["action"] == "open_chrome_url"
+    assert out["url"] == "https://example.com"
+
+
+def test_desktop_control_open_chrome_url_uses_google_chrome(monkeypatch):
+    tool = make_desktop_control_tool(mode="live")
+
+    captured = {}
+
+    monkeypatch.setattr(desktop_control.platform, "system", lambda: "Darwin")
+
+    def _fake_run_command(argv):
+        captured["argv"] = argv
+        return True, "ok"
+
+    monkeypatch.setattr(desktop_control, "_run_command", _fake_run_command)
+
+    out = tool.handler(action="open_chrome_url", url="https://example.com")
+
+    assert out == {
+        "ok": True,
+        "action": "open_chrome_url",
+        "detail": "ok",
+        "url": "https://example.com",
+    }
+    assert captured["argv"] == ["open", "-a", "Google Chrome", "https://example.com"]
