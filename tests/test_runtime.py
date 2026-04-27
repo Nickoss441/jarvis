@@ -90,6 +90,69 @@ def test_runtime_orchestrator_returns_default_for_missing_text():
     assert result == "(no text response)"
 
 
+def test_runtime_orchestrator_task_queue_lifecycle():
+    orchestrator = RuntimeOrchestrator(max_iterations=3)
+
+    task_1 = orchestrator.enqueue_task("monitor:calendar", {"source": "calendar"})
+    task_2 = orchestrator.enqueue_task("monitor:rss", {"source": "rss"})
+
+    assert task_1.id == "task-1"
+    assert task_2.id == "task-2"
+    assert orchestrator.task_queue.snapshot() == {
+        "pending": 2,
+        "in_progress": 0,
+        "completed": 0,
+        "failed": 0,
+    }
+
+    next_task = orchestrator.next_task()
+    assert next_task is not None
+    assert next_task.id == "task-1"
+    assert next_task.status == "in_progress"
+
+    assert orchestrator.complete_task(next_task.id) is True
+    assert orchestrator.task_queue.snapshot() == {
+        "pending": 1,
+        "in_progress": 0,
+        "completed": 1,
+        "failed": 0,
+    }
+
+    second = orchestrator.next_task()
+    assert second is not None
+    assert second.id == "task-2"
+    assert orchestrator.fail_task(second.id, error="timeout") is True
+    assert orchestrator.task_queue.snapshot() == {
+        "pending": 0,
+        "in_progress": 0,
+        "completed": 1,
+        "failed": 1,
+    }
+
+
+def test_runtime_task_queue_requeue_increments_attempts():
+    orchestrator = RuntimeOrchestrator(max_iterations=2)
+    queued = orchestrator.enqueue_task("vision:observe")
+
+    running = orchestrator.next_task()
+    assert running is not None
+    assert running.id == queued.id
+
+    assert orchestrator.task_queue.requeue(running.id, error="transient") is True
+    assert orchestrator.task_queue.snapshot() == {
+        "pending": 1,
+        "in_progress": 0,
+        "completed": 0,
+        "failed": 0,
+    }
+
+    again = orchestrator.next_task()
+    assert again is not None
+    assert again.id == queued.id
+    assert again.attempts == 1
+    assert again.last_error == "transient"
+
+
 def test_runtime_event_envelope_defaults_correlation_id_to_event_id():
     event = RuntimeEventEnvelope(kind="webhook", source="webhook_demo", payload={"ok": True})
 
