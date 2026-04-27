@@ -84,6 +84,22 @@ body {
     font-size: 12px;
 }
 
+.globe-frame {
+    margin-top: 14px;
+    border: 1px solid rgba(91, 200, 255, 0.34);
+    border-radius: 12px;
+    background: radial-gradient(circle at 50% 40%, rgba(91, 200, 255, 0.12), rgba(4, 8, 16, 0.86));
+    min-height: 280px;
+    box-shadow: inset 0 0 28px rgba(42, 163, 219, 0.22);
+    overflow: hidden;
+}
+
+.globe-frame canvas {
+    display: block;
+    width: 100%;
+    height: 280px;
+}
+
 .hud-alert {
     color: var(--alert);
     font-weight: 700;
@@ -96,5 +112,11 @@ body {
 
     .hud-title {
         font-size: 26px;
+    }
+
+    .globe-frame,
+    .globe-frame canvas {
+        height: 240px;
+        min-height: 240px;
     }
 }
