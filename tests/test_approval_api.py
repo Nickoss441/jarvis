@@ -302,6 +302,37 @@ def test_approval_api_serves_react_hud_viewport_and_assets(tmp_path):
         thread.join(timeout=2)
 
 
+def test_approval_api_serves_command_center_viewport_and_assets(tmp_path):
+    cfg = _cfg(tmp_path)
+
+    server = create_approval_api_server(cfg, host="127.0.0.1", port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address
+
+    try:
+        viewport_html = _get_text(f"http://{host}:{port}/hud/cc")
+        app_js = _get_text(f"http://{host}:{port}/hud/cc/app.js")
+        styles_css = _get_text(f"http://{host}:{port}/hud/cc/styles.css")
+
+        assert "Jarvis Command Center" in viewport_html
+        assert "/hud/cc/app.js" in viewport_html
+        assert "/hud/cc/styles.css" in viewport_html
+
+        assert "createRoot" in app_js
+        assert "cc-panel" in app_js
+        assert "Social Monitoring" in app_js
+        assert "Bitcoin" in app_js
+
+        assert ".cc-root" in styles_css
+        assert ".cc-panel" in styles_css
+        assert "@keyframes marquee" in styles_css
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
 def test_approval_api_dispatch_endpoint(tmp_path):
     cfg = _cfg(tmp_path)
     service = ApprovalService(cfg)

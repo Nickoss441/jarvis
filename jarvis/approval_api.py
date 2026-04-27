@@ -33,6 +33,13 @@ REACT_HUD_ASSETS = {
 }
 REACT_HUD_DIR = Path(__file__).resolve().parent / "web" / "hud_react"
 
+COMMAND_CENTER_ASSETS = {
+    "index.html": "text/html; charset=utf-8",
+    "app.js": "application/javascript; charset=utf-8",
+    "styles.css": "text/css; charset=utf-8",
+}
+COMMAND_CENTER_DIR = Path(__file__).resolve().parent / "web" / "command_center"
+
 
 UI_HTML = """<!doctype html>
 <html lang="en">
@@ -1126,6 +1133,16 @@ def _load_react_hud_asset(filename: str) -> tuple[str, str] | None:
     return content_type, path.read_text(encoding="utf-8")
 
 
+def _load_command_center_asset(filename: str) -> tuple[str, str] | None:
+    content_type = COMMAND_CENTER_ASSETS.get(filename)
+    if content_type is None:
+        return None
+    path = COMMAND_CENTER_DIR / filename
+    if not path.exists() or not path.is_file():
+        return None
+    return content_type, path.read_text(encoding="utf-8")
+
+
 def _payments_signature_ok(secret: str, raw_body: bytes, provided_sig: str) -> bool:
     if not secret.strip() or not provided_sig.strip():
         return False
@@ -1228,6 +1245,25 @@ def create_approval_api_server(
                 asset = _load_react_hud_asset(filename)
                 if asset is None:
                     self._send(404, {"error": "react hud asset unavailable"})
+                    return
+                content_type, body = asset
+                self._send_text(200, body, content_type)
+                return
+
+            if parsed.path in ("/hud/cc", "/hud/cc/"):
+                asset = _load_command_center_asset("index.html")
+                if asset is None:
+                    self._send(404, {"error": "command center unavailable"})
+                    return
+                content_type, body = asset
+                self._send_text(200, body, content_type)
+                return
+
+            if parsed.path.startswith("/hud/cc/"):
+                filename = parsed.path[len("/hud/cc/") :]
+                asset = _load_command_center_asset(filename)
+                if asset is None:
+                    self._send(404, {"error": "command center asset unavailable"})
                     return
                 content_type, body = asset
                 self._send_text(200, body, content_type)
