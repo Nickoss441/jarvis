@@ -1,0 +1,225 @@
+{
+  "generated_at": "2026-04-28T06:44:36.130270+00:00",
+  "todo_file": "TODO.md",
+  "summary": {
+    "open_todos": 34,
+    "lanes_executed": 1,
+    "automated": 34,
+    "deferred": 0,
+    "blocked": 0
+  },
+  "lane_results": {
+    "backlog": {
+      "status": "ok",
+      "command": "backlog-triage",
+      "exit_code": 0,
+      "output_tail": "Task mapped into automation backlog lane."
+    }
+  },
+  "items": [
+    {
+      "line_no": 256,
+      "text": "Pin explicit `JARVIS_MODEL` in `.env.local` (e.g. `claude-sonnet-4-5`); currently empty \u2192 falls through to suspect default `claude-sonnet-4-6`",
+      "lane": "backlog",
+      "automation_status": "automated"
+    },
+    {
+      "line_no": 257,
+      "text": "Add nav chip from `/` (UI_HTML in `jarvis/approval_api.py`) linking to `/hud/cc`",
+      "lane": "backlog",
+      "automation_status": "automated"
+    },
+    {
+      "line_no": 258,
+      "text": "Add nav chip from `/hud/react` linking to `/hud/cc`",
+      "lane": "backlog",
+      "automation_status": "automated"
+    },
+    {
+      "line_no": 259,
+      "text": "Add `run` alias subcommand in `jarvis/__main__.py` so `python3 -m jarvis run` enters the REPL (currently exits 1)",
+      "lane": "backlog",
+      "automation_status": "automated"
+    },
+    {
+      "line_no": 260,
+      "text": "Live agent E2E smoke: launch REPL, exercise vocal trigger (\"respond vocally: status report\")",
+      "lane": "backlog",
+      "automation_status": "automated"
+    },
+    {
+      "line_no": 263,
+      "text": "Document port-fallback behavior (8080 busy \u2192 8081) in `README.md`",
+      "lane": "backlog",
+      "automation_status": "automated"
+    },
+    {
+      "line_no": 264,
+      "text": "Audit committed log files for leaked secrets",
+      "lane": "backlog",
+      "automation_status": "automated"
+    },
+    {
+      "line_no": 265,
+      "text": "Verify `.env.local` stays gitignored across future commits (already added to `.gitignore`)",
+      "lane": "backlog",
+      "automation_status": "automated"
+    },
+    {
+      "line_no": 268,
+      "text": "Wire CC `Bitcoin $79,016` panel to real data via `crypto_portfolio` tool",
+      "lane": "backlog",
+      "automation_status": "automated"
+    },
+    {
+      "line_no": 269,
+      "text": "Wire CC `Social Monitoring +356` panel to `monitors-status` output",
+      "lane": "backlog",
+      "automation_status": "automated"
+    },
+    {
+      "line_no": 270,
+      "text": "Wire CC `Oil & Gold` panel to `gold-price` tool + market mode config",
+      "lane": "backlog",
+      "automation_status": "automated"
+    },
+    {
+      "line_no": 271,
+      "text": "Wire CC `Tracking / Strategy` panel to live approval + event counts (`/approvals`, `/events`)",
+      "lane": "backlog",
+      "automation_status": "automated"
+    },
+    {
+      "line_no": 272,
+      "text": "Replace top/bottom marquee placeholder text with `audit-export` tail",
+      "lane": "backlog",
+      "automation_status": "automated"
+    },
+    {
+      "line_no": 273,
+      "text": "Add WebSocket or SSE bridge so HUD reflects live brain Thought:/Observation: cycles",
+      "lane": "backlog",
+      "automation_status": "automated"
+    },
+    {
+      "line_no": 276,
+      "text": "Add `docs/runbooks/voice-output.md` describing recognized vocal-reply trigger phrases and disable mechanism",
+      "lane": "backlog",
+      "automation_status": "automated"
+    },
+    {
+      "line_no": 277,
+      "text": "Cross-link new runbook from `README.md` docs index",
+      "lane": "backlog",
+      "automation_status": "automated"
+    },
+    {
+      "line_no": 280,
+      "text": "Choose framework: Tauri (recommended for vanilla ESM frontend) vs Electron",
+      "lane": "backlog",
+      "automation_status": "automated"
+    },
+    {
+      "line_no": 281,
+      "text": "Scaffold `src-tauri/` alongside existing `jarvis/web/command_center/`",
+      "lane": "backlog",
+      "automation_status": "automated"
+    },
+    {
+      "line_no": 282,
+      "text": "Configure transparent frameless always-on-top window pointing at `http://127.0.0.1:8081/hud/cc`",
+      "lane": "backlog",
+      "automation_status": "automated"
+    },
+    {
+      "line_no": 283,
+      "text": "Wire global hotkey `Cmd+Shift+J` (macOS) / `Ctrl+Shift+J` (Windows) for show/hide toggle",
+      "lane": "backlog",
+      "automation_status": "automated"
+    },
+    {
+      "line_no": 284,
+      "text": "Add `/hud/show` + `/hud/hide` endpoints to `jarvis/approval_api.py`",
+      "lane": "backlog",
+      "automation_status": "automated"
+    },
+    {
+      "line_no": 285,
+      "text": "Bridge Python wake-word detector \u2192 POST `/hud/show`",
+      "lane": "backlog",
+      "automation_status": "automated"
+    },
+    {
+      "line_no": 286,
+      "text": "Add system tray icon with quit + toggle items",
+      "lane": "backlog",
+      "automation_status": "automated"
+    },
+    {
+      "line_no": 287,
+      "text": "Implement click-through on transparent regions (`window.setIgnoreCursorEvents` toggling)",
+      "lane": "backlog",
+      "automation_status": "automated"
+    },
+    {
+      "line_no": 288,
+      "text": "Handle multi-display + display-change events",
+      "lane": "backlog",
+      "automation_status": "automated"
+    },
+    {
+      "line_no": 289,
+      "text": "Sign + notarize for macOS distribution",
+      "lane": "backlog",
+      "automation_status": "automated"
+    },
+    {
+      "line_no": 290,
+      "text": "Build Windows `.exe` via Tauri cross-compile",
+      "lane": "backlog",
+      "automation_status": "automated"
+    },
+    {
+      "line_no": 293,
+      "text": "Pick production deployment target (laptop / home server / VPS)",
+      "lane": "backlog",
+      "automation_status": "automated"
+    },
+    {
+      "line_no": 294,
+      "text": "Stand up live Alpaca broker connection (separate from paper)",
+      "lane": "backlog",
+      "automation_status": "automated"
+    },
+    {
+      "line_no": 295,
+      "text": "Configure real ntfy or Pushover push channel (config exists but unused in prod)",
+      "lane": "backlog",
+      "automation_status": "automated"
+    },
+    {
+      "line_no": 296,
+      "text": "Harden remote approval channel (currently localhost-only web UI)",
+      "lane": "backlog",
+      "automation_status": "automated"
+    },
+    {
+      "line_no": 297,
+      "text": "Add health/uptime monitoring for the always-on server",
+      "lane": "backlog",
+      "automation_status": "automated"
+    },
+    {
+      "line_no": 298,
+      "text": "Implement remote access strategy (Tailscale / Cloudflare Tunnel / VPN)",
+      "lane": "backlog",
+      "automation_status": "automated"
+    },
+    {
+      "line_no": 299,
+      "text": "Document backup + restore procedure for `audit.db` and event bus DB",
+      "lane": "backlog",
+      "automation_status": "automated"
+    }
+  ]
+}

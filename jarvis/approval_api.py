@@ -7,6 +7,7 @@ import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
+import time
 from urllib.error import URLError
 from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
@@ -37,6 +38,35 @@ REACT_HUD_ASSETS = {
 }
 REACT_HUD_DIR = Path(__file__).resolve().parent / "web" / "hud_react"
 
+_GLOBE_TEXTURE_BASE = "https://threejs.org/examples/textures/planets/"
+_GLOBE_TEXTURES = [
+    "earth_atmos_2048.jpg",
+    "earth_specular_2048.jpg",
+    "earth_normal_2048.jpg",
+    "earth_lights_2048.png",
+    "moon_1024.jpg",
+]
+
+
+def _ensure_globe_textures() -> None:
+    """Download globe textures once and cache them locally."""
+    tex_dir = REACT_HUD_DIR / "textures"
+    tex_dir.mkdir(parents=True, exist_ok=True)
+    for name in _GLOBE_TEXTURES:
+        dest = tex_dir / name
+        if dest.exists():
+            continue
+        try:
+            req = Request(
+                _GLOBE_TEXTURE_BASE + name,
+                headers={"User-Agent": "JarvisHUD/1.0"},
+            )
+            with urlopen(req, timeout=20) as resp:
+                dest.write_bytes(resp.read())
+            print(f"[globe] cached texture: {name}")
+        except Exception as exc:
+            print(f"[globe] texture download failed ({name}): {exc}")
+
 COMMAND_CENTER_ASSETS = {
     "index.html": "text/html; charset=utf-8",
     "app.js": "application/javascript; charset=utf-8",
@@ -56,7 +86,55 @@ NEWS_SOURCES = {
         "https://feeds.reuters.com/reuters/worldNews",
         "https://feeds.reuters.com/reuters/businessNews",
     ],
+    "world": [
+        "https://feeds.bbci.co.uk/news/world/rss.xml",
+        "https://feeds.reuters.com/reuters/worldNews",
+    ],
+    "markets": [
+        "https://feeds.reuters.com/reuters/businessNews",
+        "https://finance.yahoo.com/rss/topfinstories",
+    ],
+    "crypto": [
+        "https://www.coindesk.com/arc/outboundfeeds/rss/",
+        "https://cointelegraph.com/rss",
+    ],
+    "tech": [
+        "https://techcrunch.com/feed/",
+        "https://feeds.arstechnica.com/arstechnica/index",
+    ],
 }
+
+HUD_ROUTE_CONTRACT = {
+    "version": ["/hud/version"],
+    "health": ["/health", "/api/health"],
+    "stream": ["/hud/stream", "/api/hud/stream"],
+    "metals": ["/hud/metals", "/api/hud/metals"],
+    "news": ["/hud/news", "/api/hud/news"],
+    "approvals_pending": ["/approvals/pending", "/api/approvals/pending"],
+    "runtime_stop": ["/runtime/stop", "/api/runtime/stop"],
+    "runtime_resume": ["/runtime/resume", "/api/runtime/resume"],
+}
+
+_METALS_CACHE: dict[str, object] = {
+    "payload": None,
+    "updated_unix": 0.0,
+}
+
+_HEALTH_CACHE: dict[str, object] = {
+    "status": None,
+    "payload": None,
+    "updated_unix": 0.0,
+}
+
+
+def _coerce_float(value: object, fallback: float) -> float:
+    try:
+        parsed = float(value)
+        if parsed >= 0:
+            return parsed
+    except (TypeError, ValueError):
+        pass
+    return fallback
 
 
 def _parse_rss_datetime(raw: str) -> int:
@@ -130,6 +208,65 @@ def _latest_news_payload(source: str, limit: int) -> dict[str, object]:
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "items": deduped,
     }
+
+
+def _latest_metals_payload() -> dict[str, object]:
+    now = time.time()
+    cached = _METALS_CACHE.get("payload")
+    cached_at = float(_METALS_CACHE.get("updated_unix") or 0.0)
+    if isinstance(cached, dict) and (now - cached_at) < 15:
+        return cached
+
+    req = Request(
+        "https://metals.live/api/v1/spot",
+        headers={
+            "User-Agent": "JarvisHUD/1.0",
+            "Accept": "application/json",
+        },
+    )
+
+    try:
+        with urlopen(req, timeout=2.8) as resp:  # noqa: S310 - fixed HTTPS endpoint
+            raw = resp.read()
+        parsed = json.loads(raw.decode("utf-8"))
+        row = parsed[0] if isinstance(parsed, list) and parsed else parsed
+        if not isinstance(row, dict):
+            raise ValueError("invalid metals payload")
+
+        updated_at = datetime.now(timezone.utc).isoformat()
+        payload = {
+            "contract_version": 1,
+            "gold": _coerce_float(row.get("gold"), 2320.2),
+            "silver": _coerce_float(row.get("silver"), 27.4),
+            "platinum": _coerce_float(row.get("platinum"), 978.0),
+            "palladium": _coerce_float(row.get("palladium"), 1048.0),
+            "source": "metals_live",
+            "source_detail": "upstream",
+            "updated_at": updated_at,
+            "cache_age_seconds": 0,
+        }
+        _METALS_CACHE["payload"] = payload
+        _METALS_CACHE["updated_unix"] = now
+        return payload
+    except (URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError):
+        if isinstance(cached, dict):
+            return {
+                **cached,
+                "source": "metals_cache",
+                "source_detail": "cached",
+                "cache_age_seconds": int(max(0.0, now - cached_at)),
+            }
+        return {
+            "contract_version": 1,
+            "gold": 2320.2,
+            "silver": 27.4,
+            "platinum": 978.0,
+            "palladium": 1048.0,
+            "source": "fallback",
+            "source_detail": "static",
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "cache_age_seconds": 0,
+        }
 
 
 UI_HTML = """<!doctype html>
@@ -273,6 +410,75 @@ UI_HTML = """<!doctype html>
             font-size: 17px; font-weight: 600; letter-spacing: -0.02em;
             margin-bottom: 3px; color: var(--text);
         }
+        .center-layout {
+            display: grid;
+            grid-template-columns: minmax(0, 1.6fr) minmax(320px, 0.95fr);
+            gap: 12px;
+            align-items: start;
+            margin-top: 12px;
+        }
+        .queue-shell {
+            display: grid;
+            gap: 12px;
+            min-width: 0;
+        }
+        .queue-stats {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px;
+        }
+        .queue-stat {
+            border: 1px solid rgba(0,220,255,0.12);
+            border-radius: 10px;
+            padding: 10px 12px;
+            background: rgba(6, 16, 30, 0.72);
+        }
+        .queue-stat-label {
+            font-family: var(--mono); font-size: 9px; text-transform: uppercase;
+            letter-spacing: 0.12em; color: var(--text2);
+        }
+        .queue-stat-value {
+            margin-top: 6px; font-size: 22px; font-weight: 300; letter-spacing: -0.03em;
+            color: var(--text);
+        }
+        .queue-panel, .payment-dock {
+            border: 1px solid rgba(0,220,255,0.12);
+            border-radius: 12px;
+            background: rgba(5, 12, 24, 0.76);
+            padding: 14px;
+        }
+        .queue-panel-header, .payment-dock-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .queue-panel-title, .payment-dock-title {
+            font-size: 14px; font-weight: 600; letter-spacing: -0.02em;
+        }
+        .queue-panel-meta, .payment-dock-meta {
+            font-family: var(--mono); font-size: 10px; color: var(--text2);
+            letter-spacing: 0.06em;
+        }
+        .payment-dock {
+            position: sticky;
+            top: 12px;
+        }
+        .payment-dock-copy {
+            font-size: 12px; line-height: 1.5; color: var(--text2);
+            margin-bottom: 12px;
+        }
+        .payment-dock-grid {
+            display: grid;
+            gap: 10px;
+        }
+        .payment-status {
+            margin-top: 10px; padding: 10px; border-radius: 8px;
+            border: 1px solid var(--line); background: rgba(9, 20, 38, 0.7);
+            font-family: 'IBM Plex Mono', 'SFMono-Regular', monospace; font-size: 12px;
+            min-height: 26px; white-space: pre-wrap; display: none;
+        }
         .muted {
             font-family: var(--mono); font-size: 10px; color: var(--text2);
             letter-spacing: 0.04em; margin-bottom: 12px; display: block;
@@ -369,7 +575,14 @@ UI_HTML = """<!doctype html>
             0%, 100% { opacity: 1; transform: scale(1); }
             50% { opacity: 0.35; transform: scale(0.65); }
         }
-        @media (max-width: 1000px) { .hud { grid-template-columns: 1fr; } }
+        @media (max-width: 1120px) {
+            .center-layout { grid-template-columns: 1fr; }
+            .payment-dock { position: static; }
+        }
+        @media (max-width: 1000px) {
+            .hud { grid-template-columns: 1fr; }
+            .queue-stats { grid-template-columns: 1fr; }
+        }
     </style>
 </head>
 <body>
@@ -379,7 +592,7 @@ UI_HTML = """<!doctype html>
             <h1>Jarvis — Approval Queue</h1>
             <div class="nav-chips">
                 <a class="nav-chip" href="/hud/cc">Command Center</a>
-                <a class="nav-chip" href="/hud/react">HUD React</a>
+                <a class="nav-chip" href="/hud/globe">HUD React</a>
             </div>
         </div>
         <div class="hud">
@@ -424,7 +637,7 @@ UI_HTML = """<!doctype html>
                 </svg>
 
                 <h1 class="title">Jarvis Approval Queue</h1>
-                <p class="muted">Review pending approvals and dispatch approved actions.</p>
+                <p class="muted">Review pending approvals, launch payment requests, and dispatch approved actions from one surface.</p>
 
                 <div class="globe-wrap" aria-hidden="true">
                     <div class="orbit"></div>
@@ -441,18 +654,121 @@ UI_HTML = """<!doctype html>
                     <button class="ok" onclick="dispatchApproved()">Dispatch Approved</button>
                 </div>
 
-                <table id="pendingTable">
-                    <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>Kind</th>
-                            <th>Payload</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody></tbody>
-                </table>
-                <div id="status"></div>
+                <div class="center-layout">
+                    <div class="queue-shell">
+                        <div class="queue-stats">
+                            <div class="queue-stat">
+                                <div class="queue-stat-label">Pending Queue</div>
+                                <div class="queue-stat-value" id="pendingCountMetric">00</div>
+                            </div>
+                            <div class="queue-stat">
+                                <div class="queue-stat-label">Payment Requests</div>
+                                <div class="queue-stat-value" id="pendingPaymentsMetric">00</div>
+                            </div>
+                            <div class="queue-stat">
+                                <div class="queue-stat-label">Highest Risk Tier</div>
+                                <div class="queue-stat-value" id="pendingRiskMetric">LOW</div>
+                            </div>
+                        </div>
+
+                        <div class="queue-panel">
+                            <div class="queue-panel-header">
+                                <div>
+                                    <div class="queue-panel-title">Approval Command Deck</div>
+                                    <div class="queue-panel-meta">Live queue, review actions, and dispatch readiness</div>
+                                </div>
+                            </div>
+                            <table id="pendingTable">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Kind</th>
+                                        <th>Payload</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                            <div id="status"></div>
+                        </div>
+                    </div>
+
+                    <aside class="payment-dock">
+                        <div class="payment-dock-header">
+                            <div>
+                                <div class="payment-dock-title">Payment Requests</div>
+                                <div class="payment-dock-meta">Integrated with approval queue</div>
+                            </div>
+                        </div>
+                        <div class="payment-dock-copy">Queue card-backed payments from the same workspace you use to review and dispatch approvals. CVV remains optional only for temporary cards.</div>
+                        <div class="payment-dock-grid">
+                            <div class="row">
+                                <div class="field">
+                                    <label for="paymentAmount">Amount</label>
+                                    <input id="paymentAmount" type="number" min="0.01" step="0.01" placeholder="40.00" />
+                                </div>
+                                <div class="field">
+                                    <label for="paymentCurrency">Currency</label>
+                                    <input id="paymentCurrency" type="text" maxlength="3" placeholder="USD" />
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="field">
+                                    <label for="paymentRecipient">Recipient (email/phone/account)</label>
+                                    <input id="paymentRecipient" type="text" placeholder="merchant@example.com" />
+                                </div>
+                                <div class="field">
+                                    <label for="paymentMerchant">Merchant</label>
+                                    <input id="paymentMerchant" type="text" placeholder="Lupa" />
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="field" style="min-width: 100%;">
+                                    <label for="paymentReason">Reason</label>
+                                    <input id="paymentReason" type="text" placeholder="Reservation deposit" />
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="field">
+                                    <label for="cardHolderName">Cardholder Name</label>
+                                    <input id="cardHolderName" type="text" placeholder="Nickos" />
+                                </div>
+                                <div class="field">
+                                    <label for="cardNumber">Card Number</label>
+                                    <input id="cardNumber" type="text" inputmode="numeric" autocomplete="cc-number" placeholder="4242 4242 4242 4242" />
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="field">
+                                    <label for="cardExpMonth">Exp Month</label>
+                                    <input id="cardExpMonth" type="number" min="1" max="12" inputmode="numeric" placeholder="12" />
+                                </div>
+                                <div class="field">
+                                    <label for="cardExpYear">Exp Year</label>
+                                    <input id="cardExpYear" type="number" min="2024" max="2099" inputmode="numeric" placeholder="2028" />
+                                </div>
+                                <div class="field">
+                                    <label for="cardBillingZip">Billing ZIP</label>
+                                    <input id="cardBillingZip" type="text" placeholder="10001" />
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="field" style="min-width: auto; flex: 0 0 auto; display: flex; align-items: center; gap: 8px;">
+                                    <input id="cardTemporary" type="checkbox" onchange="toggleCardCvvRequirement()" />
+                                    <label for="cardTemporary" style="margin: 0;">Temporary card</label>
+                                </div>
+                                <div class="field" style="flex: 1;">
+                                    <label for="cardCvv">CVV <span id="cardCvvRequirement">(required)</span></label>
+                                    <input id="cardCvv" type="password" inputmode="numeric" autocomplete="cc-csc" placeholder="123" />
+                                </div>
+                            </div>
+                            <div class="toolbar">
+                                <button class="primary" onclick="requestPaymentApproval()">Queue Payment Approval</button>
+                            </div>
+                            <div id="paymentStatus" class="payment-status"></div>
+                        </div>
+                    </aside>
+                </div>
             </section>
 
             <div class="stack">
@@ -524,11 +840,11 @@ Daily drawdown guardrail: __TRADE_REVIEW_DRAWDOWN_LIMIT__
                     <div class="metrics">
                         <div class="metric">
                             <div class="label">Followers</div>
-                            <div id="followersCount" class="value">+356</div>
+                            <div id="followersCount" class="value" style="color:#9bb4ca">No data</div>
                         </div>
                         <div class="metric">
                             <div class="label">Bitcoin</div>
-                            <div id="btcPrice" class="value">$68.2k</div>
+                            <div id="btcPrice" class="value" style="color:#9bb4ca">No data</div>
                         </div>
                     </div>
                     <svg class="spark" viewBox="0 0 220 64" preserveAspectRatio="none" aria-hidden="true">
@@ -588,6 +904,25 @@ Daily drawdown guardrail: __TRADE_REVIEW_DRAWDOWN_LIMIT__
             document.getElementById('status').textContent = JSON.stringify(obj, null, 2);
         }
 
+        function updateQueueMetrics(items) {
+            const safeItems = Array.isArray(items) ? items : [];
+            const paymentCount = safeItems.filter((item) => item && item.kind === 'payments').length;
+            const riskOrder = { low: 1, medium: 2, high: 3 };
+            let highestRisk = 'low';
+            for (const item of safeItems) {
+                const tier = String(item && item.risk_tier ? item.risk_tier : '').toLowerCase();
+                if (riskOrder[tier] && riskOrder[tier] > riskOrder[highestRisk]) {
+                    highestRisk = tier;
+                }
+            }
+            const countEl = document.getElementById('pendingCountMetric');
+            const paymentsEl = document.getElementById('pendingPaymentsMetric');
+            const riskEl = document.getElementById('pendingRiskMetric');
+            if (countEl) countEl.textContent = String(safeItems.length).padStart(2, '0');
+            if (paymentsEl) paymentsEl.textContent = String(paymentCount).padStart(2, '0');
+            if (riskEl) riskEl.textContent = safeItems.length ? highestRisk.toUpperCase() : 'LOW';
+        }
+
         function rowFor(item) {
             const tr = document.createElement('tr');
             const payload = JSON.stringify(item.payload);
@@ -627,6 +962,7 @@ Daily drawdown guardrail: __TRADE_REVIEW_DRAWDOWN_LIMIT__
             for (const item of out.body.items || []) {
                 tbody.appendChild(rowFor(item));
             }
+            updateQueueMetrics(out.body.items || []);
             if (!out.body.items || out.body.items.length === 0) {
                 const tr = document.createElement('tr');
                 tr.innerHTML = '<td colspan="4">No pending approvals.</td>';
@@ -851,6 +1187,146 @@ Daily drawdown guardrail: __TRADE_REVIEW_DRAWDOWN_LIMIT__
             }
         }
 
+        function detectCardNetwork(cardNumberDigits) {
+            if (/^4\\d{12}(\\d{3})?(\\d{3})?$/.test(cardNumberDigits)) return 'visa';
+            if (/^(5[1-5]\\d{14}|2(2[2-9]\\d{12}|[3-7]\\d{13}))$/.test(cardNumberDigits)) return 'mastercard';
+            if (/^3[47]\\d{13}$/.test(cardNumberDigits)) return 'amex';
+            if (/^(6011\\d{12}|65\\d{14}|64[4-9]\\d{13})$/.test(cardNumberDigits)) return 'discover';
+            return 'unknown';
+        }
+
+        function toggleCardCvvRequirement() {
+            const temporary = document.getElementById('cardTemporary');
+            const cvv = document.getElementById('cardCvv');
+            const requirement = document.getElementById('cardCvvRequirement');
+            const isTemp = !!(temporary && temporary.checked);
+            if (cvv) {
+                cvv.required = !isTemp;
+            }
+            if (requirement) {
+                requirement.textContent = isTemp ? '(optional for temporary card)' : '(required)';
+            }
+        }
+
+        function setPaymentStatusDiv(message) {
+            const div = document.getElementById('paymentStatus');
+            if (div) {
+                div.textContent = message;
+                div.style.display = 'block';
+            }
+        }
+
+        async function requestPaymentApproval() {
+            const amountRaw = getFieldValue(['#paymentAmount']);
+            const currencyRaw = getFieldValue(['#paymentCurrency']);
+            const recipient = getFieldValue(['#paymentRecipient']);
+            const merchant = getFieldValue(['#paymentMerchant']);
+            const reason = getFieldValue(['#paymentReason'], false);
+            const cardholder = getFieldValue(['#cardHolderName']);
+            const cardNumberRaw = getFieldValue(['#cardNumber'], false);
+            const expMonthRaw = getFieldValue(['#cardExpMonth']);
+            const expYearRaw = getFieldValue(['#cardExpYear']);
+            const billingZip = getFieldValue(['#cardBillingZip']);
+            const cvv = getFieldValue(['#cardCvv']);
+            const temporaryCard = !!document.getElementById('cardTemporary')?.checked;
+
+            const amount = Number(amountRaw);
+            const currency = currencyRaw.toUpperCase();
+            const cardDigits = String(cardNumberRaw || '').replace(/\\D/g, '');
+            const expMonth = Number(expMonthRaw);
+            const expYear = Number(expYearRaw);
+
+            if (!Number.isFinite(amount) || amount <= 0) {
+                setPaymentStatusDiv('Amount must be a positive number.');
+                return;
+            }
+            if (!currency || currency.length !== 3) {
+                setPaymentStatusDiv('Currency must be a 3-letter code.');
+                return;
+            }
+            if (!recipient) {
+                setPaymentStatusDiv('Recipient is required.');
+                return;
+            }
+            if (!merchant) {
+                setPaymentStatusDiv('Merchant is required.');
+                return;
+            }
+            if (!cardholder) {
+                setPaymentStatusDiv('Cardholder name is required.');
+                return;
+            }
+            if (cardDigits.length < 12 || cardDigits.length > 19) {
+                setPaymentStatusDiv('Card number must be between 12 and 19 digits.');
+                return;
+            }
+            if (!Number.isInteger(expMonth) || expMonth < 1 || expMonth > 12) {
+                setPaymentStatusDiv('Expiration month must be 1-12.');
+                return;
+            }
+            if (!Number.isInteger(expYear) || expYear < 2024 || expYear > 2099) {
+                setPaymentStatusDiv('Expiration year is invalid.');
+                return;
+            }
+            if (!billingZip) {
+                setPaymentStatusDiv('Billing ZIP is required.');
+                return;
+            }
+            if (!temporaryCard && !cvv) {
+                setPaymentStatusDiv('CVV is required unless Temporary card is selected.');
+                return;
+            }
+            if (cvv && !/^\\d{3,4}$/.test(cvv)) {
+                setPaymentStatusDiv('CVV must be 3 or 4 digits when provided.');
+                return;
+            }
+
+            const payload = {
+                amount,
+                currency,
+                recipient,
+                reason,
+                merchant,
+                payment_method: {
+                    type: 'card',
+                    cardholder_name: cardholder,
+                    card_last4: cardDigits.slice(-4),
+                    card_network: detectCardNetwork(cardDigits),
+                    exp_month: expMonth,
+                    exp_year: expYear,
+                    billing_zip: billingZip,
+                    temporary_card: temporaryCard,
+                    cvv_provided: !!cvv,
+                },
+            };
+
+            setPaymentStatusDiv('Queueing payment approval...');
+            const out = await apiPost('/approvals/request', {
+                kind: 'payments',
+                payload,
+                action: 'execute_payment',
+                reason: reason || 'payment request from web ui',
+                budget_impact: amount,
+                risk_tier: amount > 100 ? 'high' : amount > 10 ? 'medium' : 'low',
+            });
+
+            if (out.status >= 400) {
+                setPaymentStatusDiv(`Error: ${out.body && out.body.error ? out.body.error : 'Failed to queue payment approval'}`);
+                return;
+            }
+
+            const approval = out.body && out.body.approval ? out.body.approval : {};
+            setPaymentStatusDiv(
+                `Payment approval queued.\n`
+                + `Approval ID: ${approval.id || 'unknown'}\n`
+                + `Merchant: ${merchant}\n`
+                + `Recipient: ${recipient}\n`
+                + `Card: **** **** **** ${cardDigits.slice(-4)} (${temporaryCard ? 'temporary' : 'standard'})\n`
+                + `CVV: ${cvv ? 'provided' : 'not provided'}`
+            );
+            loadPending();
+        }
+
         async function generateTradeReviewArtifact() {
             const reviewer = getFieldValue(['#tradeReviewReviewer'], false);
             const strategyVersion = getFieldValue(['#tradeReviewVersion'], false);
@@ -986,6 +1462,7 @@ Daily drawdown guardrail: __TRADE_REVIEW_DRAWDOWN_LIMIT__
         }
 
         setInterval(tickDashboard, 4000);
+        toggleCardCvvRequirement();
         loadPending();
         loadLatestTradeReviewArtifact();
         loadTradeReviewHistory();
@@ -1047,6 +1524,27 @@ def _health_payload(config: Config) -> tuple[int, dict]:
         payload["monitors"]["status"] = stats["monitor_status"]
 
     return (200 if event_bus_healthy else 503), payload
+
+
+def _latest_health_payload(config: Config, ttl_seconds: int = 5) -> tuple[int, dict]:
+    now = time.time()
+    cached_status = _HEALTH_CACHE.get("status")
+    cached_payload = _HEALTH_CACHE.get("payload")
+    cached_at = float(_HEALTH_CACHE.get("updated_unix") or 0.0)
+    if isinstance(cached_status, int) and isinstance(cached_payload, dict) and (now - cached_at) < ttl_seconds:
+        payload = dict(cached_payload)
+        payload["source"] = "health_cache"
+        payload["cache_age_seconds"] = int(max(0.0, now - cached_at))
+        return cached_status, payload
+
+    status, payload = _health_payload(config)
+    payload = dict(payload)
+    payload["source"] = "health_live"
+    payload["cache_age_seconds"] = 0
+    _HEALTH_CACHE["status"] = status
+    _HEALTH_CACHE["payload"] = payload
+    _HEALTH_CACHE["updated_unix"] = now
+    return status, payload
 
 
 def _render_ui_html(config: Config) -> str:
@@ -1471,7 +1969,7 @@ OPS_WALLBOARD_HTML = """<!doctype html>
             <section class="hero-panel">
                 <div class="panel-label">Strategic Globe</div>
                 <div class="hero-frame">
-                    <iframe src="/hud/react" title="Strategic Globe"></iframe>
+                    <iframe src="/hud/globe" title="Strategic Globe"></iframe>
                 </div>
             </section>
             <aside class="side-panel">
@@ -1518,7 +2016,7 @@ OPS_WALLBOARD_HTML = """<!doctype html>
                     <div class="dock-title">Strategic Globe</div>
                     <div class="dock-copy">Use this for spatial awareness, threat focus, and feed overlays.</div>
                     <div class="dock-actions">
-                        <a class="dock-link is-primary" href="/hud/react">Open Full View</a>
+                        <a class="dock-link is-primary" href="/hud/globe">Open Full View</a>
                     </div>
                 </article>
                 <article class="dock-card">
@@ -1574,16 +2072,40 @@ _LIVE_RELOAD_SNIPPET = """
 <script>
 (function () {
   var current = null;
-  async function tick() {
+    var delayMs = 1000;
+    var maxDelayMs = 30000;
+    var timer = null;
+
+    function schedule(nextDelay) {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(tick, nextDelay);
+    }
+
+    async function tick() {
     try {
       var r = await fetch('/hud/version', { cache: 'no-store' });
-      if (!r.ok) return;
+            if (!r.ok) {
+                // If the endpoint is missing on a given page/runtime, stop polling entirely.
+                if (r.status === 404) return;
+                delayMs = Math.min(maxDelayMs, delayMs * 2);
+                schedule(delayMs);
+                return;
+            }
       var v = (await r.json()).version;
-      if (current === null) { current = v; return; }
-      if (v !== current) { location.reload(); }
-    } catch (_) { /* ignore */ }
+            if (current === null) {
+                current = v;
+                delayMs = 1000;
+                schedule(delayMs);
+                return;
+            }
+            if (v !== current) { location.reload(); return; }
+            delayMs = 1000;
+            schedule(delayMs);
+        } catch (_) {
+            delayMs = Math.min(maxDelayMs, delayMs * 2);
+            schedule(delayMs);
+        }
   }
-  setInterval(tick, 1000);
   tick();
 })();
 </script>
@@ -1627,7 +2149,19 @@ def _runtime_resume() -> dict[str, object]:
     }
 
 
-def _load_react_hud_asset(filename: str) -> tuple[str, str] | None:
+def _load_react_hud_asset(filename: str) -> tuple[str, bytes | str] | None:
+    # Binary texture files served from the textures/ subdirectory
+    if filename.startswith("textures/"):
+        ext = filename.rsplit(".", 1)[-1].lower()
+        binary_types = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png"}
+        ct = binary_types.get(ext)
+        if ct is None:
+            return None
+        path = REACT_HUD_DIR / filename
+        if not path.exists() or not path.is_file():
+            return None
+        return ct, path.read_bytes()
+
     content_type = REACT_HUD_ASSETS.get(filename)
     if content_type is None:
         return None
@@ -1675,6 +2209,130 @@ def create_approval_api_server(
     chat_brains: dict[str, object] = {}
 
     class ApprovalApiHandler(BaseHTTPRequestHandler):
+                            # Kaggle dataset download endpoint
+                            if parsed.path == "/dataset/kaggle":
+                                try:
+                                    body = self._read_json(raw_body)
+                                    kaggle_cmd = body.get("command", "").strip()
+                                    if not kaggle_cmd or not kaggle_cmd.startswith("kaggle "):
+                                        self._send(400, {"error": "Missing or invalid Kaggle command"})
+                                        return
+                                    # Only allow 'kaggle datasets download' or 'kaggle kernels pull'
+                                    if not ("datasets download" in kaggle_cmd or "kernels pull" in kaggle_cmd):
+                                        self._send(400, {"error": "Only 'kaggle datasets download' or 'kaggle kernels pull' allowed"})
+                                        return
+                                    import subprocess
+                                    import shlex
+                                    # Download to a temp directory
+                                    import tempfile, shutil
+                                    temp_dir = tempfile.mkdtemp()
+                                    try:
+                                        # Add --path if not present
+                                        if "--path" not in kaggle_cmd:
+                                            kaggle_cmd += f" --path {shlex.quote(temp_dir)}"
+                                        result = subprocess.run(kaggle_cmd, shell=True, capture_output=True, text=True, timeout=600)
+                                        if result.returncode != 0:
+                                            self._send(500, {"error": "Kaggle command failed", "stderr": result.stderr})
+                                            return
+                                        # Move all files to D:/DATASET
+                                        dataset_dir = Path("D:/DATASET")
+                                        dataset_dir.mkdir(parents=True, exist_ok=True)
+                                        for item in Path(temp_dir).iterdir():
+                                            dest = dataset_dir / item.name
+                                            if dest.exists():
+                                                if dest.is_file():
+                                                    dest.unlink()
+                                                elif dest.is_dir():
+                                                    shutil.rmtree(dest)
+                                            if item.is_file():
+                                                shutil.move(str(item), str(dest))
+                                            elif item.is_dir():
+                                                shutil.move(str(item), str(dest))
+                                        self._send(200, {"ok": True, "output": result.stdout})
+                                    finally:
+                                        shutil.rmtree(temp_dir, ignore_errors=True)
+                                except Exception as exc:
+                                    self._send(500, {"error": f"Kaggle download failed: {exc}"})
+                                return
+                # --- Local File Access Endpoints (D:\jarvis-data) ---
+                def _safe_data_dir(self) -> Path:
+                    data_dir = Path("D:/jarvis-data").resolve()
+                    data_dir.mkdir(parents=True, exist_ok=True)
+                    return data_dir
+
+                def _is_safe_path(self, path: Path) -> bool:
+                    try:
+                        return self._safe_data_dir() in path.parents or self._safe_data_dir() == path
+                    except Exception:
+                        return False
+
+                def do_GET(self) -> None:  # noqa: N802
+                    parsed = urlparse(self.path)
+                    # ...existing code...
+
+                    # List files in D:/jarvis-data
+                    if parsed.path == "/local/files":
+                        data_dir = self._safe_data_dir()
+                        files = [f.name for f in data_dir.iterdir() if f.is_file()]
+                        self._send(200, {"files": files})
+                        return
+
+                    # Download a file from D:/jarvis-data
+                    if parsed.path == "/local/file":
+                        query = parse_qs(parsed.query)
+                        fname = str(query.get("name", [""])[0]).strip()
+                        if not fname:
+                            self._send(400, {"error": "name is required"})
+                            return
+                        file_path = self._safe_data_dir() / fname
+                        if not self._is_safe_path(file_path) or not file_path.exists() or not file_path.is_file():
+                            self._send(404, {"error": "file not found"})
+                            return
+                        with open(file_path, "rb") as f:
+                            data = f.read()
+                        self._send_bytes(200, data, "application/octet-stream")
+                        return
+
+                def do_POST(self) -> None:  # noqa: N802
+                    parsed = urlparse(self.path)
+                    # Upload a file to D:/jarvis-data
+                    if parsed.path == "/local/upload":
+                        ctype = self.headers.get("Content-Type", "")
+                        if not ctype.startswith("multipart/form-data"):
+                            self._send(400, {"error": "Content-Type must be multipart/form-data"})
+                            return
+                        boundary = ctype.split("boundary=")[-1].strip()
+                        if not boundary:
+                            self._send(400, {"error": "Missing boundary in Content-Type"})
+                            return
+                        raw = self._read_raw_body()
+                        # Simple multipart parser (single file, field name 'file')
+                        try:
+                            parts = raw.split(b"--" + boundary.encode())
+                            for part in parts:
+                                if b"Content-Disposition" in part and b"filename=" in part:
+                                    header, filedata = part.split(b"\r\n\r\n", 1)
+                                    filedata = filedata.rstrip(b"\r\n--")
+                                    fname = None
+                                    for line in header.split(b"\r\n"):
+                                        if b"filename=" in line:
+                                            fname = line.split(b"filename=")[1].split(b";")[0].strip().strip(b'"').decode()
+                                            break
+                                    if not fname:
+                                        continue
+                                    file_path = self._safe_data_dir() / fname
+                                    if not self._is_safe_path(file_path):
+                                        self._send(403, {"error": "invalid file path"})
+                                        return
+                                    with open(file_path, "wb") as f:
+                                        f.write(filedata)
+                                    self._send(200, {"ok": True, "filename": fname})
+                                    return
+                            self._send(400, {"error": "no file found in upload"})
+                        except Exception as exc:
+                            self._send(500, {"error": f"upload failed: {exc}"})
+                        return
+                    # ...existing code...
         def _read_raw_body(self) -> bytes:
             length = int(self.headers.get("Content-Length", "0"))
             if length <= 0:
@@ -1731,6 +2389,37 @@ def create_approval_api_server(
             self.end_headers()
             self.wfile.write(data)
 
+        def _sse_stream(self, cfg: "Config") -> None:
+            from .audit import AuditLog
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("X-Accel-Buffering", "no")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            audit = AuditLog(cfg.audit_db)
+            # seed cursor at current tail so we only stream new events
+            rows = audit.tail(since_id=0, limit=1)
+            cursor = rows[-1]["id"] if rows else 0
+            try:
+                while True:
+                    new_rows = audit.tail(since_id=cursor, limit=20)
+                    for row in new_rows:
+                        cursor = row["id"]
+                        data = json.dumps(row, default=str)
+                        self.wfile.write(f"data: {data}\n\n".encode("utf-8"))
+                    self.wfile.flush()
+                    time.sleep(0.8)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
+        def _send_bytes(self, status: int, data: bytes, content_type: str) -> None:
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
         def _send_text(self, status: int, text: str, content_type: str) -> None:
             data = text.encode("utf-8")
             self.send_response(status)
@@ -1749,11 +2438,22 @@ def create_approval_api_server(
                 self._send(200, {"version": _hud_assets_version()})
                 return
 
+            if parsed.path == "/hud/contracts":
+                self._send(
+                    200,
+                    {
+                        "version": 1,
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                        "routes": HUD_ROUTE_CONTRACT,
+                    },
+                )
+                return
+
             if parsed.path in ("/hud/ops", "/hud/ops/", "/hud/wallboard", "/hud/wallboard/"):
                 self._send_html(200, _inject_live_reload(OPS_WALLBOARD_HTML))
                 return
 
-            if parsed.path in ("/hud/react", "/hud/react/"):
+            if parsed.path in ("/hud/react", "/hud/react/", "/hud/globe", "/hud/globe/"):
                 asset = _load_react_hud_asset("index.html")
                 if asset is None:
                     self._send(404, {"error": "react hud viewport unavailable"})
@@ -1762,14 +2462,18 @@ def create_approval_api_server(
                 self._send_text(200, _inject_live_reload(body), content_type)
                 return
 
-            if parsed.path.startswith("/hud/react/"):
-                filename = parsed.path[len("/hud/react/") :]
+            if parsed.path.startswith("/hud/react/") or parsed.path.startswith("/hud/globe/"):
+                prefix = "/hud/react/" if parsed.path.startswith("/hud/react/") else "/hud/globe/"
+                filename = parsed.path[len(prefix):]
                 asset = _load_react_hud_asset(filename)
                 if asset is None:
                     self._send(404, {"error": "react hud asset unavailable"})
                     return
                 content_type, body = asset
-                self._send_text(200, body, content_type)
+                if isinstance(body, bytes):
+                    self._send_bytes(200, body, content_type)
+                else:
+                    self._send_text(200, body, content_type)
                 return
 
             if parsed.path in ("/hud/cc", "/hud/cc/"):
@@ -1810,12 +2514,16 @@ def create_approval_api_server(
                 self._send_text(200, body, content_type)
                 return
 
-            if parsed.path == "/health":
-                status, payload = _health_payload(config)
+            if parsed.path in HUD_ROUTE_CONTRACT["health"]:
+                status, payload = _latest_health_payload(config)
                 self._send(status, payload)
                 return
 
-            if parsed.path == "/approvals/pending":
+            if parsed.path in HUD_ROUTE_CONTRACT["stream"]:
+                self._sse_stream(config)
+                return
+
+            if parsed.path in HUD_ROUTE_CONTRACT["approvals_pending"]:
                 query = parse_qs(parsed.query)
                 limit_raw = query.get("limit", ["100"])[0]
                 try:
@@ -1960,7 +2668,7 @@ def create_approval_api_server(
                 self._send(200, {"items": list_recent_trade_review_artifacts(limit=limit)})
                 return
 
-            if parsed.path == "/hud/news":
+            if parsed.path in HUD_ROUTE_CONTRACT["news"]:
                 query = parse_qs(parsed.query)
                 source = str(query.get("source", ["reuters"])[0]).strip().lower()
                 limit_raw = query.get("limit", ["6"])[0]
@@ -1979,18 +2687,52 @@ def create_approval_api_server(
                 self._send(200, payload)
                 return
 
+            if parsed.path in HUD_ROUTE_CONTRACT["metals"]:
+                self._send(200, _latest_metals_payload())
+                return
+
             self._send(404, {"error": "not found"})
 
         def do_POST(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
             raw_body = self._read_raw_body()
 
-            if parsed.path == "/runtime/stop":
+            if parsed.path in HUD_ROUTE_CONTRACT["runtime_stop"]:
                 self._send(200, _runtime_stop())
                 return
 
-            if parsed.path == "/runtime/resume":
+            if parsed.path in HUD_ROUTE_CONTRACT["runtime_resume"]:
                 self._send(200, _runtime_resume())
+                return
+
+            if parsed.path == "/hud/ask":
+                body = self._read_json(raw_body)
+                text = str(body.get("text", "")).strip()
+                if not text:
+                    self._send(400, {"error": "text is required"})
+                    return
+                brain_key = "__hud_voice__"
+                if brain_key not in chat_brains:
+                    from .cli import build_brain_from_config
+                    chat_brains[brain_key] = build_brain_from_config(config)
+                try:
+                    ctx = body.get("context", {})
+                    ctx_str = ""
+                    capability_str = (
+                        "[HUD operator guidance: You have live tools for web_search, web_fetch, notes_list, notes_read, notes_write, recall, and other Jarvis actions. "
+                        "When the operator says 'learn a dataset', 'learn datasets', 'use this dataset', or asks to automate that process, interpret it as a request to find/fetch/analyze/store dataset knowledge for future retrieval rather than a question about retraining model weights. "
+                        "Prefer taking action with tools or proposing a concrete ingest workflow over explaining LLM limitations. "
+                        "If the user asks for a coding project, prefer an actionable implementation plan or tool-driven work over generic refusal. "
+                        "Only discuss model retraining limits if the operator explicitly asks about fine-tuning or weights.] "
+                    )
+                    if isinstance(ctx, dict):
+                        view = str(ctx.get("view", "")).strip()
+                        if view:
+                            ctx_str = f"[HUD: user is on the '{view}' panel. Available panels: cc=Command Center, jarvis=Jarvis Chat, globe=Strategic Globe, approvals=Approval Queue] "
+                    reply = chat_brains[brain_key].turn(capability_str + ctx_str + text)
+                    self._send(200, {"reply": reply})
+                except Exception as exc:
+                    self._send(500, {"error": str(exc)})
                 return
 
             if parsed.path == "/chat/twilio":
@@ -2148,6 +2890,115 @@ def create_approval_api_server(
             body = self._read_json(raw_body)
             if body.get("_invalid_json"):
                 self._send(400, {"error": "invalid json"})
+                return
+
+            if parsed.path == "/approvals/request":
+                kind = str(body.get("kind", "")).strip()
+                payload = body.get("payload")
+                if not kind:
+                    self._send(400, {"error": "kind is required"})
+                    return
+                if not isinstance(payload, dict):
+                    self._send(400, {"error": "payload must be an object"})
+                    return
+
+                if kind == "payments":
+                    amount = payload.get("amount")
+                    currency = str(payload.get("currency", "")).strip().upper()
+                    recipient = str(payload.get("recipient", "")).strip()
+                    merchant = str(payload.get("merchant", "")).strip()
+                    payment_method = payload.get("payment_method")
+
+                    if not isinstance(amount, (int, float)) or float(amount) <= 0:
+                        self._send(400, {"error": "payments.amount must be a positive number"})
+                        return
+                    if len(currency) != 3:
+                        self._send(400, {"error": "payments.currency must be a 3-letter code"})
+                        return
+                    if not recipient:
+                        self._send(400, {"error": "payments.recipient is required"})
+                        return
+                    if not merchant:
+                        self._send(400, {"error": "payments.merchant is required"})
+                        return
+                    if not isinstance(payment_method, dict):
+                        self._send(400, {"error": "payments.payment_method must be an object"})
+                        return
+
+                    cardholder_name = str(payment_method.get("cardholder_name", "")).strip()
+                    card_last4 = str(payment_method.get("card_last4", "")).strip()
+                    exp_month = payment_method.get("exp_month")
+                    exp_year = payment_method.get("exp_year")
+                    billing_zip = str(payment_method.get("billing_zip", "")).strip()
+                    temporary_card = bool(payment_method.get("temporary_card"))
+                    cvv_provided = bool(payment_method.get("cvv_provided"))
+
+                    if not cardholder_name:
+                        self._send(400, {"error": "payments.payment_method.cardholder_name is required"})
+                        return
+                    if not (card_last4.isdigit() and len(card_last4) == 4):
+                        self._send(400, {"error": "payments.payment_method.card_last4 must be 4 digits"})
+                        return
+                    if not isinstance(exp_month, int) or exp_month < 1 or exp_month > 12:
+                        self._send(400, {"error": "payments.payment_method.exp_month must be 1-12"})
+                        return
+                    if not isinstance(exp_year, int) or exp_year < 2024 or exp_year > 2099:
+                        self._send(400, {"error": "payments.payment_method.exp_year is invalid"})
+                        return
+                    if not billing_zip:
+                        self._send(400, {"error": "payments.payment_method.billing_zip is required"})
+                        return
+                    if (not temporary_card) and (not cvv_provided):
+                        self._send(
+                            400,
+                            {"error": "payments.payment_method.cvv_provided is required unless temporary_card is true"},
+                        )
+                        return
+
+                reason = body.get("reason", "")
+                if not isinstance(reason, str):
+                    self._send(400, {"error": "reason must be a string"})
+                    return
+
+                action = body.get("action", "")
+                budget_impact = body.get("budget_impact", 0.0)
+                ttl_seconds = body.get("ttl_seconds", 0)
+                risk_tier = body.get("risk_tier", "medium")
+
+                try:
+                    env = ApprovalEnvelope(
+                        action=str(action),
+                        reason=reason,
+                        budget_impact=budget_impact,
+                        ttl_seconds=ttl_seconds,
+                        risk_tier=str(risk_tier),
+                    )
+                except (TypeError, ValueError):
+                    self._send(
+                        400,
+                        {
+                            "error": (
+                                "invalid envelope values "
+                                "(budget_impact/ttl_seconds/risk_tier)"
+                            )
+                        },
+                    )
+                    return
+
+                service = ApprovalService(config)
+                approval_id = service.request(kind, payload, envelope=env)
+                row = service.store.get(approval_id)
+                self._send(
+                    202,
+                    {
+                        "status": "queued",
+                        "approval": {
+                            "id": approval_id,
+                            "kind": kind,
+                            "correlation_id": row.get("correlation_id") if row else "",
+                        },
+                    },
+                )
                 return
 
             if parsed.path == "/approvals/dispatch":
@@ -2440,4 +3291,5 @@ def create_approval_api_server(
             # Keep test and local CLI output clean.
             return
 
+    _ensure_globe_textures()
     return ThreadingHTTPServer((host, port), ApprovalApiHandler)

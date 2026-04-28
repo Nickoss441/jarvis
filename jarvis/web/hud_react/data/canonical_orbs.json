@@ -1,0 +1,740 @@
+{
+  "generated_at": "2026-04-28T06:43:04.689856+00:00",
+  "source_file": "jarvis/web/hud_react/app.js",
+  "source_counts": {
+    "strategic_marker": 4,
+    "market_city": 20,
+    "major_city": 22
+  },
+  "canonical_count": 41,
+  "issues": [],
+  "entries": [
+    {
+      "id": "auckland-new-zealand",
+      "city": "Auckland",
+      "country": "New Zealand",
+      "lat": -36.8509,
+      "lon": 174.7645,
+      "label": "Auckland",
+      "primary_source": "major_city",
+      "sources": [
+        {
+          "source": "major_city",
+          "source_id": "auckland",
+          "lat": -36.8509,
+          "lon": 174.7645
+        }
+      ]
+    },
+    {
+      "id": "bangkok-thailand",
+      "city": "Bangkok",
+      "country": "Thailand",
+      "lat": 13.7563,
+      "lon": 100.5018,
+      "label": "Bangkok",
+      "primary_source": "major_city",
+      "sources": [
+        {
+          "source": "major_city",
+          "source_id": "bangkok",
+          "lat": 13.7563,
+          "lon": 100.5018
+        }
+      ]
+    },
+    {
+      "id": "beijing-china",
+      "city": "Beijing",
+      "country": "China",
+      "lat": 39.9042,
+      "lon": 116.4074,
+      "label": "Beijing",
+      "primary_source": "major_city",
+      "sources": [
+        {
+          "source": "major_city",
+          "source_id": "beijing",
+          "lat": 39.9042,
+          "lon": 116.4074
+        }
+      ]
+    },
+    {
+      "id": "cairo-egypt",
+      "city": "Cairo",
+      "country": "Egypt",
+      "lat": 30.0444,
+      "lon": 31.2357,
+      "label": "Cairo",
+      "primary_source": "major_city",
+      "sources": [
+        {
+          "source": "major_city",
+          "source_id": "cairo",
+          "lat": 30.0444,
+          "lon": 31.2357
+        }
+      ]
+    },
+    {
+      "id": "chicago-usa",
+      "city": "Chicago",
+      "country": "USA",
+      "lat": 41.8781,
+      "lon": -87.6298,
+      "label": "Chicago",
+      "primary_source": "major_city",
+      "sources": [
+        {
+          "source": "major_city",
+          "source_id": "chicago",
+          "lat": 41.8781,
+          "lon": -87.6298
+        }
+      ]
+    },
+    {
+      "id": "delhi-india",
+      "city": "Delhi",
+      "country": "India",
+      "lat": 28.6139,
+      "lon": 77.209,
+      "label": "Delhi",
+      "primary_source": "major_city",
+      "sources": [
+        {
+          "source": "major_city",
+          "source_id": "delhi",
+          "lat": 28.6139,
+          "lon": 77.209
+        }
+      ]
+    },
+    {
+      "id": "djibouti-djibouti",
+      "city": "Djibouti",
+      "country": "Djibouti",
+      "lat": 11.5721,
+      "lon": 43.1456,
+      "label": "Djibouti",
+      "primary_source": "strategic_marker",
+      "sources": [
+        {
+          "source": "strategic_marker",
+          "source_id": "djibouti",
+          "lat": 11.5721,
+          "lon": 43.1456
+        }
+      ]
+    },
+    {
+      "id": "dubai-uae",
+      "city": "Dubai",
+      "country": "UAE",
+      "lat": 25.2048,
+      "lon": 55.2708,
+      "label": "Dubai",
+      "primary_source": "market_city",
+      "sources": [
+        {
+          "source": "market_city",
+          "source_id": "dfm",
+          "lat": 25.2048,
+          "lon": 55.2708
+        }
+      ]
+    },
+    {
+      "id": "frankfurt-germany",
+      "city": "Frankfurt",
+      "country": "Germany",
+      "lat": 50.1109,
+      "lon": 8.6821,
+      "label": "Frankfurt",
+      "primary_source": "market_city",
+      "sources": [
+        {
+          "source": "market_city",
+          "source_id": "fwb",
+          "lat": 50.1109,
+          "lon": 8.6821
+        }
+      ]
+    },
+    {
+      "id": "hong-kong-china",
+      "city": "Hong Kong",
+      "country": "China",
+      "lat": 22.3193,
+      "lon": 114.1694,
+      "label": "Hong Kong",
+      "primary_source": "market_city",
+      "sources": [
+        {
+          "source": "market_city",
+          "source_id": "hkex",
+          "lat": 22.3193,
+          "lon": 114.1694
+        }
+      ]
+    },
+    {
+      "id": "istanbul-turkey",
+      "city": "Istanbul",
+      "country": "Turkey",
+      "lat": 41.0082,
+      "lon": 28.9784,
+      "label": "Istanbul",
+      "primary_source": "major_city",
+      "sources": [
+        {
+          "source": "major_city",
+          "source_id": "istanbul",
+          "lat": 41.0082,
+          "lon": 28.9784
+        }
+      ]
+    },
+    {
+      "id": "jakarta-indonesia",
+      "city": "Jakarta",
+      "country": "Indonesia",
+      "lat": -6.2088,
+      "lon": 106.8456,
+      "label": "Jakarta",
+      "primary_source": "major_city",
+      "sources": [
+        {
+          "source": "major_city",
+          "source_id": "jakarta",
+          "lat": -6.2088,
+          "lon": 106.8456
+        }
+      ]
+    },
+    {
+      "id": "johannesburg-south-africa",
+      "city": "Johannesburg",
+      "country": "South Africa",
+      "lat": -26.2041,
+      "lon": 28.0473,
+      "label": "Johannesburg",
+      "primary_source": "market_city",
+      "sources": [
+        {
+          "source": "market_city",
+          "source_id": "jse",
+          "lat": -26.2041,
+          "lon": 28.0473
+        }
+      ]
+    },
+    {
+      "id": "kabul-afghanistan",
+      "city": "Kabul",
+      "country": "Afghanistan",
+      "lat": 34.5553,
+      "lon": 69.2075,
+      "label": "Kabul",
+      "primary_source": "strategic_marker",
+      "sources": [
+        {
+          "source": "strategic_marker",
+          "source_id": "kabul",
+          "lat": 34.5553,
+          "lon": 69.2075
+        }
+      ]
+    },
+    {
+      "id": "karachi-pakistan",
+      "city": "Karachi",
+      "country": "Pakistan",
+      "lat": 24.8607,
+      "lon": 67.0011,
+      "label": "Karachi",
+      "primary_source": "major_city",
+      "sources": [
+        {
+          "source": "major_city",
+          "source_id": "karachi",
+          "lat": 24.8607,
+          "lon": 67.0011
+        }
+      ]
+    },
+    {
+      "id": "lagos-nigeria",
+      "city": "Lagos",
+      "country": "Nigeria",
+      "lat": 6.5244,
+      "lon": 3.3792,
+      "label": "Lagos",
+      "primary_source": "major_city",
+      "sources": [
+        {
+          "source": "major_city",
+          "source_id": "lagos",
+          "lat": 6.5244,
+          "lon": 3.3792
+        }
+      ]
+    },
+    {
+      "id": "london-uk",
+      "city": "London",
+      "country": "UK",
+      "lat": 51.5074,
+      "lon": -0.1278,
+      "label": "London",
+      "primary_source": "market_city",
+      "sources": [
+        {
+          "source": "market_city",
+          "source_id": "lse",
+          "lat": 51.5074,
+          "lon": -0.1278
+        }
+      ]
+    },
+    {
+      "id": "los-angeles-usa",
+      "city": "Los Angeles",
+      "country": "USA",
+      "lat": 34.0522,
+      "lon": -118.2437,
+      "label": "Los Angeles",
+      "primary_source": "major_city",
+      "sources": [
+        {
+          "source": "major_city",
+          "source_id": "los-angeles",
+          "lat": 34.0522,
+          "lon": -118.2437
+        }
+      ]
+    },
+    {
+      "id": "madrid-spain",
+      "city": "Madrid",
+      "country": "Spain",
+      "lat": 40.4168,
+      "lon": -3.7038,
+      "label": "Madrid",
+      "primary_source": "major_city",
+      "sources": [
+        {
+          "source": "major_city",
+          "source_id": "madrid",
+          "lat": 40.4168,
+          "lon": -3.7038
+        }
+      ]
+    },
+    {
+      "id": "manila-philippines",
+      "city": "Manila",
+      "country": "Philippines",
+      "lat": 14.5995,
+      "lon": 120.9842,
+      "label": "Manila",
+      "primary_source": "major_city",
+      "sources": [
+        {
+          "source": "major_city",
+          "source_id": "manila",
+          "lat": 14.5995,
+          "lon": 120.9842
+        }
+      ]
+    },
+    {
+      "id": "melbourne-australia",
+      "city": "Melbourne",
+      "country": "Australia",
+      "lat": -37.8136,
+      "lon": 144.9631,
+      "label": "Melbourne",
+      "primary_source": "major_city",
+      "sources": [
+        {
+          "source": "major_city",
+          "source_id": "melbourne",
+          "lat": -37.8136,
+          "lon": 144.9631
+        }
+      ]
+    },
+    {
+      "id": "mexico-city-mexico",
+      "city": "Mexico City",
+      "country": "Mexico",
+      "lat": 19.4326,
+      "lon": -99.1332,
+      "label": "Mexico City",
+      "primary_source": "major_city",
+      "sources": [
+        {
+          "source": "major_city",
+          "source_id": "mexico-city",
+          "lat": 19.4326,
+          "lon": -99.1332
+        }
+      ]
+    },
+    {
+      "id": "moscow-russia",
+      "city": "Moscow",
+      "country": "Russia",
+      "lat": 55.7558,
+      "lon": 37.6173,
+      "label": "Moscow",
+      "primary_source": "market_city",
+      "sources": [
+        {
+          "source": "market_city",
+          "source_id": "moex",
+          "lat": 55.7558,
+          "lon": 37.6173
+        }
+      ]
+    },
+    {
+      "id": "mumbai-india",
+      "city": "Mumbai",
+      "country": "India",
+      "lat": 19.076,
+      "lon": 72.8777,
+      "label": "Mumbai",
+      "primary_source": "market_city",
+      "sources": [
+        {
+          "source": "market_city",
+          "source_id": "bse",
+          "lat": 19.076,
+          "lon": 72.8777
+        }
+      ]
+    },
+    {
+      "id": "nairobi-kenya",
+      "city": "Nairobi",
+      "country": "Kenya",
+      "lat": -1.2921,
+      "lon": 36.8219,
+      "label": "Nairobi",
+      "primary_source": "major_city",
+      "sources": [
+        {
+          "source": "major_city",
+          "source_id": "nairobi",
+          "lat": -1.2921,
+          "lon": 36.8219
+        }
+      ]
+    },
+    {
+      "id": "new-york-usa",
+      "city": "New York",
+      "country": "USA",
+      "lat": 40.7128,
+      "lon": -74.006,
+      "label": "New York",
+      "primary_source": "market_city",
+      "sources": [
+        {
+          "source": "market_city",
+          "source_id": "nyse",
+          "lat": 40.7128,
+          "lon": -74.006
+        },
+        {
+          "source": "market_city",
+          "source_id": "nasdaq",
+          "lat": 40.7589,
+          "lon": -73.9851
+        }
+      ]
+    },
+    {
+      "id": "osaka-japan",
+      "city": "Osaka",
+      "country": "Japan",
+      "lat": 34.6937,
+      "lon": 135.5023,
+      "label": "Osaka",
+      "primary_source": "major_city",
+      "sources": [
+        {
+          "source": "major_city",
+          "source_id": "osaka",
+          "lat": 34.6937,
+          "lon": 135.5023
+        }
+      ]
+    },
+    {
+      "id": "paris-france",
+      "city": "Paris",
+      "country": "France",
+      "lat": 48.8566,
+      "lon": 2.3522,
+      "label": "Paris",
+      "primary_source": "market_city",
+      "sources": [
+        {
+          "source": "market_city",
+          "source_id": "eur",
+          "lat": 48.8566,
+          "lon": 2.3522
+        }
+      ]
+    },
+    {
+      "id": "riyadh-saudi-arabia",
+      "city": "Riyadh",
+      "country": "Saudi Arabia",
+      "lat": 24.7136,
+      "lon": 46.6753,
+      "label": "Riyadh",
+      "primary_source": "market_city",
+      "sources": [
+        {
+          "source": "market_city",
+          "source_id": "tadawul",
+          "lat": 24.7136,
+          "lon": 46.6753
+        },
+        {
+          "source": "major_city",
+          "source_id": "riyadh",
+          "lat": 24.7136,
+          "lon": 46.6753
+        }
+      ]
+    },
+    {
+      "id": "rome-italy",
+      "city": "Rome",
+      "country": "Italy",
+      "lat": 41.9028,
+      "lon": 12.4964,
+      "label": "Rome",
+      "primary_source": "major_city",
+      "sources": [
+        {
+          "source": "major_city",
+          "source_id": "rome",
+          "lat": 41.9028,
+          "lon": 12.4964
+        }
+      ]
+    },
+    {
+      "id": "sao-paulo-brazil",
+      "city": "Sao Paulo",
+      "country": "Brazil",
+      "lat": -23.5505,
+      "lon": -46.6333,
+      "label": "Sao Paulo",
+      "primary_source": "market_city",
+      "sources": [
+        {
+          "source": "market_city",
+          "source_id": "b3",
+          "lat": -23.5505,
+          "lon": -46.6333
+        },
+        {
+          "source": "major_city",
+          "source_id": "sao-paulo",
+          "lat": -23.5505,
+          "lon": -46.6333
+        }
+      ]
+    },
+    {
+      "id": "seoul-south-korea",
+      "city": "Seoul",
+      "country": "South Korea",
+      "lat": 37.5665,
+      "lon": 126.978,
+      "label": "Seoul",
+      "primary_source": "market_city",
+      "sources": [
+        {
+          "source": "market_city",
+          "source_id": "krx",
+          "lat": 37.5665,
+          "lon": 126.978
+        },
+        {
+          "source": "major_city",
+          "source_id": "seoul",
+          "lat": 37.5665,
+          "lon": 126.978
+        }
+      ]
+    },
+    {
+      "id": "shanghai-china",
+      "city": "Shanghai",
+      "country": "China",
+      "lat": 31.2304,
+      "lon": 121.4737,
+      "label": "Shanghai",
+      "primary_source": "market_city",
+      "sources": [
+        {
+          "source": "market_city",
+          "source_id": "sse",
+          "lat": 31.2304,
+          "lon": 121.4737
+        }
+      ]
+    },
+    {
+      "id": "singapore-singapore",
+      "city": "Singapore",
+      "country": "Singapore",
+      "lat": 1.3521,
+      "lon": 103.8198,
+      "label": "Singapore",
+      "primary_source": "strategic_marker",
+      "sources": [
+        {
+          "source": "strategic_marker",
+          "source_id": "singapore",
+          "lat": 1.3521,
+          "lon": 103.8198
+        },
+        {
+          "source": "market_city",
+          "source_id": "sgx",
+          "lat": 1.3521,
+          "lon": 103.8198
+        }
+      ]
+    },
+    {
+      "id": "strait-of-hormuz-oman",
+      "city": "Strait of Hormuz",
+      "country": "Oman",
+      "lat": 25.578,
+      "lon": 56.61,
+      "label": "Strait of Hormuz",
+      "primary_source": "strategic_marker",
+      "sources": [
+        {
+          "source": "strategic_marker",
+          "source_id": "hormuz",
+          "lat": 25.578,
+          "lon": 56.61
+        }
+      ]
+    },
+    {
+      "id": "sydney-australia",
+      "city": "Sydney",
+      "country": "Australia",
+      "lat": -33.8688,
+      "lon": 151.2093,
+      "label": "Sydney",
+      "primary_source": "market_city",
+      "sources": [
+        {
+          "source": "market_city",
+          "source_id": "asx",
+          "lat": -33.8688,
+          "lon": 151.2093
+        }
+      ]
+    },
+    {
+      "id": "tehran-iran",
+      "city": "Tehran",
+      "country": "Iran",
+      "lat": 35.6892,
+      "lon": 51.389,
+      "label": "Tehran",
+      "primary_source": "major_city",
+      "sources": [
+        {
+          "source": "major_city",
+          "source_id": "tehran",
+          "lat": 35.6892,
+          "lon": 51.389
+        }
+      ]
+    },
+    {
+      "id": "tel-aviv-israel",
+      "city": "Tel Aviv",
+      "country": "Israel",
+      "lat": 32.0853,
+      "lon": 34.7818,
+      "label": "Tel Aviv",
+      "primary_source": "market_city",
+      "sources": [
+        {
+          "source": "market_city",
+          "source_id": "tase",
+          "lat": 32.0853,
+          "lon": 34.7818
+        }
+      ]
+    },
+    {
+      "id": "tokyo-japan",
+      "city": "Tokyo",
+      "country": "Japan",
+      "lat": 35.6762,
+      "lon": 139.6503,
+      "label": "Tokyo",
+      "primary_source": "market_city",
+      "sources": [
+        {
+          "source": "market_city",
+          "source_id": "tse",
+          "lat": 35.6762,
+          "lon": 139.6503
+        }
+      ]
+    },
+    {
+      "id": "toronto-canada",
+      "city": "Toronto",
+      "country": "Canada",
+      "lat": 43.6532,
+      "lon": -79.3832,
+      "label": "Toronto",
+      "primary_source": "market_city",
+      "sources": [
+        {
+          "source": "market_city",
+          "source_id": "tsx",
+          "lat": 43.6532,
+          "lon": -79.3832
+        }
+      ]
+    },
+    {
+      "id": "zurich-switzerland",
+      "city": "Zurich",
+      "country": "Switzerland",
+      "lat": 47.3769,
+      "lon": 8.5417,
+      "label": "Zurich",
+      "primary_source": "market_city",
+      "sources": [
+        {
+          "source": "market_city",
+          "source_id": "six",
+          "lat": 47.3769,
+          "lon": 8.5417
+        }
+      ]
+    }
+  ]
+}

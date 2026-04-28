@@ -1,9 +1,29 @@
 """XAUUSD market data and gold trading context."""
 
 import httpx
-import json
 from datetime import datetime, timezone
 from typing import Optional
+
+
+_GOLD_CACHE: Optional[dict] = None
+_GOLD_CACHE_TS: float = 0.0
+_GOLD_CACHE_TTL_SEC = 20.0
+
+
+def _parse_live_gold_payload(payload: object) -> float:
+    """Extract a gold spot price from known API response shapes."""
+    if isinstance(payload, dict):
+        price = payload.get("price") or payload.get("gold")
+        if price is not None:
+            return float(price)
+    if isinstance(payload, list) and payload:
+        first = payload[0]
+        if isinstance(first, dict):
+            if first.get("gold") is not None:
+                return float(first["gold"])
+            if first.get("price") is not None:
+                return float(first["price"])
+    raise RuntimeError("No parseable gold price in API response")
 
 
 def fetch_gold_price_live() -> dict:
@@ -22,29 +42,38 @@ def fetch_gold_price_live() -> dict:
     Raises:
         RuntimeError: if API call fails
     """
+    global _GOLD_CACHE, _GOLD_CACHE_TS
+    now = datetime.now(timezone.utc)
+    now_ts = now.timestamp()
+
+    if _GOLD_CACHE and (now_ts - _GOLD_CACHE_TS) < _GOLD_CACHE_TTL_SEC:
+        return _GOLD_CACHE
+
     try:
         # Using metals-api (free tier available)
         # Alternative: use alphavantage or other commodity APIs
         response = httpx.get(
             "https://api.metals.live/v1/spot/gold",
-            timeout=5.0
+            timeout=2.8
         )
         response.raise_for_status()
         data = response.json()
-        
-        # metals.live returns: {"price": 2050.25, ...}
-        price = data.get("price")
-        if price is None:
-            raise RuntimeError("No price field in API response")
-        
-        return {
+
+        price = _parse_live_gold_payload(data)
+
+        result = {
             "price": float(price),
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": now.isoformat(),
             "source": "metals_api",
             "currency": "USD",
             "metal": "XAU"
         }
+        _GOLD_CACHE = result
+        _GOLD_CACHE_TS = now_ts
+        return result
     except Exception as e:
+        if _GOLD_CACHE:
+            return _GOLD_CACHE
         raise RuntimeError(f"Gold price fetch failed: {e}")
 
 

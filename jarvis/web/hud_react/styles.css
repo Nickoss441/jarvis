@@ -27,9 +27,9 @@ body {
 }
 
 #root {
-    max-width: 1320px;
-    margin: 28px auto;
-    padding: 0 16px 28px;
+    width: min(1520px, calc(100vw - 20px));
+    margin: 16px auto;
+    padding: 0 10px 20px;
 }
 
 .hud-shell {
@@ -89,6 +89,7 @@ body {
     background: rgba(7, 14, 28, 0.64);
     padding: 12px;
     min-height: 102px;
+    transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
 }
 
 .hud-card.tone-rose {
@@ -183,17 +184,13 @@ body {
 }
 
 .hud-theatre.hud-theatre-cross {
-    /* Middle column = `auto` so the resizable .globe-frame drives the column
-       width; the 1fr side columns absorb the freed space when the user shrinks
-       the globe. */
-    grid-template-columns: minmax(240px, 1fr) auto minmax(240px, 1fr);
+    grid-template-columns: minmax(240px, 0.95fr) minmax(560px, 1.6fr) minmax(240px, 0.95fr);
     align-items: stretch;
 }
 
 .hud-theatre.hud-theatre-cross .hud-main-column {
     align-self: stretch;
-    /* Let the column hug the globe-frame's resized width instead of stretching. */
-    width: max-content;
+    width: 100%;
     max-width: 100%;
     justify-self: center;
 }
@@ -207,7 +204,7 @@ body {
    This helps when moving the window between monitors with different DPI/scaling. */
 @media (min-aspect-ratio: 11/10) {
     .hud-theatre.hud-theatre-cross {
-        grid-template-columns: minmax(220px, 1fr) auto minmax(220px, 1fr);
+        grid-template-columns: minmax(220px, 0.9fr) minmax(560px, 1.7fr) minmax(220px, 0.9fr);
     }
 
     .globe-frame {
@@ -275,7 +272,7 @@ body {
     max-width: 100%;
     box-shadow: inset 0 0 28px rgba(42, 163, 219, 0.18), 0 0 24px rgba(91, 200, 255, 0.08);
     overflow: hidden;
-    resize: both;
+    resize: none;
 }
 
 .globe-canvas,
@@ -314,6 +311,8 @@ body {
     z-index: 2;
     display: none;
     pointer-events: none;
+    will-change: left, top, width, transform;
+    transition: width 90ms linear, transform 90ms linear;
 }
 
 .globe-hover-card {
@@ -330,6 +329,8 @@ body {
     display: none;
     gap: 6px;
     pointer-events: none;
+    will-change: left, top, transform;
+    transition: transform 120ms ease, opacity 120ms ease;
 }
 
 .globe-hover-title {
@@ -352,6 +353,13 @@ body {
     color: var(--muted);
     font-size: 12px;
     letter-spacing: 0.03em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    * {
+        animation: none !important;
+        transition: none !important;
+    }
 }
 
 .hud-slide-panel,

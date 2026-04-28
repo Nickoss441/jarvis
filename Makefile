@@ -2,7 +2,7 @@ PYTHON ?= python3
 PYTEST ?= pytest
 VENV ?= venv
 
-.PHONY: setup run lint format test audit-verify verify-audit verify
+.PHONY: setup run lint format test audit-verify verify-audit orb-audit todos-automate verify
 
 setup:
 	$(PYTHON) -m venv $(VENV)
@@ -40,4 +40,10 @@ audit-verify:
 
 verify-audit: audit-verify
 
-verify: lint test verify-audit
+orb-audit:
+	$(PYTHON) scripts/orb_task_automation.py
+
+todos-automate:
+	$(PYTHON) scripts/automate_todos.py
+
+verify: lint test verify-audit orb-audit

@@ -235,6 +235,96 @@ def test_approval_api_serves_web_ui_root(tmp_path):
         thread.join(timeout=2)
 
 
+def test_approval_api_approvals_request_payments_requires_cvv_when_not_temporary(tmp_path):
+    cfg = _cfg(tmp_path)
+    server = create_approval_api_server(cfg, host="127.0.0.1", port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address
+
+    try:
+        status, payload = _post_json_with_status(
+            f"http://{host}:{port}/approvals/request",
+            {
+                "kind": "payments",
+                "payload": {
+                    "amount": 40.0,
+                    "currency": "USD",
+                    "recipient": "merchant@example.com",
+                    "merchant": "Lupa",
+                    "payment_method": {
+                        "cardholder_name": "Nickos",
+                        "card_last4": "4242",
+                        "card_network": "visa",
+                        "exp_month": 12,
+                        "exp_year": 2028,
+                        "billing_zip": "10001",
+                        "temporary_card": False,
+                        "cvv_provided": False,
+                    },
+                },
+            },
+        )
+
+        assert status == 400
+        assert "cvv_provided" in payload["error"]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_approval_api_approvals_request_payments_allows_temporary_card_without_cvv(tmp_path):
+    cfg = _cfg(tmp_path)
+    server = create_approval_api_server(cfg, host="127.0.0.1", port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address
+
+    try:
+        status, payload = _post_json_with_status(
+            f"http://{host}:{port}/approvals/request",
+            {
+                "kind": "payments",
+                "action": "execute_payment",
+                "reason": "temporary card test",
+                "budget_impact": 40.0,
+                "risk_tier": "medium",
+                "payload": {
+                    "amount": 40.0,
+                    "currency": "USD",
+                    "recipient": "merchant@example.com",
+                    "merchant": "Lupa",
+                    "payment_method": {
+                        "cardholder_name": "Nickos",
+                        "card_last4": "4242",
+                        "card_network": "visa",
+                        "exp_month": 12,
+                        "exp_year": 2028,
+                        "billing_zip": "10001",
+                        "temporary_card": True,
+                        "cvv_provided": False,
+                    },
+                },
+            },
+        )
+
+        assert status == 202
+        assert payload["status"] == "queued"
+        approval_id = payload["approval"]["id"]
+
+        pending = _get_json(f"http://{host}:{port}/approvals/pending?limit=20")
+        row = next((item for item in pending["items"] if item["id"] == approval_id), None)
+        assert row is not None
+        assert row["kind"] == "payments"
+        assert row["payload"]["payment_method"]["temporary_card"] is True
+        assert row["payload"]["payment_method"]["cvv_provided"] is False
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
 def test_approval_api_serves_react_hud_viewport_and_assets(tmp_path):
     cfg = _cfg(tmp_path)
 

@@ -8,6 +8,7 @@ const GLOBE_MARKERS = [
         label: "Strait of Hormuz",
         lat: 25.578,
         lon: 56.610,
+        country: "Oman",
         color: 0x68c6ff,
         region: "Financial relay",
         threat: "Nominal",
@@ -19,7 +20,57 @@ const GLOBE_MARKERS = [
         feeds: ["FX", "Container index", "BTC basis", "Macro pulse"],
         protocols: ["Liquidity watch", "Risk rebalance", "Asia handoff"],
     },
-    // Add other marker objects as needed
+    {
+        id: "kabul",
+        label: "Kabul",
+        lat: 34.5553,
+        lon: 69.2075,
+        country: "Afghanistan",
+        color: 0xff8aa8,
+        region: "Regional stability watch",
+        threat: "Elevated",
+        status: "Monitoring cross-border headlines, aid corridors, and logistics resilience signals.",
+        agents: 5,
+        confidence: "89%",
+        priority: "P2",
+        window: "05m",
+        feeds: ["Regional news", "Aid flow", "Border alerts", "Policy watch"],
+        protocols: ["Humanitarian pulse", "Scenario planning", "Desk escalation"],
+    },
+    {
+        id: "djibouti",
+        label: "Djibouti",
+        lat: 11.5721,
+        lon: 43.1456,
+        country: "Djibouti",
+        color: 0x7cf7c1,
+        region: "Maritime chokepoint relay",
+        threat: "Guarded",
+        status: "Tracking Bab el-Mandeb vessel flow, port congestion, and reroute pressure.",
+        agents: 4,
+        confidence: "91%",
+        priority: "P2",
+        window: "04m",
+        feeds: ["AIS summary", "Port queues", "Freight rates", "Weather"],
+        protocols: ["Shipping watch", "Latency hedge", "Route balancing"],
+    },
+    {
+        id: "singapore",
+        label: "Singapore",
+        lat: 1.3521,
+        lon: 103.8198,
+        country: "Singapore",
+        color: 0xffd27d,
+        region: "Asia market gateway",
+        threat: "Nominal",
+        status: "Watching SGX-open liquidity, container velocity, and APAC session handoff risk.",
+        agents: 7,
+        confidence: "96%",
+        priority: "P3",
+        window: "02m",
+        feeds: ["SGX", "Freight index", "FX Asia", "Energy spreads"],
+        protocols: ["Asia handoff", "Volatility damp", "Liquidity rebalance"],
+    },
 ];
 
 const GLOBE_CONNECTIONS = [
@@ -207,6 +258,31 @@ const MARKETS = [
     { id: "tse", name: "TSE", city: "Tokyo", country: "Japan", lat: 35.6762, lon: 139.6503, tz: "Asia/Tokyo", openH: 9, openM: 0, closeH: 15, closeM: 0, daysOpen: [1, 2, 3, 4, 5] },
     { id: "asx", name: "ASX", city: "Sydney", country: "Australia", lat: -33.8688, lon: 151.2093, tz: "Australia/Sydney", openH: 10, openM: 0, closeH: 16, closeM: 0, daysOpen: [1, 2, 3, 4, 5] },
     { id: "jse", name: "JSE", city: "Johannesburg", country: "South Africa", lat: -26.2041, lon: 28.0473, tz: "Africa/Johannesburg", openH: 9, openM: 0, closeH: 17, closeM: 0, daysOpen: [1, 2, 3, 4, 5] },
+];
+
+const MAJOR_CITY_DOTS = [
+    { id: "los-angeles", city: "Los Angeles", country: "USA", lat: 34.0522, lon: -118.2437 },
+    { id: "chicago", city: "Chicago", country: "USA", lat: 41.8781, lon: -87.6298 },
+    { id: "mexico-city", city: "Mexico City", country: "Mexico", lat: 19.4326, lon: -99.1332 },
+    { id: "sao-paulo", city: "Sao Paulo", country: "Brazil", lat: -23.5505, lon: -46.6333 },
+    { id: "madrid", city: "Madrid", country: "Spain", lat: 40.4168, lon: -3.7038 },
+    { id: "rome", city: "Rome", country: "Italy", lat: 41.9028, lon: 12.4964 },
+    { id: "istanbul", city: "Istanbul", country: "Turkey", lat: 41.0082, lon: 28.9784 },
+    { id: "cairo", city: "Cairo", country: "Egypt", lat: 30.0444, lon: 31.2357 },
+    { id: "lagos", city: "Lagos", country: "Nigeria", lat: 6.5244, lon: 3.3792 },
+    { id: "nairobi", city: "Nairobi", country: "Kenya", lat: -1.2921, lon: 36.8219 },
+    { id: "riyadh", city: "Riyadh", country: "Saudi Arabia", lat: 24.7136, lon: 46.6753 },
+    { id: "tehran", city: "Tehran", country: "Iran", lat: 35.6892, lon: 51.3890 },
+    { id: "karachi", city: "Karachi", country: "Pakistan", lat: 24.8607, lon: 67.0011 },
+    { id: "delhi", city: "Delhi", country: "India", lat: 28.6139, lon: 77.2090 },
+    { id: "bangkok", city: "Bangkok", country: "Thailand", lat: 13.7563, lon: 100.5018 },
+    { id: "jakarta", city: "Jakarta", country: "Indonesia", lat: -6.2088, lon: 106.8456 },
+    { id: "manila", city: "Manila", country: "Philippines", lat: 14.5995, lon: 120.9842 },
+    { id: "beijing", city: "Beijing", country: "China", lat: 39.9042, lon: 116.4074 },
+    { id: "seoul", city: "Seoul", country: "South Korea", lat: 37.5665, lon: 126.9780 },
+    { id: "osaka", city: "Osaka", country: "Japan", lat: 34.6937, lon: 135.5023 },
+    { id: "melbourne", city: "Melbourne", country: "Australia", lat: -37.8136, lon: 144.9631 },
+    { id: "auckland", city: "Auckland", country: "New Zealand", lat: -36.8509, lon: 174.7645 },
 ];
 
 // Pull local time parts for a Date in a given IANA timezone.
@@ -728,15 +804,22 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, liveLocation }) {
         const camera = new THREE.PerspectiveCamera(42, width / height, 0.1, 1000);
         camera.position.set(0, 0.18, 3.6);
 
-        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
         renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2.5));
+        if ("outputColorSpace" in renderer) renderer.outputColorSpace = THREE.SRGBColorSpace;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.04;
         renderer.setSize(width, height);
         container.appendChild(renderer.domElement);
 
         // --- Camera zoom + orbit state (hacker-movie satellite -> wireframe) ---
-        const ZOOM_MIN = 0.70;     // closest: near-atmosphere dive
+        // Keep camera outside the Earth mesh to avoid dead/blank states after deep zoom.
+        const ZOOM_MIN_BASE = 1.07;
+        const ZOOM_MIN_CITY = 1.04;
         const ZOOM_MAX = 18.00;    // farthest: wide solar-system framing (supports distant dwarfs)
         const ZOOM_DEFAULT = 4.20;
+        let cityInspectionTarget = null;
+        const getZoomMin = () => (cityInspectionTarget ? ZOOM_MIN_CITY : ZOOM_MIN_BASE);
         const cameraState = {
             distance: ZOOM_DEFAULT,
             targetDistance: ZOOM_DEFAULT,
@@ -759,14 +842,42 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, liveLocation }) {
         renderer.domElement.style.touchAction = "none";
         renderer.domElement.style.cursor = "grab";
 
+        // Forward-ref so wheel handler can intersect the globe mesh before it's added to scene
+        let globeCoreMesh = null;
+
         const onWheel = (event) => {
             event.preventDefault();
             const delta = event.deltaY;
-            const factor = Math.exp(delta * 0.0015);
-            cameraState.targetDistance = Math.min(
-                ZOOM_MAX,
-                Math.max(ZOOM_MIN, cameraState.targetDistance * factor)
-            );
+            const factor = Math.exp(delta * 0.0008);
+            const zoomMin = getZoomMin();
+            const prevDist = cameraState.targetDistance;
+            cameraState.targetDistance = Math.min(ZOOM_MAX, Math.max(zoomMin, prevDist * factor));
+
+            // Google Earth zoom: steer toward the globe surface point under the cursor
+            if (globeCoreMesh) {
+                const rect = renderer.domElement.getBoundingClientRect();
+                if (rect.width && rect.height) {
+                    const tp = new THREE.Vector2(
+                        ((event.clientX - rect.left) / rect.width) * 2 - 1,
+                        -((event.clientY - rect.top) / rect.height) * 2 + 1
+                    );
+                    raycaster.setFromCamera(tp, camera);
+                    const hits = raycaster.intersectObject(globeCoreMesh, false);
+                    if (hits.length > 0) {
+                        const d = hits[0].point.clone().normalize();
+                        const hitYaw = Math.atan2(d.x, d.z);
+                        const hitPitch = -Math.asin(THREE.MathUtils.clamp(d.y, -1, 1));
+                        const zoomFrac = Math.abs(1 - cameraState.targetDistance / prevDist);
+                        const t = THREE.MathUtils.clamp(zoomFrac * 2.0, 0, 0.4);
+                        let dyaw = hitYaw - cameraState.targetYaw;
+                        while (dyaw > Math.PI) dyaw -= 2 * Math.PI;
+                        while (dyaw < -Math.PI) dyaw += 2 * Math.PI;
+                        cameraState.targetYaw += dyaw * t;
+                        cameraState.targetPitch += (hitPitch - cameraState.targetPitch) * t;
+                    }
+                }
+            }
+
             cameraState.userActive = true;
             cameraState.lastInteractionAt = performance.now();
         };
@@ -777,6 +888,9 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, liveLocation }) {
             renderer.domElement.setPointerCapture(event.pointerId);
             renderer.domElement.style.cursor = "grabbing";
             hideHover();
+            // Capture drag sensitivity at pointer-down: scale by current zoom so close-up
+            // panning feels proportional (small drag = small surface movement).
+            const dragSens = 0.003 * Math.max(0.12, cameraState.distance / ZOOM_DEFAULT);
             dragState = {
                 pointerId: event.pointerId,
                 startX: event.clientX,
@@ -785,6 +899,7 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, liveLocation }) {
                 lastY: event.clientY,
                 startYaw: cameraState.targetYaw,
                 startPitch: cameraState.targetPitch,
+                sens: dragSens,
                 moved: false,
             };
             movementState.inertiaYaw = 0;
@@ -797,11 +912,13 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, liveLocation }) {
                 const stepDx = event.clientX - dragState.lastX;
                 const stepDy = event.clientY - dragState.lastY;
                 if (Math.abs(dx) + Math.abs(dy) > 4) dragState.moved = true;
-                // MIRRORED: invert direction for both axes
-                cameraState.targetYaw = dragState.startYaw - dx * 0.005;
-                cameraState.targetPitch = dragState.startPitch - dy * 0.005;
-                movementState.inertiaYaw = THREE.MathUtils.clamp(-stepDx * 0.00085, -0.05, 0.05);
-                movementState.inertiaPitch = THREE.MathUtils.clamp(-stepDy * 0.00085, -0.05, 0.05);
+                cameraState.targetYaw = dragState.startYaw - dx * dragState.sens;
+                cameraState.targetPitch = dragState.startPitch - dy * dragState.sens;
+                // Clamp pitch so you can't orbit past the poles
+                cameraState.targetPitch = THREE.MathUtils.clamp(cameraState.targetPitch, -Math.PI * 0.48, Math.PI * 0.48);
+                const inertiaSens = dragState.sens * 0.28;
+                movementState.inertiaYaw = THREE.MathUtils.clamp(-stepDx * inertiaSens, -0.05, 0.05);
+                movementState.inertiaPitch = THREE.MathUtils.clamp(-stepDy * inertiaSens, -0.05, 0.05);
                 dragState.lastX = event.clientX;
                 dragState.lastY = event.clientY;
                 cameraState.userActive = true;
@@ -832,8 +949,10 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, liveLocation }) {
         renderer.domElement.addEventListener("pointerup", onPointerUp);
         renderer.domElement.addEventListener("pointercancel", onPointerUp);
 
+        const tiltRoot = new THREE.Group();
         const root = new THREE.Group();
-        scene.add(root);
+        tiltRoot.add(root);
+        scene.add(tiltRoot);
 
         // Real Earth satellite texture (NASA Blue Marble via three.js examples CDN).
         // Falls back gracefully to the deep-blue base color if loading fails.
@@ -849,14 +968,106 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, liveLocation }) {
 
         const textureLoader = new THREE.TextureLoader();
         textureLoader.setCrossOrigin("anonymous");
-        const TEX_BASE = "https://threejs.org/examples/textures/planets/";
-        // Higher-res 4K Blue Marble (NASA via three-globe CDN). Falls back to 2048 atlas if blocked.
+        const maxAnisotropy = renderer.capabilities.getMaxAnisotropy?.() || 4;
+        const tuneTexture = (tex, useSrgb = true) => {
+            if (!tex) return tex;
+            if (useSrgb && "colorSpace" in tex) tex.colorSpace = THREE.SRGBColorSpace;
+            tex.anisotropy = maxAnisotropy;
+            tex.generateMipmaps = true;
+            tex.minFilter = THREE.LinearMipmapLinearFilter;
+            tex.magFilter = THREE.LinearFilter;
+            tex.needsUpdate = true;
+            return tex;
+        };
+        const TEX_BASE = "/hud/globe/textures/";
+        const TEX_CDN_FALLBACK = "https://threejs.org/examples/textures/planets/";
+        const LOCAL_TEXTURE_FILES = new Set([
+            "earth_atmos_2048.jpg",
+            "earth_lights_2048.png",
+            "earth_normal_2048.jpg",
+            "earth_specular_2048.jpg",
+            "moon_1024.jpg",
+        ]);
+        const makeProceduralPlanetTexture = (spec) => {
+            const canvas = document.createElement("canvas");
+            canvas.width = 512;
+            canvas.height = 256;
+            const ctx = canvas.getContext("2d");
+            if (!ctx) return null;
+            const base = `#${Number(spec.color || 0xffffff).toString(16).padStart(6, "0")}`;
+            ctx.fillStyle = base;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            const fillNoiseDots = (count, radiusMin, radiusMax, alpha, palette) => {
+                for (let i = 0; i < count; i += 1) {
+                    const color = palette[i % palette.length];
+                    ctx.fillStyle = color.replace("ALPHA", String(alpha));
+                    const radius = radiusMin + Math.random() * (radiusMax - radiusMin);
+                    const x = Math.random() * canvas.width;
+                    const y = Math.random() * canvas.height;
+                    ctx.beginPath();
+                    ctx.arc(x, y, radius, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            };
+
+            const fillBands = (colors, blur = 0.16) => {
+                const bandH = canvas.height / colors.length;
+                colors.forEach((color, idx) => {
+                    ctx.fillStyle = color;
+                    const jitter = (Math.random() - 0.5) * bandH * blur;
+                    ctx.fillRect(0, idx * bandH + jitter, canvas.width, bandH + bandH * blur);
+                });
+            };
+
+            switch (spec.name) {
+                case "Mercury":
+                    fillNoiseDots(240, 2, 12, 0.24, ["rgba(70,52,42,ALPHA)", "rgba(205,180,150,ALPHA)"]);
+                    break;
+                case "Venus":
+                    fillBands(["#d8a15c", "#e4b56f", "#c88c48", "#efc88d", "#c89157"], 0.28);
+                    fillNoiseDots(180, 10, 28, 0.11, ["rgba(255,245,220,ALPHA)"]);
+                    break;
+                case "Mars":
+                    fillBands(["#8e3f29", "#b65a37", "#c86a42", "#9d4b2f", "#d47c53"], 0.1);
+                    fillNoiseDots(220, 4, 18, 0.18, ["rgba(120,52,32,ALPHA)", "rgba(219,161,120,ALPHA)"]);
+                    ctx.fillStyle = "rgba(240,235,225,0.55)";
+                    ctx.fillRect(0, 0, canvas.width, 16);
+                    ctx.fillRect(0, canvas.height - 16, canvas.width, 16);
+                    break;
+                case "Jupiter":
+                    fillBands(["#c49b73", "#e6c39f", "#b88763", "#f0d8bb", "#a97751", "#dec0a0", "#b58059"], 0.22);
+                    ctx.fillStyle = "rgba(191,96,72,0.42)";
+                    ctx.beginPath();
+                    ctx.ellipse(canvas.width * 0.68, canvas.height * 0.6, 48, 28, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                    break;
+                case "Saturn":
+                    fillBands(["#ceb384", "#e7d2a7", "#b8935f", "#f0dfba", "#a87e4d"], 0.18);
+                    break;
+                case "Uranus":
+                    fillBands(["#9fd3df", "#b6e7f0", "#8fc4d0", "#c3edf5"], 0.08);
+                    break;
+                case "Neptune":
+                    fillBands(["#396cdb", "#5c8ef1", "#2c58bf", "#6fa4ff", "#274aa7"], 0.14);
+                    fillNoiseDots(90, 8, 22, 0.1, ["rgba(170,205,255,ALPHA)"]);
+                    break;
+                default:
+                    fillNoiseDots(160, 3, 12, 0.16, ["rgba(80,80,92,ALPHA)", "rgba(220,220,230,ALPHA)"]);
+                    break;
+            }
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.colorSpace = THREE.SRGBColorSpace;
+            tex.needsUpdate = true;
+            return tex;
+        };
+        // Higher-res 4K Blue Marble (NASA via three-globe CDN). Falls back to local 2048 atlas.
         const HIRES_DAY = "https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg";
         textureLoader.load(
             HIRES_DAY,
             (tex) => {
-                if ("colorSpace" in tex) tex.colorSpace = THREE.SRGBColorSpace;
-                tex.anisotropy = renderer.capabilities.getMaxAnisotropy?.() || 4;
+                tuneTexture(tex, true);
                 earthMaterial.map = tex;
                 earthMaterial.color.setHex(0xffffff);
                 earthMaterial.emissive.setHex(0x000000);
@@ -865,24 +1076,51 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, liveLocation }) {
             },
             undefined,
             () => {
-                // Fallback to threejs 2048 atlas if 4K is blocked
-                textureLoader.load(`${TEX_BASE}earth_atmos_2048.jpg`, (tex) => {
+                // Fallback: local cached texture, then CDN
+                const tryLocal = (url, onLoad, cdnUrl) => textureLoader.load(url, onLoad, undefined,
+                    () => textureLoader.load(cdnUrl, onLoad, undefined, () => { }));
+                tryLocal(`${TEX_BASE}earth_atmos_2048.jpg`, (tex) => {
+                    tuneTexture(tex, true);
                     earthMaterial.map = tex;
                     earthMaterial.color.setHex(0xffffff);
                     earthMaterial.emissive.setHex(0x000000);
                     earthMaterial.emissiveIntensity = 0.05;
                     earthMaterial.needsUpdate = true;
-                });
+                }, `${TEX_CDN_FALLBACK}earth_atmos_2048.jpg`);
             }
         );
-        textureLoader.load(`${TEX_BASE}earth_specular_2048.jpg`, (tex) => {
+        const loadEarthTex = (file, onLoad) => textureLoader.load(`${TEX_BASE}${file}`, onLoad, undefined,
+            () => textureLoader.load(`${TEX_CDN_FALLBACK}${file}`, onLoad, undefined, () => { }));
+        const loadSceneTexture = (file, onLoad, useSrgb = true) => {
+            if (!file) return;
+            const useLocal = LOCAL_TEXTURE_FILES.has(file);
+            const primaryUrl = useLocal ? `${TEX_BASE}${file}` : `${TEX_CDN_FALLBACK}${file}`;
+            const fallbackUrl = useLocal ? `${TEX_CDN_FALLBACK}${file}` : null;
+            textureLoader.load(
+                primaryUrl,
+                (tex) => { tuneTexture(tex, useSrgb); onLoad(tex); },
+                undefined,
+                () => {
+                    if (!fallbackUrl) return;
+                    textureLoader.load(
+                        fallbackUrl,
+                        (tex) => { tuneTexture(tex, useSrgb); onLoad(tex); },
+                        undefined,
+                        () => { }
+                    );
+                }
+            );
+        };
+        loadEarthTex("earth_specular_2048.jpg", (tex) => {
+            tuneTexture(tex, false);
             earthMaterial.specularMap = tex;
             // Slight blue tint on ocean specular for realistic water glint, kept dim.
             earthMaterial.specular = new THREE.Color(0x335577);
             earthMaterial.shininess = 28;
             earthMaterial.needsUpdate = true;
         });
-        textureLoader.load(`${TEX_BASE}earth_normal_2048.jpg`, (tex) => {
+        loadEarthTex("earth_normal_2048.jpg", (tex) => {
+            tuneTexture(tex, false);
             earthMaterial.normalMap = tex;
             earthMaterial.normalScale = new THREE.Vector2(0.7, 0.7);
             earthMaterial.needsUpdate = true;
@@ -929,7 +1167,7 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, liveLocation }) {
         textureLoader.load(
             "https://unpkg.com/three-globe/example/img/earth-night.jpg",
             (tex) => {
-                if ("colorSpace" in tex) tex.colorSpace = THREE.SRGBColorSpace;
+                tuneTexture(tex, true);
                 nightMaterial.uniforms.nightMap.value = tex;
                 nightMaterial.uniforms.opacity.value = 1.0;
                 nightMaterial.needsUpdate = true;
@@ -942,10 +1180,11 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, liveLocation }) {
             new THREE.SphereGeometry(1.02, 96, 96),
             earthMaterial
         );
+        globeCoreMesh = coreSphere;
         root.add(coreSphere);
         // Earth's axial tilt at the root group — markers, clouds, night side and
         // wireframe all share this tilt because they're children of `root`.
-        root.rotation.z = (23.5 * Math.PI) / 180;
+        tiltRoot.rotation.z = (23.5 * Math.PI) / 180;
 
         // Earth's Moon around the primary globe (Earth is the main sphere).
         const earthMoonPivot = new THREE.Group();
@@ -963,8 +1202,8 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, liveLocation }) {
         earthMoon.position.set(1.62, 0.06, 0);
         earthMoonPivot.add(earthMoon);
         root.add(earthMoonPivot);
-        textureLoader.load(`${TEX_BASE}moon_1024.jpg`, (tex) => {
-            if ("colorSpace" in tex) tex.colorSpace = THREE.SRGBColorSpace;
+        loadEarthTex("moon_1024.jpg", (tex) => {
+            tuneTexture(tex, true);
             earthMoonMaterial.map = tex;
             earthMoonMaterial.needsUpdate = true;
         });
@@ -1104,7 +1343,6 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, liveLocation }) {
         cityScanGroup.add(cityScanPulse);
 
         const CITY_SCAN_MARKERS = new Set(["Singapore", "Kabul", "Djibouti", "Tongeren"]);
-        let cityInspectionTarget = null;
         const setCityInspectionTarget = (target) => {
             cityInspectionTarget = target;
             cityScanGroup.visible = Boolean(target);
@@ -1180,7 +1418,7 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, liveLocation }) {
             const subsolarLon = -(utcHours - 12) * 15;
             const sunDir = latLonToVector3(decl, subsolarLon, 8);
             // Apply the same axial tilt that's on `root` so day/night aligns with the rotated Earth.
-            sunDir.applyEuler(new THREE.Euler(0, 0, root.rotation.z));
+            sunDir.applyEuler(new THREE.Euler(0, 0, tiltRoot.rotation.z));
             sunLight.position.copy(sunDir);
             sunGroup.position.copy(sunDir.clone().normalize().multiplyScalar(10.8));
         };
@@ -1308,18 +1546,18 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, liveLocation }) {
         const ORBIT_EPOCH_MS = Date.UTC(2000, 0, 1, 12, 0, 0); // J2000
         const EARTH_ORBIT = { au: 1.0, periodDays: 365.256, meanLonDeg: 100.46435 };
         const planetSpecs = [
-            { color: 0xb98a5b, radius: 0.08, au: 0.39, periodDays: 87.969, meanLonDeg: 252.251, spinSpeed: 0.00045, tilt: 0.05, tex: "mercury.jpg", roughness: 0.95, bumpTex: "mercury.jpg", bumpScale: 0.028, moons: 0 },   // Mercury
-            { color: 0xd9a86a, radius: 0.17, au: 0.72, periodDays: 224.701, meanLonDeg: 181.980, spinSpeed: 0.00031, tilt: 0.10, tex: "venus.jpg", roughness: 0.92, detailShell: true, shellOpacity: 0.16, moons: 0 },     // Venus
-            { color: 0xc1573b, radius: 0.10, au: 1.52, periodDays: 686.980, meanLonDeg: 355.453, spinSpeed: 0.00022, tilt: 0.18, tex: "mars_1k_color.jpg", roughness: 0.90, normalTex: "mars_1k_normal.jpg", normalScale: 0.9, bumpTex: "mars_1k_color.jpg", bumpScale: 0.02, moons: 2 }, // Mars
-            { color: 0xd8b89a, radius: 0.52, au: 5.20, periodDays: 4332.59, meanLonDeg: 34.404, spinSpeed: 0.00014, tilt: 0.04, tex: "jupiter.jpg", roughness: 0.85, detailShell: true, shellOpacity: 0.20, moons: 4 },   // Jupiter
-            { color: 0xe7d28c, radius: 0.44, au: 9.58, periodDays: 10759.22, meanLonDeg: 49.944, spinSpeed: 0.00010, tilt: 0.22, tex: "saturn.jpg", roughness: 0.88, ring: true, detailShell: true, shellOpacity: 0.18, moons: 3 }, // Saturn
-            { color: 0x9ec9ff, radius: 0.25, au: 19.2, periodDays: 30688.5, meanLonDeg: 313.232, spinSpeed: 0.00007, tilt: 0.15, tex: "uranus.jpg", roughness: 0.90, ring: true, ringTint: 0xbfd7e6, moons: 2 },    // Uranus
-            { color: 0x5b8dff, radius: 0.24, au: 30.05, periodDays: 60195, meanLonDeg: 304.880, spinSpeed: 0.00005, tilt: 0.08, tex: "neptune.jpg", roughness: 0.90, detailShell: true, shellOpacity: 0.12, moons: 2 },   // Neptune
-            { color: 0xdbc3a6, radius: 0.07, au: 39.48, periodDays: 90560, meanLonDeg: 238.929, spinSpeed: 0.000035, tilt: 0.12, tex: "pluto.jpg", roughness: 0.96, bumpTex: "moon_1024.jpg", bumpScale: 0.012, moons: 1 },    // Pluto (dwarf)
-            { color: 0xb9b6b2, radius: 0.06, au: 2.77, periodDays: 1680.0, meanLonDeg: 80.3, spinSpeed: 0.000040, tilt: 0.08, tex: "moon_1024.jpg", roughness: 0.98, bumpTex: "moon_1024.jpg", bumpScale: 0.014, moons: 0 }, // Ceres (dwarf)
-            { color: 0xcdd7e6, radius: 0.06, au: 67.7, periodDays: 204400, meanLonDeg: 204.2, spinSpeed: 0.000024, tilt: 0.10, tex: "moon_1024.jpg", roughness: 0.98, bumpTex: "moon_1024.jpg", bumpScale: 0.014, moons: 0 }, // Eris (dwarf)
-            { color: 0xdccdb3, radius: 0.055, au: 43.1, periodDays: 103500, meanLonDeg: 122.0, spinSpeed: 0.000022, tilt: 0.14, tex: "moon_1024.jpg", roughness: 0.98, bumpTex: "moon_1024.jpg", bumpScale: 0.013, moons: 0 }, // Haumea (dwarf)
-            { color: 0xe6d9bd, radius: 0.058, au: 45.8, periodDays: 112900, meanLonDeg: 152.0, spinSpeed: 0.000021, tilt: 0.09, tex: "moon_1024.jpg", roughness: 0.98, bumpTex: "moon_1024.jpg", bumpScale: 0.013, moons: 0 }, // Makemake
+            { name: "Mercury", category: "Rocky", color: 0xb98a5b, radius: 0.08, au: 0.39, periodDays: 87.969, meanLonDeg: 252.251, spinSpeed: 0.00045, tilt: 0.05, tex: "mercury.jpg", roughness: 0.95, bumpTex: "mercury.jpg", bumpScale: 0.028, moons: 0, labelTint: 0xdcb084, haloColor: 0xe7b98e, haloOpacity: 0.06 },
+            { name: "Venus", category: "Cloud World", color: 0xd9a86a, radius: 0.17, au: 0.72, periodDays: 224.701, meanLonDeg: 181.980, spinSpeed: 0.00031, tilt: 0.10, tex: "venus.jpg", roughness: 0.92, detailShell: true, shellOpacity: 0.16, detailShellTint: 0xf3d6a5, moons: 0, labelTint: 0xf0cd98, atmosphereColor: 0xf1c27b, atmosphereOpacity: 0.18 },
+            { name: "Mars", category: "Frontier", color: 0xc1573b, radius: 0.10, au: 1.52, periodDays: 686.980, meanLonDeg: 355.453, spinSpeed: 0.00022, tilt: 0.18, tex: "mars_1k_color.jpg", roughness: 0.90, normalTex: "mars_1k_normal.jpg", normalScale: 0.9, bumpTex: "mars_1k_color.jpg", bumpScale: 0.02, moons: 2, labelTint: 0xff8f6d, haloColor: 0xff7c57, haloOpacity: 0.07 },
+            { name: "Jupiter", category: "Gas Giant", color: 0xd8b89a, radius: 0.52, au: 5.20, periodDays: 4332.59, meanLonDeg: 34.404, spinSpeed: 0.00014, tilt: 0.04, tex: "jupiter.jpg", roughness: 0.85, detailShell: true, shellOpacity: 0.20, detailShellTint: 0xf0e1c9, moons: 4, labelTint: 0xf6dfc3, haloColor: 0xf1d2a6, haloOpacity: 0.08 },
+            { name: "Saturn", category: "Ringed Giant", color: 0xe7d28c, radius: 0.44, au: 9.58, periodDays: 10759.22, meanLonDeg: 49.944, spinSpeed: 0.00010, tilt: 0.22, tex: "saturn.jpg", roughness: 0.88, ring: true, ringInnerScale: 1.42, ringOuterScale: 2.7, detailShell: true, shellOpacity: 0.18, detailShellTint: 0xf9e7b3, moons: 3, labelTint: 0xffedb9, haloColor: 0xf6d67e, haloOpacity: 0.08 },
+            { name: "Uranus", category: "Ice Giant", color: 0x9ec9ff, radius: 0.25, au: 19.2, periodDays: 30688.5, meanLonDeg: 313.232, spinSpeed: 0.00007, tilt: 0.15, tex: "uranus.jpg", roughness: 0.90, ring: true, ringInnerScale: 1.55, ringOuterScale: 2.15, ringTilt: 1.96, ringTint: 0xbfd7e6, moons: 2, labelTint: 0xcce8ff, atmosphereColor: 0x9edcff, atmosphereOpacity: 0.12 },
+            { name: "Neptune", category: "Storm Giant", color: 0x5b8dff, radius: 0.24, au: 30.05, periodDays: 60195, meanLonDeg: 304.880, spinSpeed: 0.00005, tilt: 0.08, tex: "neptune.jpg", roughness: 0.90, detailShell: true, shellOpacity: 0.12, detailShellTint: 0x97b8ff, moons: 2, labelTint: 0x91bdff, atmosphereColor: 0x6a9eff, atmosphereOpacity: 0.14 },
+            { name: "Pluto", category: "Dwarf", color: 0xdbc3a6, radius: 0.07, au: 39.48, periodDays: 90560, meanLonDeg: 238.929, spinSpeed: 0.000035, tilt: 0.12, tex: "pluto.jpg", roughness: 0.96, bumpTex: "moon_1024.jpg", bumpScale: 0.012, moons: 1, labelTint: 0xe8d7bf },
+            { name: "Ceres", category: "Dwarf", color: 0xb9b6b2, radius: 0.06, au: 2.77, periodDays: 1680.0, meanLonDeg: 80.3, spinSpeed: 0.000040, tilt: 0.08, tex: "moon_1024.jpg", roughness: 0.98, bumpTex: "moon_1024.jpg", bumpScale: 0.014, moons: 0, labelTint: 0xd0d4da },
+            { name: "Eris", category: "Dwarf", color: 0xcdd7e6, radius: 0.06, au: 67.7, periodDays: 204400, meanLonDeg: 204.2, spinSpeed: 0.000024, tilt: 0.10, tex: "moon_1024.jpg", roughness: 0.98, bumpTex: "moon_1024.jpg", bumpScale: 0.014, moons: 0, labelTint: 0xdeebff },
+            { name: "Haumea", category: "Dwarf", color: 0xdccdb3, radius: 0.055, au: 43.1, periodDays: 103500, meanLonDeg: 122.0, spinSpeed: 0.000022, tilt: 0.14, tex: "moon_1024.jpg", roughness: 0.98, bumpTex: "moon_1024.jpg", bumpScale: 0.013, moons: 0, labelTint: 0xf0e0bf },
+            { name: "Makemake", category: "Dwarf", color: 0xe6d9bd, radius: 0.058, au: 45.8, periodDays: 112900, meanLonDeg: 152.0, spinSpeed: 0.000021, tilt: 0.09, tex: "moon_1024.jpg", roughness: 0.98, bumpTex: "moon_1024.jpg", bumpScale: 0.013, moons: 0, labelTint: 0xf6ead0 },
         ];
         const heliocentricPos = (au, periodDays, meanLonDeg, nowMs) => {
             const daysSinceEpoch = (nowMs - ORBIT_EPOCH_MS) / 86400000;
@@ -1328,32 +1566,59 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, liveLocation }) {
             return new THREE.Vector3(Math.cos(angle) * au, 0, Math.sin(angle) * au);
         };
         const compressAuDistance = (auDistance) => Math.log1p(Math.abs(auDistance) * AU_VISIBILITY_CURVE) * AU_VISIBILITY_SCALE;
-        const loadPlanetTexture = (file, onLoad) => {
+        const loadPlanetTexture = (file, onLoad, useSrgb = true) => {
             if (!file) return;
-            textureLoader.load(
-                `${TEX_BASE}${file}`,
-                (tex) => {
-                    if ("colorSpace" in tex) tex.colorSpace = THREE.SRGBColorSpace;
-                    tex.anisotropy = renderer.capabilities.getMaxAnisotropy?.() || 4;
-                    onLoad(tex);
-                },
-                undefined,
-                () => { /* silent fallback: keep base color */ }
-            );
+            loadSceneTexture(file, onLoad, useSrgb);
+        };
+        const makePlanetLabelSprite = (title, subtitle, tintHex) => {
+            const canvas = document.createElement("canvas");
+            canvas.width = 320;
+            canvas.height = 96;
+            const ctx = canvas.getContext("2d");
+            if (!ctx) return null;
+            const tint = `#${Number(tintHex || 0xd7e9ff).toString(16).padStart(6, "0")}`;
+            const grad = ctx.createLinearGradient(0, 0, canvas.width, 0);
+            grad.addColorStop(0, "rgba(6, 14, 28, 0.0)");
+            grad.addColorStop(0.12, "rgba(6, 14, 28, 0.72)");
+            grad.addColorStop(1, "rgba(6, 14, 28, 0.0)");
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 18, canvas.width, 58);
+            ctx.strokeStyle = "rgba(160, 220, 255, 0.28)";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(18, 46);
+            ctx.lineTo(canvas.width - 18, 46);
+            ctx.stroke();
+            ctx.fillStyle = tint;
+            ctx.font = '600 26px "Space Grotesk", sans-serif';
+            ctx.fillText(title.toUpperCase(), 18, 39);
+            ctx.fillStyle = "rgba(214, 236, 255, 0.78)";
+            ctx.font = '500 16px "Space Grotesk", sans-serif';
+            ctx.fillText(subtitle.toUpperCase(), 18, 67);
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.needsUpdate = true;
+            const material = new THREE.SpriteMaterial({
+                map: texture,
+                transparent: true,
+                depthWrite: false,
+            });
+            const sprite = new THREE.Sprite(material);
+            sprite.scale.set(0.86, 0.26, 1);
+            return sprite;
         };
         const planetEasterEggs = [
-            { name: "Mercury", category: "Planet", temp: "-173°C to 427°C", wind: "0 m/s", pop: "0", distanceAuMin: 0.61, distanceAuMax: 1.39 },
-            { name: "Venus", category: "Planet", temp: "462°C", wind: "360 km/h", pop: "600 Marshins", distanceAuMin: 0.28, distanceAuMax: 1.72 },
-            { name: "Mars", category: "Planet", temp: "-63°C avg", wind: "5 m/s", pop: "1200 Martians", distanceAuMin: 0.37, distanceAuMax: 2.68 },
-            { name: "Jupiter", category: "Planet", temp: "-108°C", wind: "620 km/h", pop: "60,000 Selenites", distanceAuMin: 3.95, distanceAuMax: 6.45 },
-            { name: "Saturn", category: "Planet", temp: "-139°C", wind: "1800 km/h", pop: "9000 Ringlings", distanceAuMin: 8.00, distanceAuMax: 11.05 },
-            { name: "Uranus", category: "Planet", temp: "-197°C", wind: "900 km/h", pop: "3000 Icefolk", distanceAuMin: 17.20, distanceAuMax: 21.10 },
-            { name: "Neptune", category: "Planet", temp: "-201°C", wind: "2100 km/h", pop: "6000 Deepsea", distanceAuMin: 28.80, distanceAuMax: 30.40 },
-            { name: "Pluto", category: "Dwarf Planet", temp: "-229°C", wind: "Thin atmosphere", pop: "0", distanceAuMin: 29.70, distanceAuMax: 49.30 },
-            { name: "Ceres", category: "Dwarf Planet", temp: "-105°C", wind: "No atmosphere", pop: "0", distanceAuMin: 1.60, distanceAuMax: 4.60 },
-            { name: "Eris", category: "Dwarf Planet", temp: "-231°C", wind: "No atmosphere", pop: "0", distanceAuMin: 37.80, distanceAuMax: 97.60 },
-            { name: "Haumea", category: "Dwarf Planet", temp: "-223°C", wind: "No atmosphere", pop: "0", distanceAuMin: 34.90, distanceAuMax: 51.50 },
-            { name: "Makemake", category: "Dwarf Planet", temp: "-239°C", wind: "No atmosphere", pop: "0", distanceAuMin: 38.50, distanceAuMax: 52.80 },
+            { name: "Mercury", category: "Planet", temp: "-173°C to 427°C", wind: "No stable atmosphere", detail: "Rocky world • 0 moons", distanceAuMin: 0.61, distanceAuMax: 1.39 },
+            { name: "Venus", category: "Planet", temp: "462°C", wind: "360 km/h", detail: "Sulfur clouds • 0 moons", distanceAuMin: 0.28, distanceAuMax: 1.72 },
+            { name: "Mars", category: "Planet", temp: "-63°C avg", wind: "5 m/s", detail: "Polar caps • 2 moons", distanceAuMin: 0.37, distanceAuMax: 2.68 },
+            { name: "Jupiter", category: "Planet", temp: "-108°C", wind: "620 km/h", detail: "Gas giant • 95 known moons", distanceAuMin: 3.95, distanceAuMax: 6.45 },
+            { name: "Saturn", category: "Planet", temp: "-139°C", wind: "1800 km/h", detail: "Ring system • 146 known moons", distanceAuMin: 8.00, distanceAuMax: 11.05 },
+            { name: "Uranus", category: "Planet", temp: "-197°C", wind: "900 km/h", detail: "Ice giant • 27 known moons", distanceAuMin: 17.20, distanceAuMax: 21.10 },
+            { name: "Neptune", category: "Planet", temp: "-201°C", wind: "2100 km/h", detail: "Dark storms • 14 known moons", distanceAuMin: 28.80, distanceAuMax: 30.40 },
+            { name: "Pluto", category: "Dwarf Planet", temp: "-229°C", wind: "Thin atmosphere", detail: "Kuiper belt • 5 moons", distanceAuMin: 29.70, distanceAuMax: 49.30 },
+            { name: "Ceres", category: "Dwarf Planet", temp: "-105°C", wind: "No atmosphere", detail: "Asteroid belt dwarf", distanceAuMin: 1.60, distanceAuMax: 4.60 },
+            { name: "Eris", category: "Dwarf Planet", temp: "-231°C", wind: "No atmosphere", detail: "Scattered disk body", distanceAuMin: 37.80, distanceAuMax: 97.60 },
+            { name: "Haumea", category: "Dwarf Planet", temp: "-223°C", wind: "No atmosphere", detail: "Fast spinner • ringed", distanceAuMin: 34.90, distanceAuMax: 51.50 },
+            { name: "Makemake", category: "Dwarf Planet", temp: "-239°C", wind: "No atmosphere", detail: "Icy red dwarf", distanceAuMin: 38.50, distanceAuMax: 52.80 },
         ];
         const setSpaceInteraction = (object3d, egg) => {
             object3d.userData.planetEgg = egg;
@@ -1369,6 +1634,11 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, liveLocation }) {
                 emissive: 0x040608,
                 emissiveIntensity: 0.06,
             });
+            const proceduralMap = makeProceduralPlanetTexture(spec);
+            if (proceduralMap) {
+                tuneTexture(proceduralMap, true);
+                planetMaterial.map = proceduralMap;
+            }
             loadPlanetTexture(spec.tex, (tex) => {
                 planetMaterial.map = tex;
                 planetMaterial.needsUpdate = true;
@@ -1379,7 +1649,7 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, liveLocation }) {
                     const n = Number(spec.normalScale);
                     planetMaterial.normalScale = new THREE.Vector2(Number.isFinite(n) ? n : 0.7, Number.isFinite(n) ? n : 0.7);
                     planetMaterial.needsUpdate = true;
-                });
+                }, false);
             }
             if (spec.bumpTex) {
                 loadPlanetTexture(spec.bumpTex, (tex) => {
@@ -1387,7 +1657,7 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, liveLocation }) {
                     const b = Number(spec.bumpScale);
                     planetMaterial.bumpScale = Number.isFinite(b) ? b : 0.01;
                     planetMaterial.needsUpdate = true;
-                });
+                }, false);
             }
             const mesh = new THREE.Mesh(
                 new THREE.SphereGeometry(spec.radius, 56, 56),
@@ -1398,11 +1668,41 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, liveLocation }) {
             const egg = planetEasterEggs[idx] ?? null;
             if (egg) setSpaceInteraction(mesh, egg);
 
+            if (spec.haloColor) {
+                const halo = new THREE.Mesh(
+                    new THREE.SphereGeometry(spec.radius * 1.24, 28, 28),
+                    new THREE.MeshBasicMaterial({
+                        color: spec.haloColor,
+                        transparent: true,
+                        opacity: spec.haloOpacity ?? 0.06,
+                        side: THREE.BackSide,
+                        depthWrite: false,
+                    })
+                );
+                if (egg) setSpaceInteraction(halo, egg);
+                mesh.add(halo);
+            }
+
+            if (spec.atmosphereColor) {
+                const atmosphere = new THREE.Mesh(
+                    new THREE.SphereGeometry(spec.radius * 1.08, 30, 30),
+                    new THREE.MeshBasicMaterial({
+                        color: spec.atmosphereColor,
+                        transparent: true,
+                        opacity: spec.atmosphereOpacity ?? 0.12,
+                        side: THREE.BackSide,
+                        depthWrite: false,
+                    })
+                );
+                if (egg) setSpaceInteraction(atmosphere, egg);
+                mesh.add(atmosphere);
+            }
+
             if (spec.detailShell) {
                 const shell = new THREE.Mesh(
                     new THREE.SphereGeometry(spec.radius * 1.03, 40, 40),
                     new THREE.MeshBasicMaterial({
-                        color: 0xd5eaff,
+                        color: spec.detailShellTint || 0xd5eaff,
                         transparent: true,
                         opacity: spec.shellOpacity ?? 0.12,
                         depthWrite: false,
@@ -1425,6 +1725,21 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, liveLocation }) {
                 moonPivot.rotation.z = (Math.random() - 0.5) * 0.9;
                 const moonRadius = Math.max(0.012, spec.radius * (0.12 + Math.random() * 0.08));
                 const moonOrbit = spec.radius * (2.2 + m * 0.48 + Math.random() * 0.35);
+                const orbitPoints = [];
+                for (let step = 0; step <= 48; step += 1) {
+                    const theta = (step / 48) * Math.PI * 2;
+                    orbitPoints.push(new THREE.Vector3(Math.cos(theta) * moonOrbit, 0, Math.sin(theta) * moonOrbit));
+                }
+                const moonOrbitLine = new THREE.LineLoop(
+                    new THREE.BufferGeometry().setFromPoints(orbitPoints),
+                    new THREE.LineBasicMaterial({
+                        color: spec.labelTint || 0xbfdcff,
+                        transparent: true,
+                        opacity: 0.16,
+                    })
+                );
+                moonOrbitLine.rotation.x = Math.PI / 2;
+                mesh.add(moonOrbitLine);
                 const moon = new THREE.Mesh(
                     new THREE.SphereGeometry(moonRadius, 14, 14),
                     new THREE.MeshStandardMaterial({
@@ -1472,14 +1787,22 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, liveLocation }) {
                 loadPlanetTexture("saturnringpattern.gif", (tex) => {
                     ringMaterial.alphaMap = tex;
                     ringMaterial.needsUpdate = true;
-                });
+                }, false);
                 const ring = new THREE.Mesh(
-                    new THREE.RingGeometry(spec.radius * 1.5, spec.radius * 2.35, 128),
+                    new THREE.RingGeometry(spec.radius * (spec.ringInnerScale || 1.5), spec.radius * (spec.ringOuterScale || 2.35), 128),
                     ringMaterial
                 );
-                ring.rotation.x = Math.PI / 2.2;
+                ring.rotation.x = spec.ringTilt || (Math.PI / 2.2);
                 if (egg) setSpaceInteraction(ring, egg);
                 mesh.add(ring);
+            }
+
+            const label = makePlanetLabelSprite(spec.name, spec.category || egg?.category || "planet", spec.labelTint || spec.color);
+            if (label) {
+                label.position.set(0, spec.radius * 2.0 + 0.08, 0);
+                label.material.opacity = spec.radius > 0.12 ? 0.95 : 0.82;
+                if (egg) setSpaceInteraction(label, egg);
+                mesh.add(label);
             }
             // Random starting phase
             group.rotation.y = 0;
@@ -1516,8 +1839,27 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, liveLocation }) {
         });
         root.add(connectionsGroup);
 
+        const routeDistanceNmModel = (waypoints) => {
+            const toRad = (deg) => (deg * Math.PI) / 180;
+            const legDistanceNm = (a, b) => {
+                const dLat = toRad(b.lat - a.lat);
+                const dLon = toRad(b.lon - a.lon);
+                const lat1 = toRad(a.lat);
+                const lat2 = toRad(b.lat);
+                const s = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+                const c = 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
+                return 6371 * c * 0.5399568;
+            };
+            let total = 0;
+            for (let i = 1; i < waypoints.length; i += 1) {
+                total += legDistanceNm(waypoints[i - 1], waypoints[i]);
+            }
+            return total;
+        };
+        const formatNmModel = (nm) => `${Math.round(nm).toLocaleString()} nm`;
+
         SHIPPING_LANES.forEach((lane) => {
-            lane.modeledDistanceNm = routeDistanceNm(lane.waypoints);
+            lane.modeledDistanceNm = routeDistanceNmModel(lane.waypoints);
             const lanePoints = lane.waypoints.map((point) => latLonToVector3(point.lat, point.lon, 1.034));
             const laneCurve = new THREE.CatmullRomCurve3(lanePoints, false, "catmullrom", 0.08);
             const laneSamples = laneCurve
@@ -1530,7 +1872,7 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, liveLocation }) {
             );
             laneArc.userData = {
                 shippingLane: lane,
-                detailLabel: `MODELED DIST ${formatNm(lane.modeledDistanceNm)}`,
+                detailLabel: `MODELED DIST ${formatNmModel(lane.modeledDistanceNm)}`,
             };
             shippingGroup.add(laneArc);
 
@@ -1605,6 +1947,28 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, liveLocation }) {
             marketPinMeshes.push({ mesh: dot, material: mat, market });
         });
         root.add(marketPinGroup);
+
+        const majorCityGroup = new THREE.Group();
+        const majorCityMeshes = [];
+        const marketCityKeys = new Set(MARKETS.map((market) => `${market.city}|${market.country}`));
+        MAJOR_CITY_DOTS.filter((city) => !marketCityKeys.has(`${city.city}|${city.country}`)).forEach((city) => {
+            const halo = new THREE.Mesh(
+                new THREE.SphereGeometry(0.022, 12, 12),
+                new THREE.MeshBasicMaterial({ color: 0x9bdcff, transparent: true, opacity: 0.16 })
+            );
+            const dot = new THREE.Mesh(
+                new THREE.SphereGeometry(0.0105, 10, 10),
+                new THREE.MeshBasicMaterial({ color: 0xd7f4ff, transparent: true, opacity: 0.82 })
+            );
+            const anchor = new THREE.Group();
+            anchor.position.copy(latLonToVector3(city.lat, city.lon, 1.075));
+            anchor.userData = { id: `city_${city.id}`, city };
+            anchor.add(halo);
+            anchor.add(dot);
+            majorCityGroup.add(anchor);
+            majorCityMeshes.push({ anchor, halo, dot, city });
+        });
+        root.add(majorCityGroup);
 
         // Home pin: Tongeren, Belgium — amber, distinct from threat/market dots
         const HOME_LAT = 50.7806267;
@@ -1717,6 +2081,7 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, liveLocation }) {
         };
 
         const raycaster = new THREE.Raycaster();
+        raycaster.params.Line.threshold = 0.003;  // prevent ocean-wide false positives on THREE.Line arcs
         const pointer = new THREE.Vector2();
         let rafId = 0;
         const weatherCache = new Map();
@@ -1864,7 +2229,7 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, liveLocation }) {
             hoverState.weatherText = `TEMP ${egg.temp} • WIND ${egg.wind}`;
             hoverState.worldPos.copy(worldPos);
             if (hoverTitleRef.current) hoverTitleRef.current.textContent = `${egg.name} • ${egg.category || "Outer System"}`;
-            if (hoverPopRef.current) hoverPopRef.current.textContent = `ESTM POPULATION ${egg.pop}`;
+            if (hoverPopRef.current) hoverPopRef.current.textContent = `${egg.detail || "Orbital profile"}`;
             if (hoverCoordsRef.current) hoverCoordsRef.current.textContent = `EARTH DIST ${distanceRangeLabel(egg)} • ${distanceRangeKmLabel(egg)}`;
             if (hoverWeatherRef.current) hoverWeatherRef.current.textContent = `LIGHT ETA ${lightEtaLabel(egg)} • TEMP ${egg.temp}`;
             if (hoverCardRef.current) hoverCardRef.current.style.display = "grid";
@@ -1942,6 +2307,7 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, liveLocation }) {
         const getInteractiveTargets = () => [
             ...markerGroup.children,
             ...marketPinGroup.children,
+            ...majorCityGroup.children,
             ...shippingGroup.children,
             homePin,
             ...(livePin ? [livePin] : []),
@@ -2068,6 +2434,15 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, liveLocation }) {
                 }, worldPos);
                 return;
             }
+            if (data?.city) {
+                setHoverFromData({
+                    title: data.city.city,
+                    country: data.city.country,
+                    lat: data.city.lat,
+                    lon: data.city.lon,
+                }, worldPos);
+                return;
+            }
             if (data?.id === "home_belgium") {
                 setHoverFromData({ title: "Home • Tongeren 3700, BE", country: "Belgium", lat: HOME_LAT, lon: HOME_LON }, worldPos);
                 return;
@@ -2115,12 +2490,20 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, liveLocation }) {
                     material.color.setHex(status.open ? 0x66e08a : 0xff7b95);
                     material.opacity = status.open ? 0.95 : 0.55;
                 });
+                majorCityMeshes.forEach(({ halo, dot }, idx) => {
+                    const pulse = (Math.sin(time * 1.4 + idx * 0.45) + 1) * 0.5;
+                    dot.material.opacity = 0.58 + pulse * 0.24;
+                    halo.material.opacity = 0.08 + pulse * 0.12;
+                });
                 lastMarketTick = performance.now();
             }
 
 
             // Smoother, more responsive interpolation for precise control
+            const zoomMin = getZoomMin();
+            cameraState.targetDistance = THREE.MathUtils.clamp(cameraState.targetDistance, zoomMin, ZOOM_MAX);
             cameraState.distance += (cameraState.targetDistance - cameraState.distance) * 0.18;
+            cameraState.distance = Math.max(zoomMin, cameraState.distance);
             cameraState.yaw += (cameraState.targetYaw - cameraState.yaw) * 0.28;
             cameraState.pitch += (cameraState.targetPitch - cameraState.pitch) * 0.28;
 
@@ -2148,7 +2531,7 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, liveLocation }) {
             // Auto-rotate the globe ONLY when user isn't actively interacting
             const sinceInteract = performance.now() - cameraState.lastInteractionAt;
             const autoRotateAllowed = !dragState && sinceInteract > 3500;
-            const zoomT = THREE.MathUtils.clamp(1 - (cameraState.distance - ZOOM_MIN) / (ZOOM_MAX - ZOOM_MIN), 0, 1);
+            const zoomT = THREE.MathUtils.clamp(1 - (cameraState.distance - ZOOM_MIN_CITY) / (ZOOM_MAX - ZOOM_MIN_CITY), 0, 1);
             const idleFade = THREE.MathUtils.clamp((sinceInteract - 1800) / 2600, 0, 1);
             const breathing = 0.75 + 0.25 * Math.sin(time * 0.42 + movementState.driftPhase);
             const baseSpin = (0.00022 - zoomT * 0.00013) * breathing;
@@ -2237,7 +2620,8 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, liveLocation }) {
             // so city lights only show on the dark hemisphere across the terminator.
             {
                 const sunWorld = sunLight.position.clone().normalize();
-                const sunLocal = sunWorld.clone().applyQuaternion(root.quaternion.clone().invert());
+                const rootWorldQuat = root.getWorldQuaternion(new THREE.Quaternion());
+                const sunLocal = sunWorld.clone().applyQuaternion(rootWorldQuat.invert());
                 nightMaterial.uniforms.sunDir.value.copy(sunLocal);
             }
 
@@ -2348,7 +2732,7 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, liveLocation }) {
                 showSpaceEggHover(egg, worldPos);
                 // Keep interaction feel similar to other objects by nudging zoom to a readable solar view.
                 const targetZoom = egg.name === "Sun" ? 8.4 : 6.4;
-                cameraState.targetDistance = Math.max(ZOOM_MIN + 0.25, Math.min(targetZoom, ZOOM_MAX));
+                cameraState.targetDistance = Math.max(getZoomMin() + 0.25, Math.min(targetZoom, ZOOM_MAX));
                 cameraState.userActive = true;
                 cameraState.lastInteractionAt = performance.now();
                 return;
@@ -2370,7 +2754,7 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, liveLocation }) {
                 showLabel(`${m.name} • ${m.city} • ${status.label}`, m.lat, m.lon);
                 cameraState.targetYaw = -(m.lon * Math.PI) / 180;
                 cameraState.targetPitch = (m.lat * Math.PI) / 180;
-                cameraState.targetDistance = Math.max(ZOOM_MIN + 0.3, Math.min(cameraState.targetDistance, 2.4));
+                cameraState.targetDistance = Math.max(getZoomMin() + 0.3, Math.min(cameraState.targetDistance, 2.4));
                 cameraState.userActive = true;
                 cameraState.lastInteractionAt = performance.now();
                 return;
@@ -2380,7 +2764,18 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, liveLocation }) {
                 showLabel("Home • Tongeren 3700, BE", HOME_LAT, HOME_LON);
                 cameraState.targetYaw = -(HOME_LON * Math.PI) / 180;
                 cameraState.targetPitch = (HOME_LAT * Math.PI) / 180;
-                cameraState.targetDistance = Math.max(ZOOM_MIN + 0.3, Math.min(cameraState.targetDistance, 2.4));
+                cameraState.targetDistance = Math.max(getZoomMin() + 0.3, Math.min(cameraState.targetDistance, 2.4));
+                cameraState.lastInteractionAt = performance.now();
+                return;
+            }
+            if (data?.city) {
+                const city = data.city;
+                setCityInspectionTarget({ name: city.city, lat: city.lat, lon: city.lon });
+                showLabel(`${city.city} • ${city.country}`, city.lat, city.lon);
+                cameraState.targetYaw = -(city.lon * Math.PI) / 180;
+                cameraState.targetPitch = (city.lat * Math.PI) / 180;
+                cameraState.targetDistance = Math.max(getZoomMin() + 0.35, Math.min(cameraState.targetDistance, 2.55));
+                cameraState.userActive = true;
                 cameraState.lastInteractionAt = performance.now();
                 return;
             }
@@ -2395,7 +2790,7 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, liveLocation }) {
                 const lon = (matched.lon * Math.PI) / 180;
                 cameraState.targetYaw = -lon;            // yaw rotates around Y; lon is longitude east
                 cameraState.targetPitch = lat;
-                cameraState.targetDistance = Math.max(ZOOM_MIN + 0.3, Math.min(cameraState.targetDistance, 2.4));
+                cameraState.targetDistance = Math.max(getZoomMin() + 0.3, Math.min(cameraState.targetDistance, 2.4));
                 cameraState.userActive = true;
                 cameraState.lastInteractionAt = performance.now();
                 onMarkerSelect(matched);
@@ -2505,6 +2900,7 @@ function CommandDeck({ marker }) {
 
 function HudViewport() {
     const [selectedMarker, setSelectedMarker] = React.useState(GLOBE_MARKERS[0]);
+    const [lastManualSelectionAt, setLastManualSelectionAt] = React.useState(0);
     const [dialogueRows, setDialogueRows] = React.useState([]);
     const [dialogueLoading, setDialogueLoading] = React.useState(true);
     const [dialogueError, setDialogueError] = React.useState("");
@@ -2542,6 +2938,27 @@ function HudViewport() {
         };
     }, []);
 
+    React.useEffect(() => {
+        const timer = window.setInterval(() => {
+            if (Date.now() - lastManualSelectionAt < 25000) {
+                return;
+            }
+            setSelectedMarker((current) => {
+                const currentIndex = GLOBE_MARKERS.findIndex((item) => item.id === current.id);
+                const nextIndex = currentIndex >= 0
+                    ? (currentIndex + 1) % GLOBE_MARKERS.length
+                    : 0;
+                return GLOBE_MARKERS[nextIndex];
+            });
+        }, 10000);
+        return () => window.clearInterval(timer);
+    }, [lastManualSelectionAt]);
+
+    const handleMarkerSelect = React.useCallback((marker) => {
+        setSelectedMarker(marker);
+        setLastManualSelectionAt(Date.now());
+    }, []);
+
     return React.createElement(
         "main",
         { className: "hud-shell" },
@@ -2563,22 +2980,17 @@ function HudViewport() {
             React.createElement(
                 "section",
                 { className: "hud-side-column hud-left-column" },
-                React.createElement(DialogueDatasetPanel, {
-                    rows: dialogueRows,
-                    loading: dialogueLoading,
-                    error: dialogueError,
-                }),
                 React.createElement(LiveNewsPanel),
                 React.createElement(FinancialSocialMissionWidgets, { selectedMarker, liveLocation })
             ),
             React.createElement(
                 "section",
                 { className: "hud-main-column" },
-                React.createElement(GlobeLayer, { onMarkerSelect: setSelectedMarker, selectedMarkerId: selectedMarker.id, liveLocation }),
+                React.createElement(GlobeLayer, { onMarkerSelect: handleMarkerSelect, selectedMarkerId: selectedMarker.id, liveLocation }),
                 React.createElement(MarkerRibbon, {
                     markers: GLOBE_MARKERS,
                     selectedId: selectedMarker.id,
-                    onSelect: setSelectedMarker,
+                    onSelect: handleMarkerSelect,
                 }),
                 React.createElement("div", { className: "hud-footnotes" }, `Node mesh: ${GLOBE_MARKERS.map((item) => item.label).join(" • ")}`)
             ),

@@ -206,6 +206,19 @@ class AuditLog:
             count += 1
         return count
 
+    def tail(self, since_id: int = 0, limit: int = 50) -> list[dict[str, Any]]:
+        """Return events with id > since_id, oldest first. Used for SSE streaming."""
+        with sqlite3.connect(self.db_path) as con:
+            rows = con.execute(
+                "SELECT id, ts, kind, payload FROM events "
+                "WHERE id > ? ORDER BY id ASC LIMIT ?",
+                (since_id, limit),
+            ).fetchall()
+        return [
+            {"id": r[0], "ts": r[1], "kind": r[2], "payload": json.loads(r[3])}
+            for r in rows
+        ]
+
     def stats(self) -> dict[str, Any]:
         """Return aggregate audit statistics."""
         with sqlite3.connect(self.db_path) as con:

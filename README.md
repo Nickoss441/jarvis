@@ -315,7 +315,9 @@ Approval queue commands:
   - **App Lifecycle Panel:** Request app status checks, installations, and removals via the web UI
   - **Approval Queue Table:** Review and approve pending actions
   - **Chat Interface:** Direct messaging with Jarvis brain
-    - Navigate to `/` for the command-center UI and `/hud/react` for the React HUD viewport
+  - Navigate to `/` for approvals, `/hud/cc` for the command center, `/hud/globe` for the React HUD viewport
+  - **Port fallback:** if the requested port (default `8080`, set via `JARVIS_APPROVALS_API_PORT`) is busy, the server automatically tries the next 9 ports (`8080–8089`). The actual URL is printed at startup. If all 10 are occupied the process exits with an error.
+  - **Network exposure guard:** the server refuses to bind to any non-localhost address unless `--expose` is passed. The approval API has no authentication — do not expose it on an untrusted network.
 - `python3 -m jarvis hud-run [--width N] [--height N] [--opacity X] [--duration-ms N]` — run the transparent PyQt HUD overlay shell
 - `python3 -m jarvis trade-review-artifact [--reviewer <name>] [--strategy-version <ver>] [--output <path>]` — generate the live-unlock markdown review record plus audit/replay/performance artifacts
 - `python3 -m jarvis monitor-run-once` — run monitor cycle once

@@ -2,6 +2,12 @@
 import sys
 from pathlib import Path
 
+# Windows consoles default to cp1252 which can't handle emoji in AI responses
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 from .config import Config
 from .audit import AuditLog
 from .approval_service import ApprovalService
