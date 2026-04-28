@@ -253,11 +253,11 @@ Use this as the build-order checklist from architecture to production-ready scaf
 - [x] Tick "Live trading unlock" checkbox in §13 once review is signed
 
 ### P1 — High-value polish
-- [ ] Pin explicit `JARVIS_MODEL` in `.env.local` (e.g. `claude-sonnet-4-5`); currently empty → falls through to suspect default `claude-sonnet-4-6`
-- [ ] Add nav chip from `/` (UI_HTML in `jarvis/approval_api.py`) linking to `/hud/cc`
-- [ ] Add nav chip from `/hud/react` linking to `/hud/cc`
-- [ ] Add `run` alias subcommand in `jarvis/__main__.py` so `python3 -m jarvis run` enters the REPL (currently exits 1)
-- [ ] Live agent E2E smoke: launch REPL, exercise vocal trigger ("respond vocally: status report")
+- [x] Pin explicit `ANTHROPIC_MODEL` in `.env.local` (`claude-sonnet-4-5`); previous `JARVIS_ANTHROPIC_MODEL` was a no-op (code reads `ANTHROPIC_MODEL`).
+- [x] Add nav chip from `/` (UI_HTML in `jarvis/approval_api.py`) linking to `/hud/cc`
+- [x] Add nav chip from `/hud/react` linking to `/hud/cc`
+- [x] Add `run` alias subcommand in `jarvis/__main__.py` so `python3 -m jarvis run` enters the REPL
+- [ ] Live agent E2E smoke: launch REPL, exercise vocal trigger ("respond vocally: status report") — blocked until ANTHROPIC_API_KEY is rotated (currently 401)
 
 ### P2 — Operational hygiene
 - [ ] Document port-fallback behavior (8080 busy → 8081) in `README.md`
