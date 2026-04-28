@@ -260,9 +260,9 @@ Use this as the build-order checklist from architecture to production-ready scaf
 - [ ] Live agent E2E smoke: launch REPL, exercise vocal trigger ("respond vocally: status report") — blocked until ANTHROPIC_API_KEY is rotated (currently 401)
 
 ### P2 — Operational hygiene
-- [ ] Document port-fallback behavior (8080 busy → 8081) in `README.md`
-- [ ] Audit committed log files for leaked secrets
-- [ ] Verify `.env.local` stays gitignored across future commits (already added to `.gitignore`)
+- [x] Document port-fallback behavior (8080 busy → 8081) in `README.md`
+- [x] Audit committed log files for leaked secrets (none found across `.artifacts/`, `docs/reviews/artifacts/`, demo scripts, and trade JSON/JSONL files)
+- [x] Verify `.env.local` stays gitignored across future commits (`.env.*` rule covers `.env.local`, `.env.production`, etc.)
 
 ### P3 — Command Center wiring (currently static demo numbers)
 - [ ] Wire CC `Bitcoin $79,016` panel to real data via `crypto_portfolio` tool

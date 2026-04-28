@@ -312,6 +312,7 @@ Approval queue commands:
 - `python3 -m jarvis approvals-dispatch` — process approved actions via provider
 - `python3 -m jarvis approvals-seed [count]` — create demo approvals for testing (default: 3)
 - `python3 -m jarvis approvals-api [host] [port]` — run local HTTP approval API with glassmorphic command-center UI
+    - **Port fallback:** if the requested port (default `8080`) is busy, the server automatically tries the next 10 ports and prints e.g. `Requested port 8080 busy; using http://127.0.0.1:8081 instead.` Bind to a specific port by passing `host port` explicitly.
   - **App Lifecycle Panel:** Request app status checks, installations, and removals via the web UI
   - **Approval Queue Table:** Review and approve pending actions
   - **Chat Interface:** Direct messaging with Jarvis brain
