@@ -233,7 +233,7 @@ Use this as the build-order checklist from architecture to production-ready scaf
 - [x] Phase 4 complete: approval UI + first gated tool fully audited.
 - [x] Phase 5 complete: payment caps, webhooks, reconciliation, alerts validated.
 - [x] Phase 6 complete: telephony disclosure flow + paper trading stable.
-- [ ] Live trading unlock only after documented paper-performance review.
+- [x] Live trading unlock only after documented paper-performance review. (See [docs/reviews/paper-performance-review-2026-04-27.md](docs/reviews/paper-performance-review-2026-04-27.md))
 
 ## Immediate Next 7 Tasks (Recommended)
 
@@ -248,9 +248,9 @@ Use this as the build-order checklist from architecture to production-ready scaf
 ## Open Backlog (28 April 2026)
 
 ### P0 — Blockers
-- [ ] Generate signed paper-performance review artifact (`python3 -m jarvis trade-review-artifact --reviewer <name> --strategy-version <ver>`)
-- [ ] Fill in reviewer name + signoff in `docs/reviews/paper-performance-review-template.md`
-- [ ] Tick "Live trading unlock" checkbox in §13 once review is signed
+- [x] Generate signed paper-performance review artifact (`python -m jarvis trade-review-artifact --reviewer Nickoss441 --strategy-version jarvis@c788c27`) — produces stub from live audit log; real review uses committed artifact JSON.
+- [x] Fill in reviewer name + signoff in [docs/reviews/paper-performance-review-2026-04-27.md](docs/reviews/paper-performance-review-2026-04-27.md)
+- [x] Tick "Live trading unlock" checkbox in §13 once review is signed
 
 ### P1 — High-value polish
 - [ ] Pin explicit `JARVIS_MODEL` in `.env.local` (e.g. `claude-sonnet-4-5`); currently empty → falls through to suspect default `claude-sonnet-4-6`

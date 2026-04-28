@@ -1,12 +1,16 @@
 """Minimal HTTP API surface for approval operations."""
 from dataclasses import asdict
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 import html
 import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
+from urllib.error import URLError
 from urllib.parse import parse_qs, urlparse
+from urllib.request import Request, urlopen
+import xml.etree.ElementTree as ET
 
 from .approval import ApprovalEnvelope
 from .approval_service import ApprovalService
@@ -40,6 +44,93 @@ COMMAND_CENTER_ASSETS = {
 }
 COMMAND_CENTER_DIR = Path(__file__).resolve().parent / "web" / "command_center"
 
+JARVIS_HOME_ASSETS = {
+    "index.html": "text/html; charset=utf-8",
+    "app.js": "application/javascript; charset=utf-8",
+    "styles.css": "text/css; charset=utf-8",
+}
+JARVIS_HOME_DIR = Path(__file__).resolve().parent / "web" / "jarvis_home"
+
+NEWS_SOURCES = {
+    "reuters": [
+        "https://feeds.reuters.com/reuters/worldNews",
+        "https://feeds.reuters.com/reuters/businessNews",
+    ],
+}
+
+
+def _parse_rss_datetime(raw: str) -> int:
+    text = str(raw or "").strip()
+    if not text:
+        return 0
+    try:
+        dt = parsedate_to_datetime(text)
+    except (TypeError, ValueError, IndexError):
+        return 0
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return int(dt.timestamp())
+
+
+def _fetch_news_items(feed_url: str, source: str, per_feed_limit: int = 10) -> list[dict[str, object]]:
+    req = Request(feed_url, headers={"User-Agent": "JarvisHUD/1.0"})
+    try:
+        with urlopen(req, timeout=6) as resp:  # noqa: S310 - fixed HTTPS feeds only
+            raw = resp.read()
+    except (URLError, TimeoutError, OSError):
+        return []
+
+    try:
+        root = ET.fromstring(raw)
+    except ET.ParseError:
+        return []
+
+    entries: list[dict[str, object]] = []
+    for item in root.findall("./channel/item")[:per_feed_limit]:
+        title = (item.findtext("title") or "").strip()
+        link = (item.findtext("link") or "").strip()
+        pub_raw = (item.findtext("pubDate") or "").strip()
+        if not title or not link:
+            continue
+        entries.append(
+            {
+                "title": title,
+                "url": link,
+                "published": pub_raw,
+                "published_unix": _parse_rss_datetime(pub_raw),
+                "source": source,
+            }
+        )
+    return entries
+
+
+def _latest_news_payload(source: str, limit: int) -> dict[str, object]:
+    key = source.strip().lower() if source else "reuters"
+    feeds = NEWS_SOURCES.get(key)
+    if not feeds:
+        return {"source": key, "items": [], "error": "unknown source"}
+
+    merged: list[dict[str, object]] = []
+    for url in feeds:
+        merged.extend(_fetch_news_items(url, key))
+
+    deduped: list[dict[str, object]] = []
+    seen_urls: set[str] = set()
+    for row in sorted(merged, key=lambda x: int(x.get("published_unix") or 0), reverse=True):
+        news_url = str(row.get("url") or "")
+        if not news_url or news_url in seen_urls:
+            continue
+        seen_urls.add(news_url)
+        deduped.append(row)
+        if len(deduped) >= max(1, min(limit, 20)):
+            break
+
+    return {
+        "source": key,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "items": deduped,
+    }
+
 
 UI_HTML = """<!doctype html>
 <html lang="en">
@@ -47,376 +138,250 @@ UI_HTML = """<!doctype html>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Jarvis Approvals</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
     <style>
         :root {
-            --bg-0: #070b13;
-            --bg-1: #0f1524;
-            --glass: rgba(16, 28, 49, 0.52);
-            --glass-strong: rgba(11, 20, 37, 0.74);
-            --line: rgba(98, 167, 255, 0.26);
-            --line-bright: rgba(117, 196, 255, 0.7);
-            --text: #e8f3ff;
-            --muted: #9ab0cf;
-            --accent: #3ea8ff;
-            --alert: #ff5f72;
-            --ok: #1ecf8f;
-            --gold: #f2c66b;
+            --bg:     #060a14;
+            --card:   rgba(0,220,255,0.038);
+            --border: rgba(0,220,255,0.13);
+            --text:   #f0f8ff;
+            --text2:  rgba(180,225,255,0.48);
+            --text3:  rgba(180,225,255,0.22);
+            --cyan:   #00e5ff;
+            --green:  #30d158;
+            --red:    #ff453a;
+            --orange: #ff9f0a;
+            --font:   "Inter", -apple-system, "Segoe UI", sans-serif;
+            --mono:   "JetBrains Mono", "SF Mono", monospace;
+            --r:      12px;
+            /* legacy aliases so old JS still works */
+            --bg-0: #060a14;
+            --bg-1: #060a14;
+            --glass: rgba(0,220,255,0.038);
+            --glass-strong: rgba(0,220,255,0.06);
+            --line: rgba(0,220,255,0.13);
+            --line-bright: rgba(0,229,255,0.4);
+            --muted: rgba(180,225,255,0.48);
+            --accent: #00e5ff;
+            --alert: #ff453a;
+            --ok: #30d158;
+            --gold: #ff9f0a;
         }
-        * {
-            box-sizing: border-box;
-        }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         body {
-            margin: 0;
-            min-height: 100vh;
-            font-family: "Space Grotesk", "Avenir Next", "Segoe UI", sans-serif;
+            font-family: var(--font);
+            font-size: 14px;
             color: var(--text);
-            background:
-                radial-gradient(circle at 20% 10%, rgba(62, 168, 255, 0.18), transparent 40%),
-                radial-gradient(circle at 80% 80%, rgba(255, 95, 114, 0.12), transparent 35%),
-                linear-gradient(130deg, var(--bg-0), var(--bg-1));
+            background: var(--bg);
+            min-height: 100vh;
+            -webkit-font-smoothing: antialiased;
             overflow-x: hidden;
         }
-        .ambient-grid {
-            position: fixed;
-            inset: 0;
-            pointer-events: none;
-            opacity: 0.22;
+        body::before {
+            content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none;
             background-image:
-                linear-gradient(rgba(97, 150, 224, 0.1) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(97, 150, 224, 0.1) 1px, transparent 1px);
-            background-size: 44px 44px;
-            mask-image: radial-gradient(circle at center, black 40%, transparent 100%);
+                radial-gradient(ellipse 70% 55% at 50% 50%, rgba(0,90,200,0.1) 0%, transparent 65%),
+                linear-gradient(rgba(0,220,255,0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0,220,255,0.02) 1px, transparent 1px);
+            background-size: 100% 100%, 52px 52px, 52px 52px;
         }
+        .ambient-grid, .connector-layer, .globe-wrap, .spark { display: none; }
         .wrap {
-            max-width: 1320px;
-            margin: 26px auto;
-            padding: 0 16px 28px;
+            position: relative; z-index: 1;
+            max-width: 1260px; margin: 0 auto;
+            padding: 16px 18px 40px;
+        }
+        .page-header {
+            display: flex; align-items: center; gap: 12px;
+            padding: 14px 0 16px;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 16px;
+        }
+        .nav-chips { display: flex; gap: 6px; margin-left: auto; }
+        .nav-chip {
+            font-family: var(--mono); font-size: 10px; color: var(--text2);
+            border: 1px solid var(--border); border-radius: 20px;
+            padding: 2px 10px; text-decoration: none; letter-spacing: 0.04em;
+            transition: border-color 0.15s, color 0.15s;
+        }
+        .nav-chip:hover { border-color: var(--cyan); color: var(--cyan); }
+        .page-header h1 {
+            font-size: 13px; font-weight: 600; font-family: var(--mono);
+            letter-spacing: 0.08em; text-transform: uppercase;
+            color: var(--cyan); text-shadow: 0 0 12px rgba(0,229,255,0.3);
+        }
+        .page-header .dot {
+            width: 6px; height: 6px; border-radius: 50%;
+            background: var(--green); box-shadow: 0 0 6px var(--green);
+            animation: live-pulse 2.2s ease-in-out infinite; flex-shrink: 0;
         }
         .hud {
-            position: relative;
             display: grid;
-            grid-template-columns: minmax(260px, 1fr) minmax(300px, 1.2fr) minmax(260px, 1fr);
-            gap: 14px;
-            align-items: start;
+            grid-template-columns: 220px 1fr 250px;
+            gap: 12px; align-items: start;
         }
+        .stack { display: grid; gap: 12px; }
         .panel {
-            background: var(--glass);
-            border: 1px solid var(--line);
-            border-radius: 16px;
-            padding: 14px;
-            backdrop-filter: blur(14px);
-            box-shadow: 0 12px 40px rgba(2, 9, 19, 0.42);
-            animation: panel-in 460ms ease both;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px; padding: 14px 16px;
+            backdrop-filter: blur(18px);
+            position: relative;
+        }
+        .panel::before {
+            content: ""; position: absolute; top: 0; left: 50%;
+            transform: translateX(-50%); width: 60%; height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.07), transparent);
+            pointer-events: none;
         }
         .panel h3 {
-            margin: 0;
-            font-size: 12px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.12em;
-            color: var(--muted);
+            font-family: var(--mono); font-size: 9px; font-weight: 500;
+            text-transform: uppercase; letter-spacing: 0.15em;
+            color: var(--text2); margin-bottom: 10px;
         }
-        .panel .sub {
-            margin-top: 6px;
-            color: var(--muted);
-            font-size: 12px;
-        }
-        .stack {
-            display: grid;
-            gap: 14px;
-        }
-        .center-hub {
-            position: relative;
-            min-height: 660px;
-            overflow: hidden;
-            background:
-                radial-gradient(circle at center, rgba(53, 110, 202, 0.26), rgba(8, 15, 30, 0.02) 65%),
-                var(--glass-strong);
-        }
-        .title {
-            margin: 0;
-            font-family: "Chakra Petch", "Space Grotesk", sans-serif;
-            font-size: 30px;
-            font-weight: 600;
-            letter-spacing: 0.04em;
-        }
-        .muted {
-            margin: 8px 0 12px;
-            color: var(--muted);
-            font-size: 14px;
-        }
-        .globe-wrap {
-            position: relative;
-            width: min(390px, 82vw);
-            height: min(390px, 82vw);
-            margin: 22px auto 10px;
-        }
-        .globe {
-            position: absolute;
-            inset: 0;
-            border-radius: 50%;
-            background:
-                radial-gradient(circle at 32% 28%, rgba(115, 198, 255, 0.62), rgba(29, 68, 143, 0.24) 38%, rgba(9, 17, 34, 0.95) 72%),
-                repeating-linear-gradient(180deg, rgba(140, 205, 255, 0.18), rgba(140, 205, 255, 0.18) 2px, transparent 2px, transparent 10px);
-            border: 1px solid rgba(127, 203, 255, 0.56);
-            box-shadow:
-                0 0 0 1px rgba(66, 139, 222, 0.22),
-                0 0 46px rgba(49, 161, 255, 0.38),
-                inset -42px -38px 65px rgba(0, 0, 0, 0.56);
-            animation: spin 28s linear infinite;
-        }
-        .orbit {
-            position: absolute;
-            inset: -16px;
-            border: 1px dashed rgba(115, 196, 255, 0.4);
-            border-radius: 50%;
-            animation: pulse 3.2s ease-in-out infinite;
-        }
-        .poi {
-            position: absolute;
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            background: var(--alert);
-            box-shadow: 0 0 0 0 rgba(255, 95, 114, 0.72);
-            animation: ping 2s infinite;
-        }
-        .poi.p1 { top: 42%; left: 68%; }
-        .poi.p2 { top: 27%; left: 45%; background: var(--gold); box-shadow: 0 0 0 0 rgba(242, 198, 107, 0.72); }
-        .poi.p3 { top: 62%; left: 36%; background: var(--accent); box-shadow: 0 0 0 0 rgba(62, 168, 255, 0.72); }
-        .connector-layer {
-            position: absolute;
-            inset: 0;
-            pointer-events: none;
-            opacity: 0.74;
-        }
-        .summary-bar {
-            margin-top: 14px;
-            padding: 10px 12px;
-            border: 1px solid var(--line);
-            border-radius: 10px;
-            color: #d0e8ff;
-            font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
-            font-size: 12px;
-            background: rgba(14, 26, 46, 0.55);
-        }
-        .metrics {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 10px;
-            margin-top: 10px;
-        }
+        .panel .sub { display: none; }
+        .center-hub { border-top: 1px solid rgba(255,159,10,0.4); }
+        .stack > .panel:first-child { border-top: 1px solid rgba(0,229,255,0.4); }
+        .stack > .panel:nth-child(2) { border-top: 1px solid rgba(48,209,88,0.4); }
+        .stack > .panel:nth-child(3) { border-top: 1px solid rgba(191,90,242,0.4); }
+        .metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         .metric {
-            border: 1px solid var(--line);
-            border-radius: 12px;
-            padding: 10px;
-            background: rgba(8, 16, 29, 0.5);
+            background: rgba(0,220,255,0.03);
+            border: 1px solid var(--border);
+            border-radius: 8px; padding: 10px 12px;
         }
         .metric .label {
-            font-size: 11px;
-            text-transform: uppercase;
-            letter-spacing: 0.12em;
-            color: var(--muted);
+            font-family: var(--mono); font-size: 9px;
+            text-transform: uppercase; letter-spacing: 0.12em; color: var(--text2);
         }
         .metric .value {
-            margin-top: 8px;
-            font-size: 24px;
-            font-weight: 700;
-            line-height: 1;
-            font-family: "Chakra Petch", "Space Grotesk", sans-serif;
+            margin-top: 5px; font-size: 22px; font-weight: 300;
+            letter-spacing: -0.02em; color: var(--cyan);
+            text-shadow: 0 0 14px rgba(0,229,255,0.3);
         }
-        .spark {
-            width: 100%;
-            height: 64px;
-            margin-top: 8px;
-            border-radius: 10px;
-            border: 1px solid rgba(108, 175, 255, 0.28);
-            background: rgba(12, 22, 40, 0.48);
+        .summary-bar, #status, #chatStatus, #appStatusDiv {
+            margin-top: 8px; padding: 9px 12px;
+            background: rgba(0,0,0,0.22);
+            border: 1px solid rgba(0,220,255,0.1);
+            border-radius: 8px;
+            font-family: var(--mono); font-size: 11px; line-height: 1.6;
+            color: rgba(180,225,255,0.65);
+            white-space: pre-wrap; min-height: 32px;
         }
-        .toolbar {
-            display: flex;
-            gap: 8px;
-            flex-wrap: wrap;
-            margin-top: 8px;
+        .title {
+            font-size: 17px; font-weight: 600; letter-spacing: -0.02em;
+            margin-bottom: 3px; color: var(--text);
         }
+        .muted {
+            font-family: var(--mono); font-size: 10px; color: var(--text2);
+            letter-spacing: 0.04em; margin-bottom: 12px; display: block;
+        }
+        .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
         button {
-            border: 1px solid var(--line);
-            background: rgba(13, 28, 52, 0.7);
+            font-family: var(--mono); font-size: 10px; font-weight: 500;
+            letter-spacing: 0.08em; text-transform: uppercase;
             color: var(--text);
-            border-radius: 9px;
-            padding: 8px 12px;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 7px; padding: 7px 14px;
             cursor: pointer;
-            font-weight: 600;
-            transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+            transition: background 0.15s, border-color 0.15s;
+            user-select: none;
         }
-        button:hover {
-            transform: translateY(-1px);
-            border-color: var(--line-bright);
+        button:hover  { background: rgba(255,255,255,0.09); border-color: rgba(255,255,255,0.2); }
+        button:active { background: rgba(255,255,255,0.03); }
+        button:disabled { opacity: 0.35; cursor: not-allowed; }
+        button.primary {
+            background: rgba(0,229,255,0.1); color: var(--cyan);
+            border-color: rgba(0,229,255,0.28);
         }
-        button.primary { background: linear-gradient(135deg, #1e7fff, #36c3ff); border-color: rgba(158, 216, 255, 0.7); color: #061322; }
-        button.danger { background: linear-gradient(135deg, #de415f, #ff7386); border-color: rgba(255, 157, 173, 0.6); }
-        button.ok { background: linear-gradient(135deg, #17b67e, #39e0a4); border-color: rgba(164, 255, 222, 0.6); color: #062417; }
+        button.primary:hover { background: rgba(0,229,255,0.18); }
+        button.ok {
+            background: rgba(48,209,88,0.1); color: var(--green);
+            border-color: rgba(48,209,88,0.28);
+        }
+        button.ok:hover { background: rgba(48,209,88,0.18); }
+        button.danger {
+            background: rgba(255,69,58,0.08); color: var(--red);
+            border-color: rgba(255,69,58,0.28);
+        }
+        button.danger:hover { background: rgba(255,69,58,0.18); }
+        button.ghost { background: transparent; border-color: var(--border); }
+        button.ghost:hover { background: rgba(255,255,255,0.05); }
         select, input, textarea {
-            border: 1px solid var(--line);
-            background: rgba(13, 28, 52, 0.7);
-            color: var(--text);
-            border-radius: 9px;
-            padding: 8px 10px;
-            font-weight: 500;
-            font-family: "Space Grotesk", "Avenir Next", sans-serif;
-        }
-        select:hover, input:hover, textarea:hover {
-            border-color: var(--line-bright);
+            width: 100%; font-family: var(--mono); font-size: 11px;
+            color: var(--text); background: rgba(0,220,255,0.04);
+            border: 1px solid rgba(0,220,255,0.16);
+            border-radius: 7px; padding: 7px 10px; outline: none;
+            transition: border-color 0.2s;
         }
         select:focus, input:focus, textarea:focus {
-            outline: none;
-            border-color: var(--accent);
-            box-shadow: 0 0 0 3px rgba(62, 168, 255, 0.18);
+            border-color: rgba(0,220,255,0.4);
+            box-shadow: 0 0 10px rgba(0,220,255,0.07);
         }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 13px;
-            margin-top: 10px;
-            background: rgba(8, 17, 31, 0.42);
-            border-radius: 12px;
-            overflow: hidden;
-        }
-        th, td {
-            border-top: 1px solid rgba(95, 155, 232, 0.24);
-            padding: 9px 8px;
-            text-align: left;
-            vertical-align: top;
-        }
+        textarea { resize: vertical; min-height: 80px; }
+        table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 12px; }
         th {
-            color: #b9d7ff;
-            font-weight: 700;
-            font-size: 11px;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-            background: rgba(10, 24, 45, 0.65);
+            font-family: var(--mono); font-size: 9px; font-weight: 500;
+            text-transform: uppercase; letter-spacing: 0.12em;
+            color: var(--text2); padding: 8px 10px;
+            border-bottom: 1px solid var(--border); text-align: left;
         }
+        td {
+            padding: 9px 10px; border-bottom: 1px solid rgba(0,220,255,0.06);
+            vertical-align: top; color: var(--text);
+        }
+        tr:last-child td { border-bottom: none; }
+        tr:hover td { background: rgba(0,220,255,0.03); }
         td code {
-            font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
-            background: rgba(18, 36, 62, 0.9);
-            color: #c6e6ff;
-            padding: 2px 5px;
-            border-radius: 5px;
-            font-size: 11px;
+            font-family: var(--mono); font-size: 10px;
+            background: rgba(0,220,255,0.07); color: var(--cyan);
+            padding: 2px 6px; border-radius: 4px;
         }
-        #status,
-        #chatStatus {
-            margin-top: 10px;
-            padding: 10px;
-            border: 1px solid var(--line);
-            border-radius: 10px;
-            background: rgba(9, 20, 38, 0.7);
-            white-space: pre-wrap;
-            font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
-            font-size: 12px;
-            min-height: 26px;
-        }
-        .chat {
-            margin-top: 16px;
-            border-top: 1px solid rgba(95, 155, 232, 0.24);
-            padding-top: 14px;
-        }
-        .chat h2 {
-            margin: 0;
-            font-size: 20px;
-            font-family: "Chakra Petch", "Space Grotesk", sans-serif;
-            font-weight: 600;
-            letter-spacing: 0.03em;
-        }
-        .row {
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-            margin-top: 10px;
-        }
-        .field {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-            min-width: 180px;
-            flex: 1;
-        }
+        .row  { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+        .field { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 160px; }
         .field label {
-            color: var(--muted);
-            font-size: 11px;
-            font-weight: 700;
-            letter-spacing: 0.1em;
-            text-transform: uppercase;
+            font-family: var(--mono); font-size: 9px; font-weight: 500;
+            letter-spacing: 0.1em; text-transform: uppercase; color: var(--text2);
         }
-        .field input,
-        .field textarea {
-            border: 1px solid rgba(95, 155, 232, 0.35);
-            border-radius: 9px;
-            padding: 8px 10px;
-            font: inherit;
-            color: var(--text);
-            background: rgba(7, 16, 31, 0.75);
+        .field input, .field textarea {
+            border: 1px solid rgba(0,220,255,0.2);
+            background: rgba(0,220,255,0.04);
         }
-        .field textarea {
-            min-height: 92px;
-            resize: vertical;
-        }
+        .field textarea { min-height: 80px; resize: vertical; }
+        .chat { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+        .chat h2 { font-size: 15px; font-weight: 600; margin-bottom: 10px; }
         #chatTranscript {
-            margin-top: 10px;
-            border: 1px solid var(--line);
-            border-radius: 10px;
-            background: rgba(7, 15, 29, 0.74);
-            padding: 10px;
-            max-height: 240px;
-            overflow-y: auto;
+            margin-top: 10px; padding: 10px;
+            border: 1px solid var(--border); border-radius: 10px;
+            background: rgba(0,0,0,0.18); max-height: 220px; overflow-y: auto;
         }
         .chat-line {
-            margin: 0 0 8px 0;
-            padding: 8px;
-            border-radius: 8px;
-            white-space: pre-wrap;
-            line-height: 1.35;
-            font-size: 14px;
+            margin: 0 0 6px; padding: 7px 10px; border-radius: 7px;
+            white-space: pre-wrap; line-height: 1.4; font-size: 11px; font-family: var(--mono);
         }
-        .chat-user { background: rgba(35, 88, 160, 0.35); border: 1px solid rgba(109, 173, 255, 0.4); }
-        .chat-agent { background: rgba(16, 96, 80, 0.4); border: 1px solid rgba(113, 235, 191, 0.4); }
-        .chat-error { background: rgba(133, 33, 50, 0.38); border: 1px solid rgba(255, 124, 146, 0.5); }
-
-        @keyframes spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
+        .chat-user  { background: rgba(0,229,255,0.07); border: 1px solid rgba(0,229,255,0.18); }
+        .chat-agent { background: rgba(48,209,88,0.07); border: 1px solid rgba(48,209,88,0.18); }
+        .chat-error { background: rgba(255,69,58,0.07); border: 1px solid rgba(255,69,58,0.18); }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes live-pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.35; transform: scale(0.65); }
         }
-        @keyframes ping {
-            0% { transform: scale(1); box-shadow: 0 0 0 0 currentColor; }
-            70% { transform: scale(1.15); box-shadow: 0 0 0 14px rgba(255, 95, 114, 0); }
-            100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 95, 114, 0); }
-        }
-        @keyframes pulse {
-            0%, 100% { opacity: 0.35; transform: scale(1); }
-            50% { opacity: 0.9; transform: scale(1.02); }
-        }
-        @keyframes panel-in {
-            from { opacity: 0; transform: translateY(12px) scale(0.99); }
-            to { opacity: 1; transform: translateY(0) scale(1); }
-        }
-
-        @media (max-width: 1100px) {
-            .hud {
-                grid-template-columns: 1fr;
-            }
-            .center-hub {
-                min-height: auto;
-            }
-            .globe-wrap {
-                width: min(320px, 82vw);
-                height: min(320px, 82vw);
-            }
-        }
+        @media (max-width: 1000px) { .hud { grid-template-columns: 1fr; } }
     </style>
 </head>
 <body>
-    <div class="ambient-grid"></div>
     <div class="wrap">
+        <div class="page-header">
+            <div class="dot"></div>
+            <h1>Jarvis — Approval Queue</h1>
+            <div class="nav-chips">
+                <a class="nav-chip" href="/hud/cc">Command Center</a>
+                <a class="nav-chip" href="/hud/react">HUD React</a>
+            </div>
+        </div>
         <div class="hud">
             <div class="stack">
                 <section class="panel">
@@ -1123,6 +1088,545 @@ def _chat_auth_ok(config: Config, account_id: str, token: str) -> bool:
     return hmac.compare_digest(expected, token or "")
 
 
+def _hud_assets_version() -> str:
+    """Compose a version stamp from mtimes of all live-reloadable assets."""
+    paths: list[Path] = [Path(__file__).resolve()]
+    for base in (REACT_HUD_DIR, COMMAND_CENTER_DIR, JARVIS_HOME_DIR):
+        if base.exists():
+            for child in base.iterdir():
+                if child.is_file():
+                    paths.append(child)
+    parts: list[str] = []
+    for p in paths:
+        try:
+            parts.append(f"{p.name}:{int(p.stat().st_mtime_ns)}")
+        except OSError:
+            continue
+    return "|".join(sorted(parts))
+
+
+OPS_WALLBOARD_HTML = """<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Jarvis Ops Wallboard</title>
+    <style>
+        :root {
+            --bg: #05070d;
+            --panel: rgba(9, 17, 31, 0.92);
+            --panel-soft: rgba(9, 17, 31, 0.74);
+            --line: rgba(98, 183, 255, 0.22);
+            --line-strong: rgba(98, 183, 255, 0.5);
+            --text: #e7f4ff;
+            --muted: #95aec7;
+            --active: #62b7ff;
+            --accent: #ffd27d;
+        }
+        * { box-sizing: border-box; }
+        html, body {
+            margin: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: "Space Grotesk", "Segoe UI", sans-serif;
+            background:
+                radial-gradient(circle at 14% 10%, rgba(98, 183, 255, 0.14), transparent 38%),
+                radial-gradient(circle at 84% 78%, rgba(255, 210, 125, 0.08), transparent 34%),
+                linear-gradient(180deg, #05070d, #07111d 52%, #05070d);
+            color: var(--text);
+        }
+        .wrap {
+            display: grid;
+            grid-template-rows: auto 1fr;
+            width: 100vw;
+            height: 100vh;
+        }
+        .bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--line);
+            background: rgba(4, 8, 15, 0.94);
+            backdrop-filter: blur(14px);
+        }
+        .bar-left,
+        .bar-right {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .title-wrap {
+            display: grid;
+            gap: 2px;
+        }
+        .eyebrow {
+            font-size: 10px;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+        .title {
+            margin: 0;
+            font-size: 14px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text);
+        }
+        .status-pill {
+            border: 1px solid rgba(98, 183, 255, 0.3);
+            border-radius: 999px;
+            padding: 5px 10px;
+            font-size: 10px;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            color: #d8efff;
+            background: rgba(7, 15, 28, 0.9);
+        }
+        .tabs {
+            display: inline-flex;
+            gap: 8px;
+        }
+        .tab-btn {
+            border: 1px solid var(--line);
+            background: rgba(8, 16, 28, 0.85);
+            color: var(--muted);
+            border-radius: 999px;
+            padding: 7px 12px;
+            cursor: pointer;
+            font-size: 11px;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+        }
+        .tab-btn.is-active {
+            color: var(--text);
+            border-color: var(--active);
+            box-shadow: inset 0 0 0 1px rgba(98, 183, 255, 0.22), 0 0 16px rgba(98, 183, 255, 0.12);
+        }
+        .hint {
+            color: var(--muted);
+            font-size: 11px;
+            white-space: nowrap;
+        }
+        .grid {
+            display: grid;
+            width: 100%;
+            height: 100%;
+            grid-template-columns: minmax(0, 1.5fr) minmax(360px, 0.92fr);
+            grid-template-rows: minmax(0, 1fr) auto;
+            grid-template-areas:
+                "globe side"
+                "dock side";
+            gap: 12px;
+            padding: 12px;
+        }
+        .panel,
+        .side-panel,
+        .dock,
+        .hero-panel {
+            position: relative;
+            border: 1px solid var(--line);
+            background: var(--panel);
+            border-radius: 18px;
+            overflow: hidden;
+            min-width: 0;
+            min-height: 0;
+            box-shadow: inset 0 0 40px rgba(98, 183, 255, 0.03), 0 18px 40px rgba(0, 0, 0, 0.22);
+        }
+        .hero-panel { grid-area: globe; }
+        .side-panel {
+            grid-area: side;
+            display: grid;
+            grid-template-rows: auto auto minmax(0, 1fr);
+            gap: 12px;
+            padding: 14px;
+        }
+        .dock {
+            grid-area: dock;
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+            padding: 12px;
+            background: var(--panel-soft);
+        }
+        .panel-frame,
+        .hero-frame {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #000;
+        }
+        .hero-frame {
+            border-radius: 18px;
+        }
+        .hero-frame iframe {
+            border: 0;
+            width: 111.111%;
+            height: 111.111%;
+            background: #000;
+            transform: scale(0.9);
+            transform-origin: top left;
+        }
+        .panel-label {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            z-index: 2;
+            border: 1px solid rgba(98, 183, 255, 0.42);
+            background: rgba(6, 12, 24, 0.88);
+            color: #cfeaff;
+            border-radius: 999px;
+            padding: 5px 11px;
+            font-size: 10px;
+            letter-spacing: 0.09em;
+            text-transform: uppercase;
+            font-weight: 600;
+            pointer-events: none;
+            backdrop-filter: blur(4px);
+        }
+        .panel iframe {
+            border: 0;
+            width: 100%;
+            height: 100%;
+            background: #000;
+        }
+        .panel { display: none; }
+        .panel.is-active { display: block; }
+        .side-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            gap: 12px;
+        }
+        .side-title-wrap {
+            display: grid;
+            gap: 4px;
+        }
+        .side-title {
+            margin: 0;
+            font-size: 18px;
+            line-height: 1;
+            letter-spacing: 0.02em;
+        }
+        .side-copy {
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.45;
+            max-width: 34ch;
+        }
+        .meta-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px;
+        }
+        .meta-card {
+            border: 1px solid rgba(98, 183, 255, 0.14);
+            border-radius: 14px;
+            padding: 10px;
+            background: rgba(7, 14, 26, 0.78);
+        }
+        .meta-kicker {
+            font-size: 10px;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+        .meta-value {
+            margin-top: 6px;
+            font-size: 19px;
+            line-height: 1;
+            color: #eaf6ff;
+        }
+        .panel-stack {
+            position: relative;
+            min-height: 0;
+            border: 1px solid rgba(98, 183, 255, 0.14);
+            border-radius: 16px;
+            background: rgba(5, 11, 20, 0.74);
+            overflow: hidden;
+        }
+        .panel-stack .panel {
+            position: absolute;
+            inset: 0;
+        }
+        .panel-cc iframe {
+            transform: scale(0.74);
+            transform-origin: top left;
+            width: 135.136%;
+            height: 135.136%;
+        }
+        .panel-approvals iframe {
+            transform: scale(0.82);
+            transform-origin: top left;
+            width: 121.952%;
+            height: 121.952%;
+        }
+        .dock-card {
+            border: 1px solid rgba(98, 183, 255, 0.14);
+            border-radius: 14px;
+            padding: 12px;
+            background: rgba(6, 12, 22, 0.72);
+            display: grid;
+            gap: 8px;
+            min-width: 0;
+        }
+        .dock-kicker {
+            font-size: 10px;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+        .dock-title {
+            font-size: 16px;
+            line-height: 1.05;
+            color: #eef8ff;
+        }
+        .dock-copy {
+            font-size: 12px;
+            line-height: 1.45;
+            color: var(--muted);
+        }
+        .dock-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: auto;
+        }
+        .dock-link {
+            border: 1px solid rgba(98, 183, 255, 0.2);
+            border-radius: 999px;
+            padding: 7px 12px;
+            background: rgba(10, 19, 35, 0.86);
+            color: #d9efff;
+            text-decoration: none;
+            font-size: 11px;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+        }
+        .dock-link:hover {
+            border-color: var(--line-strong);
+        }
+        .dock-link.is-primary {
+            border-color: rgba(255, 210, 125, 0.28);
+            color: #ffecce;
+        }
+
+        @media (max-width: 1100px), (max-height: 760px) {
+            .hint { display: none; }
+            .grid {
+                grid-template-columns: 1fr;
+                grid-template-rows: minmax(0, 1fr) auto auto;
+                grid-template-areas:
+                    "globe"
+                    "side"
+                    "dock";
+                padding: 8px;
+            }
+            .side-panel {
+                min-height: 420px;
+            }
+            .dock {
+                grid-template-columns: 1fr;
+            }
+        }
+        @media (max-width: 760px) {
+            .bar {
+                flex-wrap: wrap;
+                align-items: center;
+            }
+            .bar-right {
+                width: 100%;
+                justify-content: space-between;
+            }
+            .meta-grid {
+                grid-template-columns: 1fr;
+            }
+            .side-title {
+                font-size: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <div class="bar">
+            <div class="bar-left">
+                <div class="status-pill">Wallboard Live</div>
+                <div class="title-wrap">
+                    <div class="eyebrow">Single Screen Overview</div>
+                    <h1 class="title">Jarvis Ops Wallboard</h1>
+                </div>
+            </div>
+            <div class="bar-right">
+                <div class="tabs" role="tablist" aria-label="Wallboard views">
+                    <button class="tab-btn is-active" data-view="cc" type="button">Command Center</button>
+                    <button class="tab-btn" data-view="approvals" type="button">Approvals</button>
+                </div>
+                <div class="hint">GLOBE stays primary • 1/2 switches side view</div>
+            </div>
+        </div>
+        <div class="grid" id="wallboard-grid">
+            <section class="hero-panel">
+                <div class="panel-label">Strategic Globe</div>
+                <div class="hero-frame">
+                    <iframe src="/hud/react" title="Strategic Globe"></iframe>
+                </div>
+            </section>
+            <aside class="side-panel">
+                <div class="side-header">
+                    <div class="side-title-wrap">
+                        <div class="eyebrow">Focused Companion View</div>
+                        <h2 class="side-title">Keep one system readable at a time</h2>
+                        <div class="side-copy">The globe stays dominant. The right rail swaps between command controls and approvals so the page reads like a wallboard instead of three tiny websites.</div>
+                    </div>
+                    <div class="status-pill">Ops Mode</div>
+                </div>
+                <div class="meta-grid">
+                    <div class="meta-card">
+                        <div class="meta-kicker">Primary</div>
+                        <div class="meta-value">Globe</div>
+                    </div>
+                    <div class="meta-card">
+                        <div class="meta-kicker">Side Rail</div>
+                        <div class="meta-value">1 live panel</div>
+                    </div>
+                    <div class="meta-card">
+                        <div class="meta-kicker">Switch</div>
+                        <div class="meta-value">1 / 2 keys</div>
+                    </div>
+                </div>
+                <div class="panel-stack">
+                    <section class="panel panel-cc is-active" data-view-panel="cc">
+                        <div class="panel-label">Command Center</div>
+                        <div class="panel-frame">
+                            <iframe src="/hud/cc" title="Command Center"></iframe>
+                        </div>
+                    </section>
+                    <section class="panel panel-approvals" data-view-panel="approvals">
+                        <div class="panel-label">Approvals</div>
+                        <div class="panel-frame">
+                            <iframe src="/" title="Approvals"></iframe>
+                        </div>
+                    </section>
+                </div>
+            </aside>
+            <section class="dock">
+                <article class="dock-card">
+                    <div class="dock-kicker">Primary Surface</div>
+                    <div class="dock-title">Strategic Globe</div>
+                    <div class="dock-copy">Use this for spatial awareness, threat focus, and feed overlays.</div>
+                    <div class="dock-actions">
+                        <a class="dock-link is-primary" href="/hud/react">Open Full View</a>
+                    </div>
+                </article>
+                <article class="dock-card">
+                    <div class="dock-kicker">Operations</div>
+                    <div class="dock-title">Command Center</div>
+                    <div class="dock-copy">Switch the side rail here when you need runtime controls, markets, and feed summaries.</div>
+                    <div class="dock-actions">
+                        <button class="tab-btn is-active" data-view="cc" type="button">Show In Rail</button>
+                        <a class="dock-link" href="/hud/cc">Open Full View</a>
+                    </div>
+                </article>
+                <article class="dock-card">
+                    <div class="dock-kicker">Queue</div>
+                    <div class="dock-title">Approvals</div>
+                    <div class="dock-copy">Use the side rail for live approval handling when you need to act without leaving the wallboard.</div>
+                    <div class="dock-actions">
+                        <button class="tab-btn" data-view="approvals" type="button">Show In Rail</button>
+                        <a class="dock-link" href="/">Open Full View</a>
+                    </div>
+                </article>
+            </section>
+        </div>
+    </div>
+    <script>
+        (function () {
+            var buttons = Array.from(document.querySelectorAll('.tab-btn[data-view]'));
+            var panels = Array.from(document.querySelectorAll('[data-view-panel]'));
+            function activate(view) {
+                buttons.forEach(function (btn) {
+                    btn.classList.toggle('is-active', btn.getAttribute('data-view') === view);
+                });
+                panels.forEach(function (panel) {
+                    panel.classList.toggle('is-active', panel.getAttribute('data-view-panel') === view);
+                });
+            }
+            buttons.forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    activate(btn.getAttribute('data-view'));
+                });
+            });
+            window.addEventListener('keydown', function (event) {
+                if (event.key === '1') activate('cc');
+                if (event.key === '2') activate('approvals');
+            });
+        })();
+    </script>
+ </body>
+</html>
+"""
+
+
+_LIVE_RELOAD_SNIPPET = """
+<script>
+(function () {
+  var current = null;
+  async function tick() {
+    try {
+      var r = await fetch('/hud/version', { cache: 'no-store' });
+      if (!r.ok) return;
+      var v = (await r.json()).version;
+      if (current === null) { current = v; return; }
+      if (v !== current) { location.reload(); }
+    } catch (_) { /* ignore */ }
+  }
+  setInterval(tick, 1000);
+  tick();
+})();
+</script>
+"""
+
+
+def _inject_live_reload(html_body: str) -> str:
+    if "</body>" in html_body:
+        return html_body.replace("</body>", _LIVE_RELOAD_SNIPPET + "</body>", 1)
+    if "</html>" in html_body:
+        return html_body.replace("</html>", _LIVE_RELOAD_SNIPPET + "</html>", 1)
+    return html_body + _LIVE_RELOAD_SNIPPET
+
+
+def _stop_sentinel_path() -> Path:
+    return Path.home() / ".jarvis" / "stopped"
+
+
+def _runtime_stop() -> dict[str, object]:
+    sentinel = _stop_sentinel_path()
+    sentinel.parent.mkdir(parents=True, exist_ok=True)
+    already_stopped = sentinel.exists()
+    if not already_stopped:
+        sentinel.write_text(str(int(datetime.now(timezone.utc).timestamp())), encoding="utf-8")
+    return {
+        "status": "stopped",
+        "already_stopped": already_stopped,
+        "sentinel": str(sentinel),
+    }
+
+
+def _runtime_resume() -> dict[str, object]:
+    sentinel = _stop_sentinel_path()
+    was_stopped = sentinel.exists()
+    if was_stopped:
+        sentinel.unlink()
+    return {
+        "status": "running",
+        "was_stopped": was_stopped,
+        "sentinel": str(sentinel),
+    }
+
+
 def _load_react_hud_asset(filename: str) -> tuple[str, str] | None:
     content_type = REACT_HUD_ASSETS.get(filename)
     if content_type is None:
@@ -1138,6 +1642,16 @@ def _load_command_center_asset(filename: str) -> tuple[str, str] | None:
     if content_type is None:
         return None
     path = COMMAND_CENTER_DIR / filename
+    if not path.exists() or not path.is_file():
+        return None
+    return content_type, path.read_text(encoding="utf-8")
+
+
+def _load_jarvis_home_asset(filename: str) -> tuple[str, str] | None:
+    content_type = JARVIS_HOME_ASSETS.get(filename)
+    if content_type is None:
+        return None
+    path = JARVIS_HOME_DIR / filename
     if not path.exists() or not path.is_file():
         return None
     return content_type, path.read_text(encoding="utf-8")
@@ -1228,16 +1742,24 @@ def create_approval_api_server(
         def do_GET(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
             if parsed.path == "/":
-                self._send_html(200, _render_ui_html(config))
+                self._send_html(200, _inject_live_reload(_render_ui_html(config)))
                 return
 
-            if parsed.path == "/hud/react":
+            if parsed.path == "/hud/version":
+                self._send(200, {"version": _hud_assets_version()})
+                return
+
+            if parsed.path in ("/hud/ops", "/hud/ops/", "/hud/wallboard", "/hud/wallboard/"):
+                self._send_html(200, _inject_live_reload(OPS_WALLBOARD_HTML))
+                return
+
+            if parsed.path in ("/hud/react", "/hud/react/"):
                 asset = _load_react_hud_asset("index.html")
                 if asset is None:
                     self._send(404, {"error": "react hud viewport unavailable"})
                     return
                 content_type, body = asset
-                self._send_text(200, body, content_type)
+                self._send_text(200, _inject_live_reload(body), content_type)
                 return
 
             if parsed.path.startswith("/hud/react/"):
@@ -1256,7 +1778,7 @@ def create_approval_api_server(
                     self._send(404, {"error": "command center unavailable"})
                     return
                 content_type, body = asset
-                self._send_text(200, body, content_type)
+                self._send_text(200, _inject_live_reload(body), content_type)
                 return
 
             if parsed.path.startswith("/hud/cc/"):
@@ -1264,6 +1786,25 @@ def create_approval_api_server(
                 asset = _load_command_center_asset(filename)
                 if asset is None:
                     self._send(404, {"error": "command center asset unavailable"})
+                    return
+                content_type, body = asset
+                self._send_text(200, body, content_type)
+                return
+
+            if parsed.path in ("/hud/home", "/hud/home/"):
+                asset = _load_jarvis_home_asset("index.html")
+                if asset is None:
+                    self._send(404, {"error": "jarvis home unavailable"})
+                    return
+                content_type, body = asset
+                self._send_text(200, _inject_live_reload(body), content_type)
+                return
+
+            if parsed.path.startswith("/hud/home/"):
+                filename = parsed.path[len("/hud/home/") :]
+                asset = _load_jarvis_home_asset(filename)
+                if asset is None:
+                    self._send(404, {"error": "jarvis home asset unavailable"})
                     return
                 content_type, body = asset
                 self._send_text(200, body, content_type)
@@ -1419,11 +1960,38 @@ def create_approval_api_server(
                 self._send(200, {"items": list_recent_trade_review_artifacts(limit=limit)})
                 return
 
+            if parsed.path == "/hud/news":
+                query = parse_qs(parsed.query)
+                source = str(query.get("source", ["reuters"])[0]).strip().lower()
+                limit_raw = query.get("limit", ["6"])[0]
+                try:
+                    limit = int(limit_raw)
+                except ValueError:
+                    self._send(400, {"error": "invalid limit"})
+                    return
+                if limit <= 0 or limit > 20:
+                    self._send(400, {"error": "limit must be between 1 and 20"})
+                    return
+                payload = _latest_news_payload(source, limit)
+                if payload.get("error"):
+                    self._send(400, payload)
+                    return
+                self._send(200, payload)
+                return
+
             self._send(404, {"error": "not found"})
 
         def do_POST(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
             raw_body = self._read_raw_body()
+
+            if parsed.path == "/runtime/stop":
+                self._send(200, _runtime_stop())
+                return
+
+            if parsed.path == "/runtime/resume":
+                self._send(200, _runtime_resume())
+                return
 
             if parsed.path == "/chat/twilio":
                 if not _chat_accounts(config):

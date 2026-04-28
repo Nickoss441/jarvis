@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/Nickos/.claude/projects/c--Users-Nickos-jarvis/memory/**)",
+      "Bash(taskkill /F /IM python.exe)",
+      "Bash(Start-Sleep 1)",
+      "Bash(python -m jarvis.approval_api --port 8080)",
+      "Bash(curl -s http://127.0.0.1:8080/health)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d.get\\('status','?'\\)\\)\")",
+      "Bash(python -c \"from jarvis.config import Config; c = Config.from_env\\(\\); key = c.get_secret\\('ANTHROPIC_API_KEY'\\) or c.anthropic_api_key; print\\('key present:', bool\\(key.strip\\(\\)\\)\\); print\\('model:', c.model\\)\")",
+      "Bash(python -c \"import anthropic; print\\('anthropic version:', anthropic.__version__\\)\")"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\Nickos\\.claude\\projects\\c--Users-Nickos-jarvis\\memory"
+    ]
+  }
+}

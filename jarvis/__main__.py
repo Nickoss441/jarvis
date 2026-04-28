@@ -323,10 +323,22 @@ def _approvals_dispatch() -> int:
     return 0 if summary.failures == 0 else 2
 
 
-def _approvals_api(host: str | None = None, port: int | None = None) -> int:
+_LOCALHOST_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
+def _approvals_api(host: str | None = None, port: int | None = None, expose: bool = False) -> int:
     config = Config.from_env()
     bind_host = host or config.approvals_api_host
     requested_port = config.approvals_api_port if port is None else port
+
+    if bind_host not in _LOCALHOST_HOSTS and not expose:
+        print(
+            f"ERROR: Refusing to bind to '{bind_host}' — this would expose the server on your network.\n"
+            "The approval API has no authentication and must not be publicly accessible.\n"
+            "If you intentionally want network access, re-run with --expose:\n"
+            f"  python -m jarvis approvals-api {bind_host} {requested_port} --expose"
+        )
+        return 1
 
     server = None
     active_port = requested_port
@@ -1806,8 +1818,11 @@ def main(argv: list[str] | None = None) -> int:
         repl()
         return 0
 
-    if args[0] == "system-control":
-        repl_system_control()
+    if args[0] in ("run", "system-control"):
+        if args[0] == "run":
+            repl()
+        else:
+            repl_system_control()
         return 0
 
     if args[0] == "audit-verify":
@@ -2315,7 +2330,8 @@ def main(argv: list[str] | None = None) -> int:
     if args[0] == "approvals-api":
         host = args[1] if len(args) >= 2 else None
         port = int(args[2]) if len(args) >= 3 else None
-        return _approvals_api(host=host, port=port)
+        expose = "--expose" in args
+        return _approvals_api(host=host, port=port, expose=expose)
 
     if args[0] == "approvals-seed":
         count = int(args[1]) if len(args) >= 2 else 3

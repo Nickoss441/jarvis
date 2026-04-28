@@ -333,6 +333,32 @@ def test_approval_api_serves_command_center_viewport_and_assets(tmp_path):
         thread.join(timeout=2)
 
 
+def test_approval_api_runtime_stop_resume_endpoints(tmp_path, monkeypatch):
+    cfg = _cfg(tmp_path)
+    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+
+    server = create_approval_api_server(cfg, host="127.0.0.1", port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    host, port = server.server_address
+    sentinel = tmp_path / ".jarvis" / "stopped"
+
+    try:
+        status, payload = _post_json(f"http://{host}:{port}/runtime/stop", {})
+        assert status == 200
+        assert payload["status"] == "stopped"
+        assert sentinel.exists()
+
+        status, payload = _post_json(f"http://{host}:{port}/runtime/resume", {})
+        assert status == 200
+        assert payload["status"] == "running"
+        assert not sentinel.exists()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
 def test_approval_api_dispatch_endpoint(tmp_path):
     cfg = _cfg(tmp_path)
     service = ApprovalService(cfg)

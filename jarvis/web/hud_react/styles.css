@@ -176,10 +176,76 @@ body {
 
 .hud-theatre {
     display: grid;
-    grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.9fr);
+    grid-template-columns: minmax(0, 1.95fr) minmax(320px, 0.75fr);
     gap: 16px;
     margin-top: 16px;
     align-items: start;
+}
+
+.hud-theatre.hud-theatre-cross {
+    /* Middle column = `auto` so the resizable .globe-frame drives the column
+       width; the 1fr side columns absorb the freed space when the user shrinks
+       the globe. */
+    grid-template-columns: minmax(240px, 1fr) auto minmax(240px, 1fr);
+    align-items: stretch;
+}
+
+.hud-theatre.hud-theatre-cross .hud-main-column {
+    align-self: stretch;
+    /* Let the column hug the globe-frame's resized width instead of stretching. */
+    width: max-content;
+    max-width: 100%;
+    justify-self: center;
+}
+
+.hud-theatre.hud-theatre-cross .hud-left-column,
+.hud-theatre.hud-theatre-cross .hud-right-column {
+    align-content: start;
+}
+
+/* Force horizontal composition on genuinely wide screens.
+   This helps when moving the window between monitors with different DPI/scaling. */
+@media (min-aspect-ratio: 11/10) {
+    .hud-theatre.hud-theatre-cross {
+        grid-template-columns: minmax(220px, 1fr) auto minmax(220px, 1fr);
+    }
+
+    .globe-frame {
+        height: clamp(420px, 64vh, 760px);
+    }
+}
+
+/* Portrait / narrow screens — stack into a single column with the globe on top. */
+@media (max-aspect-ratio: 10/11),
+(max-width: 760px) {
+    .hud-theatre.hud-theatre-cross {
+        grid-template-columns: 1fr;
+    }
+
+    .hud-theatre.hud-theatre-cross .hud-main-column {
+        order: 0;
+    }
+
+    .hud-theatre.hud-theatre-cross .hud-left-column {
+        order: 1;
+    }
+
+    .hud-theatre.hud-theatre-cross .hud-right-column {
+        order: 2;
+    }
+
+    .globe-frame {
+        height: clamp(360px, 60vh, 680px);
+    }
+}
+
+/* Landscape / horizontal screens — keep the three-column cross, even when the
+   window is short, but cap the globe to the available height so panels stay visible. */
+@media (orientation: landscape) and (max-height: 720px) {
+    .globe-frame {
+        height: calc(100vh - 240px);
+        min-height: 360px;
+    }
 }
 
 .hud-main-column,
@@ -203,16 +269,25 @@ body {
     border: 1px solid rgba(91, 200, 255, 0.34);
     border-radius: 18px;
     background: radial-gradient(circle at 50% 40%, rgba(91, 200, 255, 0.12), rgba(4, 8, 16, 0.92));
-    min-height: 420px;
+    height: 720px;
+    min-height: 360px;
+    min-width: 320px;
+    max-width: 100%;
     box-shadow: inset 0 0 28px rgba(42, 163, 219, 0.18), 0 0 24px rgba(91, 200, 255, 0.08);
     overflow: hidden;
+    resize: both;
 }
 
 .globe-canvas,
 .globe-canvas canvas {
     display: block;
     width: 100%;
-    height: 420px;
+    height: 100%;
+}
+
+.globe-canvas {
+    position: absolute;
+    inset: 0;
 }
 
 .globe-status-chip {
@@ -230,12 +305,47 @@ body {
     text-transform: uppercase;
 }
 
-.globe-scanline {
+.globe-hover-line {
     position: absolute;
-    inset: 0;
-    background: linear-gradient(to bottom, transparent 0%, rgba(91, 200, 255, 0.06) 48%, transparent 52%);
-    animation: scanline 4.6s linear infinite;
+    height: 2px;
+    background: linear-gradient(90deg, rgba(91, 200, 255, 0.92), rgba(91, 200, 255, 0.1));
+    filter: drop-shadow(0 0 6px rgba(91, 200, 255, 0.35));
+    transform-origin: 0 50%;
+    z-index: 2;
+    display: none;
     pointer-events: none;
+}
+
+.globe-hover-card {
+    position: absolute;
+    z-index: 3;
+    min-width: 244px;
+    max-width: 292px;
+    border: 1px solid rgba(91, 200, 255, 0.46);
+    border-radius: 14px;
+    background: linear-gradient(160deg, rgba(8, 16, 30, 0.92), rgba(5, 10, 20, 0.96));
+    backdrop-filter: blur(8px);
+    box-shadow: 0 12px 34px rgba(0, 0, 0, 0.42), inset 0 0 18px rgba(91, 200, 255, 0.08);
+    padding: 10px 12px;
+    display: none;
+    gap: 6px;
+    pointer-events: none;
+}
+
+.globe-hover-title {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #e5f7ff;
+    margin-bottom: 3px;
+}
+
+.globe-hover-row {
+    font-size: 11.5px;
+    color: #caecff;
+    letter-spacing: 0.03em;
+    line-height: 1.36;
 }
 
 .hud-footnotes {
@@ -430,6 +540,70 @@ body {
     gap: 10px;
 }
 
+.hud-mission-controls,
+.hud-mission-country-meta {
+    grid-column: 1 / -1;
+}
+
+.hud-mission-controls {
+    border: 1px solid rgba(91, 200, 255, 0.24);
+    border-radius: 12px;
+    padding: 10px;
+    background: rgba(6, 11, 22, 0.8);
+    display: grid;
+    gap: 8px;
+}
+
+.hud-mission-control {
+    display: grid;
+    gap: 6px;
+}
+
+.hud-mission-control-label {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #bfe9ff;
+}
+
+.hud-mission-select {
+    border: 1px solid rgba(91, 200, 255, 0.32);
+    border-radius: 8px;
+    background: rgba(8, 16, 30, 0.8);
+    color: #dbf4ff;
+    padding: 7px 8px;
+    font-size: 12px;
+    outline: none;
+}
+
+.hud-mission-picker {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.hud-mission-chip {
+    border: 1px solid rgba(91, 200, 255, 0.3);
+    border-radius: 999px;
+    background: rgba(8, 16, 30, 0.62);
+    color: #ccefff;
+    font-size: 11px;
+    padding: 5px 9px;
+    cursor: pointer;
+}
+
+.hud-mission-chip.is-active {
+    border-color: rgba(255, 209, 102, 0.5);
+    color: #ffe9c6;
+    box-shadow: 0 0 10px rgba(255, 209, 102, 0.15);
+}
+
+.hud-mission-country-meta {
+    margin-top: -2px;
+    font-size: 11px;
+    color: var(--muted);
+}
+
 .hud-mission-card {
     border: 1px solid rgba(91, 200, 255, 0.26);
     border-radius: 12px;
@@ -473,6 +647,184 @@ body {
     color: var(--muted);
 }
 
+.hud-news-panel {
+    margin-top: 14px;
+    border: 1px solid rgba(91, 200, 255, 0.28);
+    border-radius: 12px;
+    background: rgba(6, 11, 22, 0.84);
+    padding: 11px;
+}
+
+.hud-news-title {
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #d9f4ff;
+}
+
+.hud-news-meta,
+.hud-news-updated {
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--muted);
+}
+
+.hud-news-list {
+    margin-top: 8px;
+    display: grid;
+    gap: 6px;
+}
+
+.hud-news-row {
+    border: 1px solid rgba(91, 200, 255, 0.16);
+    border-radius: 8px;
+    padding: 7px 8px;
+    display: grid;
+    gap: 4px;
+    background: rgba(8, 16, 30, 0.56);
+    text-decoration: none;
+}
+
+.hud-news-row:hover {
+    border-color: rgba(91, 200, 255, 0.32);
+    background: rgba(11, 22, 40, 0.68);
+}
+
+.hud-news-headline {
+    font-size: 12px;
+    color: #e3f5ff;
+    line-height: 1.25;
+}
+
+.hud-news-time,
+.hud-news-empty {
+    font-size: 11px;
+    color: var(--muted);
+}
+
+.hud-market-panel {
+    margin-top: 14px;
+    border: 1px solid rgba(91, 200, 255, 0.3);
+    border-radius: 12px;
+    background: rgba(6, 11, 22, 0.85);
+    padding: 12px 12px 8px;
+}
+
+.hud-market-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+
+.hud-market-title {
+    font-size: 13px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: #def4ff;
+}
+
+.hud-market-meta {
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    font-family: "JetBrains Mono", "SFMono-Regular", monospace;
+}
+
+.hud-market-list {
+    display: grid;
+    gap: 5px;
+    max-height: 320px;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+.hud-market-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.hud-market-list::-webkit-scrollbar-thumb {
+    background: rgba(91, 200, 255, 0.25);
+    border-radius: 3px;
+}
+
+.hud-market-row {
+    display: grid;
+    grid-template-columns: 8px minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: center;
+    border: 1px solid rgba(91, 200, 255, 0.16);
+    border-radius: 8px;
+    padding: 6px 8px;
+    background: rgba(8, 16, 30, 0.55);
+}
+
+.hud-market-row.is-open {
+    border-color: rgba(102, 224, 138, 0.45);
+    background: rgba(20, 40, 28, 0.55);
+}
+
+.hud-market-row.is-closed {
+    border-color: rgba(255, 123, 149, 0.28);
+}
+
+.hud-market-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #ff7b95;
+    box-shadow: 0 0 6px rgba(255, 123, 149, 0.6);
+}
+
+.hud-market-row.is-open .hud-market-dot {
+    background: #66e08a;
+    box-shadow: 0 0 8px rgba(102, 224, 138, 0.7);
+}
+
+.hud-market-ident {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.hud-market-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: #ddf4ff;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.hud-market-city {
+    font-size: 10px;
+    color: var(--muted);
+}
+
+.hud-market-status {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+}
+
+.hud-market-state {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: #ff7b95;
+}
+
+.hud-market-row.is-open .hud-market-state {
+    color: #66e08a;
+}
+
+.hud-market-countdown {
+    font-size: 11px;
+    color: #def4ff;
+    font-family: "JetBrains Mono", "SFMono-Regular", monospace;
+    font-variant-numeric: tabular-nums;
+}
+
 .agent-chip {
     border: 1px solid rgba(91, 200, 255, 0.3);
     border-radius: 999px;
@@ -482,111 +834,69 @@ body {
     text-transform: uppercase;
     color: var(--muted);
     background: rgba(7, 14, 28, 0.7);
-    transition: border-color 220ms ease, color 220ms ease, box-shadow 220ms ease;
 }
 
 .agent-chip.is-active {
     border-color: rgba(255, 165, 188, 0.92);
     color: #ffe6ee;
-    box-shadow: 0 0 18px rgba(255, 129, 163, 0.35);
-    animation: active-chip-glow 1s ease-in-out infinite alternate;
 }
 
-.burst-widget {
-    position: relative;
-    border: 1px solid rgba(91, 200, 255, 0.3);
+.hud-locbadge {
+    margin-bottom: 12px;
+    border: 1px solid rgba(91, 200, 255, 0.28);
     border-radius: 12px;
-    background: rgba(6, 11, 22, 0.84);
-    min-height: 72px;
-    overflow: hidden;
-    padding: 10px;
+    background: rgba(6, 11, 22, 0.85);
+    padding: 10px 12px;
+    display: grid;
+    gap: 6px;
 }
 
-.burst-ring {
-    position: absolute;
-    left: 14px;
-    top: 16px;
-    width: 26px;
-    height: 26px;
-    border-radius: 999px;
-    border: 1px solid rgba(101, 214, 255, 0.8);
-    animation: burst-ring 2.2s ease-out infinite;
+.hud-locbadge-row {
+    display: grid;
+    grid-template-columns: 10px 70px 1fr;
+    gap: 8px;
+    align-items: center;
+    font-family: "JetBrains Mono", "SFMono-Regular", monospace;
+    font-size: 11px;
 }
 
-.burst-core {
-    position: absolute;
-    left: 25px;
-    top: 27px;
-    width: 6px;
-    height: 6px;
-    border-radius: 999px;
-    background: rgba(140, 232, 255, 1);
-    animation: burst-core 1.2s ease-in-out infinite;
+.hud-locbadge-row.dim {
+    opacity: 0.6;
 }
 
-.burst-label {
-    position: absolute;
-    left: 52px;
-    top: 24px;
-    font-size: 12px;
-    letter-spacing: 0.08em;
+.hud-locbadge-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #5bc8ff;
+    box-shadow: 0 0 8px rgba(91, 200, 255, 0.6);
+}
+
+.hud-locbadge-dot.home {
+    background: #ffb347;
+    box-shadow: 0 0 8px rgba(255, 179, 71, 0.7);
+}
+
+.hud-locbadge-dot.live {
+    background: #5bc8ff;
+    box-shadow: 0 0 8px rgba(91, 200, 255, 0.7);
+}
+
+.hud-locbadge-dot.off {
+    background: #555;
+    box-shadow: none;
+}
+
+.hud-locbadge-label {
+    color: #b8e6f8;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
-    color: #d7f4ff;
+    font-weight: 700;
 }
 
-.burst-widget.tone-rose .burst-ring {
-    border-color: rgba(255, 146, 174, 0.86);
-}
-
-.burst-widget.tone-rose .burst-core {
-    background: rgba(255, 178, 198, 1);
-}
-
-.burst-widget.tone-gold .burst-ring {
-    border-color: rgba(255, 215, 125, 0.88);
-}
-
-.burst-widget.tone-gold .burst-core {
-    background: rgba(255, 228, 160, 1);
-}
-
-@keyframes burst-ring {
-    0% {
-        transform: scale(0.82);
-        opacity: 0.9;
-    }
-
-    70% {
-        transform: scale(1.55);
-        opacity: 0;
-    }
-
-    100% {
-        transform: scale(1.55);
-        opacity: 0;
-    }
-}
-
-@keyframes burst-core {
-
-    0%,
-    100% {
-        transform: scale(0.85);
-    }
-
-    50% {
-        transform: scale(1.3);
-    }
-}
-
-@keyframes active-chip-glow {
-    from {
-        transform: translateY(0);
-    }
-
-    to {
-        transform: translateY(-1px);
-    }
+.hud-locbadge-value {
+    color: #def4ff;
+    font-variant-numeric: tabular-nums;
 }
 
 .hud-alert {
