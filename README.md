@@ -2,6 +2,20 @@
 
 The brain + open tools + audit log slice of the architecture in `ARCHITECTURE.md`. Chat-only, runs on your laptop, no API keys beyond Anthropic required.
 
+## Repository Info
+
+- GitHub: `https://github.com/Nickoss441/jarvis`
+- Default branch: `main`
+- Primary remote: `origin`
+
+Quick git sync commands:
+
+```bash
+git add -A
+git commit -m "Describe your change"
+git push origin main
+```
+
 ## What's in this phase
 
 - **Brain.** Agent loop on Claude Sonnet 4.6 with tool use.
