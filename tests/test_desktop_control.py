@@ -202,3 +202,99 @@ def test_desktop_control_minimize_window_minimizes_front_window(monkeypatch):
         "action": "minimize_window",
         "detail": "Safari",
     }
+
+
+def test_desktop_control_windows_open_app_uses_subprocess(monkeypatch):
+    tool = make_desktop_control_tool(mode="live")
+
+    monkeypatch.setattr(desktop_control.platform, "system", lambda: "Windows")
+
+    launched = {"argv": None}
+
+    class _DummyProcess:
+        pass
+
+    def _fake_popen(argv):
+        launched["argv"] = argv
+        return _DummyProcess()
+
+    monkeypatch.setattr(desktop_control.subprocess, "Popen", _fake_popen)
+
+    out = tool.handler(action="open_app", app="notepad")
+
+    assert out == {
+        "ok": True,
+        "action": "open_app",
+        "detail": "launched",
+        "app": "notepad",
+    }
+    assert launched["argv"] == ["notepad"]
+
+
+def test_desktop_control_windows_keystroke_uses_pyautogui_hotkey(monkeypatch):
+    tool = make_desktop_control_tool(mode="live")
+
+    monkeypatch.setattr(desktop_control.platform, "system", lambda: "Windows")
+
+    class _FakePyAuto:
+        def __init__(self):
+            self.keys = None
+
+        def hotkey(self, *keys):
+            self.keys = keys
+
+    fake = _FakePyAuto()
+    monkeypatch.setattr(desktop_control, "_load_pyautogui", lambda: (fake, ""))
+
+    out = tool.handler(action="keystroke", key_combo="ctrl+n")
+
+    assert out["ok"] is True
+    assert out["action"] == "keystroke"
+    assert fake.keys == ("ctrl", "n")
+
+
+def test_desktop_control_windows_type_text_uses_pyautogui_write(monkeypatch):
+    tool = make_desktop_control_tool(mode="live")
+
+    monkeypatch.setattr(desktop_control.platform, "system", lambda: "Windows")
+
+    class _FakePyAuto:
+        def __init__(self):
+            self.sent = None
+
+        def write(self, text, interval=0.0):
+            self.sent = (text, interval)
+
+    fake = _FakePyAuto()
+    monkeypatch.setattr(desktop_control, "_load_pyautogui", lambda: (fake, ""))
+
+    out = tool.handler(action="type_text", text="hello")
+
+    assert out["ok"] is True
+    assert out["action"] == "type_text"
+    assert fake.sent == ("hello", 0.02)
+
+
+def test_desktop_control_windows_active_window(monkeypatch):
+    tool = make_desktop_control_tool(mode="live")
+
+    monkeypatch.setattr(desktop_control.platform, "system", lambda: "Windows")
+
+    class _Window:
+        title = "Inbox - Outlook"
+
+    class _FakePyAuto:
+        def getActiveWindow(self):
+            return _Window()
+
+    monkeypatch.setattr(desktop_control, "_load_pyautogui", lambda: (_FakePyAuto(), ""))
+
+    out = tool.handler(action="active_window")
+
+    assert out == {
+        "ok": True,
+        "action": "active_window",
+        "app": "Inbox - Outlook",
+        "window_title": "Inbox - Outlook",
+        "detail": "Inbox - Outlook",
+    }

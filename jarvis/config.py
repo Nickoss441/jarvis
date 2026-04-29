@@ -119,6 +119,8 @@ class Config:
     voice_tts_persona: str = "jarvis"
     voice_tts_voice_id_male: str = ""
     voice_tts_voice_id_female: str = ""
+    voice_tts_voice_id_jarvis: str = ""
+    voice_tts_voice_id_eva: str = ""
     voice_tts_fallback_provider: str = "piper"
     # Voice personality / soul parameters (ElevenLabs only)
     voice_tts_stability: float = 0.7
@@ -305,6 +307,8 @@ class Config:
             ),
             voice_tts_voice_id_male=os.environ.get("JARVIS_VOICE_TTS_VOICE_ID_MALE", "").strip(),
             voice_tts_voice_id_female=os.environ.get("JARVIS_VOICE_TTS_VOICE_ID_FEMALE", "").strip(),
+            voice_tts_voice_id_jarvis=os.environ.get("JARVIS_VOICE_TTS_VOICE_ID_JARVIS", "").strip(),
+            voice_tts_voice_id_eva=os.environ.get("JARVIS_VOICE_TTS_VOICE_ID_EVA", "").strip(),
             voice_tts_fallback_provider=(
                 os.environ.get("JARVIS_VOICE_TTS_FALLBACK_PROVIDER", "piper").strip().lower()
                 or "piper"

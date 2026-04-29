@@ -676,6 +676,7 @@ const COMMODITY_META = {
     "commodity-silver": { metalKey: "silver", name: "Silver", symbol: "XAG", unit: "US$/oz" },
     "commodity-platinum": { metalKey: "platinum", name: "Platinum", symbol: "XPT", unit: "US$/oz" },
     "commodity-palladium": { metalKey: "palladium", name: "Palladium", symbol: "XPD", unit: "US$/oz" },
+    "commodity-oil": { metalKey: "oil", name: "Crude Oil (WTI)", symbol: "WTI", unit: "US$/bbl" },
 };
 const COMMODITY_IDS = new Set(Object.keys(COMMODITY_META));
 
@@ -740,6 +741,7 @@ const METALS_FALLBACK = {
     silver: 27.4,
     platinum: 978.0,
     palladium: 1048.0,
+    oil: 78.4,
 };
 
 function getDriftedMetalsFallback() {
@@ -750,6 +752,7 @@ function getDriftedMetalsFallback() {
         silver: drift(base.silver, 0.0021),
         platinum: drift(base.platinum, 0.0018),
         palladium: drift(base.palladium, 0.0019),
+        oil: drift(base.oil, 0.0032),
     };
 }
 
@@ -760,7 +763,8 @@ function parseMetalsPayload(raw) {
     const silver = parseFloat(first.silver);
     const platinum = parseFloat(first.platinum);
     const palladium = parseFloat(first.palladium);
-    if ([gold, silver, platinum, palladium].every((v) => Number.isNaN(v))) {
+    const oil = parseFloat(first.oil);
+    if ([gold, silver, platinum, palladium, oil].every((v) => Number.isNaN(v))) {
         return null;
     }
     return {
@@ -768,6 +772,7 @@ function parseMetalsPayload(raw) {
         silver: Number.isNaN(silver) ? METALS_FALLBACK.silver : silver,
         platinum: Number.isNaN(platinum) ? METALS_FALLBACK.platinum : platinum,
         palladium: Number.isNaN(palladium) ? METALS_FALLBACK.palladium : palladium,
+        oil: Number.isNaN(oil) ? METALS_FALLBACK.oil : oil,
     };
 }
 
@@ -1527,6 +1532,14 @@ function detectDeviceProfile() {
     const isPhoneUa = /iphone|ipod|android.+mobile|windows phone|mobile/.test(ua);
     const isTabletUa = /ipad|tablet|android(?!.*mobile)|kindle|silk/.test(ua);
 
+    // Treat narrow viewports as responsive phone/tablet layouts even on desktop browsers.
+    if (width <= 767) {
+        return "phone";
+    }
+    if (width <= 1100) {
+        return "tablet";
+    }
+
     if (isPhoneUa || ((coarsePointer || touchPoints > 1) && width <= 767)) {
         return "phone";
     }
@@ -1705,6 +1718,17 @@ function useVoice(device = "desktop") {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     const supported = !!SpeechRecognition;
     const [micPermission, setMicPermission] = React.useState("unknown"); // unknown | granted | denied | prompt
+    const [currentAgentId, setCurrentAgentId] = React.useState(() => getCurrentAgentId());
+
+    // Monitor agent switches and update voice accordingly
+    React.useEffect(() => {
+        const handleStorageChange = () => {
+            const newAgent = getCurrentAgentId();
+            setCurrentAgentId(newAgent);
+        };
+        window.addEventListener("storage", handleStorageChange);
+        return () => window.removeEventListener("storage", handleStorageChange);
+    }, []);
 
     // Resolve and remember the best available TTS voice for this browser.
     React.useEffect(() => {
@@ -1717,7 +1741,7 @@ function useVoice(device = "desktop") {
 
         const applyVoice = () => {
             const voices = synth.getVoices();
-            const chosen = pickAgentVoice(voices, selectedVoiceNameRef.current, getCurrentAgentId());
+            const chosen = pickAgentVoice(voices, selectedVoiceNameRef.current, currentAgentId);
             if (!chosen) return;
             selectedVoiceRef.current = chosen;
             selectedVoiceNameRef.current = chosen.name;
@@ -1736,7 +1760,7 @@ function useVoice(device = "desktop") {
             if (typeof prev === "function") prev();
         };
         return () => { synth.onvoiceschanged = prev || null; };
-    }, []);
+    }, [currentAgentId]);
 
     // On mobile, wait for an explicit user tap before requesting microphone access.
     // Auto-request on page load is unreliable and often blocked by mobile browsers.
@@ -1867,7 +1891,7 @@ function useVoice(device = "desktop") {
         fetch("/hud/tts", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text: cleaned, agent: currentAgentId, voice: preferredVoice }),
+            body: JSON.stringify({ text: cleaned, agent: currentAgentId, voice: currentAgentId }),
         })
             .then(res => {
                 if (!res.ok) throw new Error("tts_failed");
@@ -1917,6 +1941,7 @@ function useVoice(device = "desktop") {
         const switchAgent = detectAgentSwitch(text);
         if (switchAgent) {
             try { localStorage.setItem(AGENT_STORAGE_KEY, switchAgent); } catch (_) { }
+            setCurrentAgentId(switchAgent);
             const agent = AGENTS.find(a => a.id === switchAgent);
             const msg = `Switched to ${agent?.label || switchAgent}. Standing by.`;
             pushHistory("user", text);
@@ -2103,7 +2128,7 @@ function useVoice(device = "desktop") {
     }, [micPermission, isMobileDevice]);
 
     startListeningRef.current = startListening;
-    return { state, transcript, reply, history, clearHistory, sessionStartTs, micError, wakeActive, voiceMuted, micPermission, toggleMute, supported, startListening, stopListening, ask, onInterimRef, lastWakeHeard, isMobileDevice };
+    return { state, transcript, reply, history, clearHistory, sessionStartTs, micError, wakeActive, voiceMuted, micPermission, toggleMute, supported, startListening, stopListening, ask, onInterimRef, lastWakeHeard, isMobileDevice, currentAgentId };
 }
 
 function JarvisEyeSVG({ state, clipSuffix = "", tired = false, isBg = false, lidColor = "var(--bg)" }) {
@@ -4200,8 +4225,31 @@ function MonitorsCard({ health }) {
     );
 }
 
-function RadarCoreCard() {
+function RadarCoreCard({ health, pending, streamStatus, events }) {
     const sweepDelay = React.useMemo(() => `-${(Math.random() * 8).toFixed(3)}s`, []);
+
+    const eventBacklog = Number(health?.event_bus?.unprocessed_events || 0);
+    const pendingCount = Number(pending || 0);
+    const recentEvents = Array.isArray(events) ? events.length : 0;
+    const reconnecting = streamStatus === "connecting" || streamStatus === "reconnecting";
+
+    const activityScore = Math.max(
+        1,
+        Math.min(
+            12,
+            1 +
+            (pendingCount * 2) +
+            (eventBacklog * 0.6) +
+            (recentEvents * 0.4) +
+            (reconnecting ? 3 : 0)
+        )
+    );
+
+    const sweepDuration = Math.max(2.2, 8.4 - (activityScore * 0.42));
+    const pulseDuration = Math.max(1.2, 3.2 - (activityScore * 0.14));
+    const flickerDuration = Math.max(2.0, 7.6 - (activityScore * 0.26));
+    const alertLevel = activityScore >= 8 ? "high" : activityScore >= 5 ? "medium" : "low";
+    const alertText = alertLevel === "high" ? "ELEVATED" : alertLevel === "medium" ? "ACTIVE" : "STABLE";
 
     return React.createElement(
         "div", { className: "cc-card cc-core", "data-accent": "cyan" },
@@ -4224,7 +4272,13 @@ function RadarCoreCard() {
                     viewBox: "0 0 100 100",
                     width: 108,
                     height: 108,
-                    style: { "--radar-sweep-delay": sweepDelay },
+                    style: {
+                        "--radar-sweep-delay": sweepDelay,
+                        "--radar-sweep-duration": `${sweepDuration.toFixed(2)}s`,
+                        "--radar-pulse-duration": `${pulseDuration.toFixed(2)}s`,
+                        "--radar-flicker-duration": `${flickerDuration.toFixed(2)}s`,
+                    },
+                    "data-alert": alertLevel,
                     role: "img",
                     "aria-label": "Animated radar crosshair",
                 },
@@ -4258,6 +4312,13 @@ function RadarCoreCard() {
                 }),
                 React.createElement("circle", { className: "cc-crosshair-center", cx: 50, cy: 50, r: 2.3 })
             )
+        ),
+        React.createElement(
+            "div",
+            { className: "cc-core-meta" },
+            React.createElement("span", { className: `cc-badge ${alertLevel === "high" ? "orange" : alertLevel === "medium" ? "cyan" : "green"}` }, alertText),
+            React.createElement("span", { className: "cc-watch-meta-item" }, `pending ${pendingCount}`),
+            React.createElement("span", { className: "cc-watch-meta-item" }, `queue ${eventBacklog}`)
         )
     );
 }
@@ -4419,7 +4480,7 @@ function App() {
                 brainStream,
                 brainEvents,
             }),
-            React.createElement(RadarCoreCard),
+            React.createElement(RadarCoreCard, { health, pending, streamStatus: brainStream.status, events: brainEvents }),
             React.createElement(RuntimeControlCard, { health }),
             React.createElement(MonitorsCard, { health })
         )

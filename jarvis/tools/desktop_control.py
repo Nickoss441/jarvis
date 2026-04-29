@@ -1,4 +1,4 @@
-"""Desktop control tool for local macOS automation.
+"""Desktop control tool for local desktop automation.
 
 This tool is intentionally constrained and intended for local operator workflows.
 It supports a small set of actions:
@@ -9,7 +9,7 @@ It supports a small set of actions:
 - open_app: launch or focus an app by name
 - open_url: open a URL with the default handler
 - open_chrome_url: open a URL specifically in Google Chrome
-- keystroke: send a key combo using AppleScript System Events
+- keystroke: send a key combo using AppleScript System Events or pyautogui
 - type_text: type plain text into the focused app
 
 Register only when phase_sandbox is enabled.
@@ -17,6 +17,8 @@ Register only when phase_sandbox is enabled.
 from __future__ import annotations
 
 import base64
+import io
+import os
 import platform
 import re
 import subprocess
@@ -29,6 +31,14 @@ from . import Tool
 _MAX_TEXT_CHARS = 500
 _VALID_ACTIONS = {"active_window", "focus_app", "close_window", "minimize_window", "screenshot", "open_app", "open_url", "open_chrome_url", "keystroke", "type_text"}
 _KEY_COMBO_PATTERN = re.compile(r"^[A-Za-z0-9+\-_ ]{1,60}$")
+
+
+def _load_pyautogui() -> tuple[Any | None, str]:
+    try:
+        import pyautogui as _pyautogui
+    except Exception as exc:  # noqa: BLE001
+        return None, f"pyautogui unavailable: {exc}"
+    return _pyautogui, ""
 
 
 def _run_command(argv: list[str]) -> tuple[bool, str]:
@@ -68,6 +78,13 @@ def _capture_screenshot_png() -> bytes:
         screenshot_path.unlink(missing_ok=True)
 
 
+def _capture_screenshot_png_windows(pyautogui: Any) -> bytes:
+    image = pyautogui.screenshot()
+    buf = io.BytesIO()
+    image.save(buf, format="PNG")
+    return buf.getvalue()
+
+
 def make_desktop_control_tool(mode: str = "live") -> Tool:
     """Build a constrained desktop automation tool."""
 
@@ -94,10 +111,30 @@ def make_desktop_control_tool(mode: str = "live") -> Tool:
                 "text_preview": text[:120],
             }
 
-        if platform.system() != "Darwin":
-            return {"ok": False, "error": "desktop_control currently supports macOS only"}
+        os_name = platform.system()
+        if os_name not in {"Darwin", "Windows"}:
+            return {"ok": False, "error": "desktop_control currently supports macOS and Windows"}
 
         if act == "active_window":
+            if os_name == "Windows":
+                pyautogui, err = _load_pyautogui()
+                if not pyautogui:
+                    return {"ok": False, "action": act, "error": err}
+                try:
+                    window = pyautogui.getActiveWindow()
+                    if window is None:
+                        return {"ok": False, "action": act, "error": "no active window"}
+                    title = str(getattr(window, "title", "") or "").strip()
+                    return {
+                        "ok": True,
+                        "action": act,
+                        "app": title,
+                        "window_title": title,
+                        "detail": title or "active-window",
+                    }
+                except Exception as exc:  # noqa: BLE001
+                    return {"ok": False, "action": act, "error": f"active window lookup failed: {exc}"}
+
             script = (
                 'tell application "System Events"\n'
                 '  set frontApp to first application process whose frontmost is true\n'
@@ -135,6 +172,16 @@ def make_desktop_control_tool(mode: str = "live") -> Tool:
             app_name = app.strip()
             if not app_name:
                 return {"ok": False, "error": "app is required for open_app"}
+            if os_name == "Windows":
+                try:
+                    subprocess.Popen([app_name])  # noqa: S603
+                    return {"ok": True, "action": act, "detail": "launched", "app": app_name}
+                except Exception:
+                    try:
+                        os.startfile(app_name)  # type: ignore[attr-defined]
+                        return {"ok": True, "action": act, "detail": "launched", "app": app_name}
+                    except Exception as exc:  # noqa: BLE001
+                        return {"ok": False, "action": act, "error": f"failed to open app: {exc}", "app": app_name}
             ok, detail = _run_command(["open", "-a", app_name])
             return {"ok": ok, "action": act, "detail": detail, "app": app_name}
 
@@ -142,11 +189,22 @@ def make_desktop_control_tool(mode: str = "live") -> Tool:
             app_name = app.strip()
             if not app_name:
                 return {"ok": False, "error": "app is required for focus_app"}
+            if os_name == "Windows":
+                return {"ok": False, "action": act, "error": "focus_app is currently supported on macOS only", "app": app_name}
             script = f'tell application "{app_name}" to activate'
             ok, detail = _run_command(["osascript", "-e", script])
             return {"ok": ok, "action": act, "detail": detail, "app": app_name}
 
         if act == "close_window":
+            if os_name == "Windows":
+                pyautogui, err = _load_pyautogui()
+                if not pyautogui:
+                    return {"ok": False, "action": act, "error": err}
+                try:
+                    pyautogui.hotkey("alt", "f4")
+                    return {"ok": True, "action": act, "detail": "sent alt+f4"}
+                except Exception as exc:  # noqa: BLE001
+                    return {"ok": False, "action": act, "error": f"failed to close window: {exc}"}
             script = (
                 'tell application "System Events"\n'
                 '  set frontApp to first application process whose frontmost is true\n'
@@ -163,6 +221,15 @@ def make_desktop_control_tool(mode: str = "live") -> Tool:
             return {"ok": ok, "action": act, "detail": detail}
 
         if act == "minimize_window":
+            if os_name == "Windows":
+                pyautogui, err = _load_pyautogui()
+                if not pyautogui:
+                    return {"ok": False, "action": act, "error": err}
+                try:
+                    pyautogui.hotkey("win", "down")
+                    return {"ok": True, "action": act, "detail": "sent win+down"}
+                except Exception as exc:  # noqa: BLE001
+                    return {"ok": False, "action": act, "error": f"failed to minimize window: {exc}"}
             script = (
                 'tell application "System Events"\n'
                 '  set frontApp to first application process whose frontmost is true\n'
@@ -180,9 +247,17 @@ def make_desktop_control_tool(mode: str = "live") -> Tool:
 
         if act == "screenshot":
             try:
-                image_bytes = _capture_screenshot_png()
+                if os_name == "Windows":
+                    pyautogui, err = _load_pyautogui()
+                    if not pyautogui:
+                        return {"ok": False, "action": act, "error": err}
+                    image_bytes = _capture_screenshot_png_windows(pyautogui)
+                else:
+                    image_bytes = _capture_screenshot_png()
             except RuntimeError as exc:
                 return {"ok": False, "action": act, "error": str(exc)}
+            except Exception as exc:  # noqa: BLE001
+                return {"ok": False, "action": act, "error": f"screenshot failed: {exc}"}
 
             return {
                 "ok": True,
@@ -198,6 +273,15 @@ def make_desktop_control_tool(mode: str = "live") -> Tool:
                 return {"ok": False, "error": f"url is required for {act}"}
             if not (target.startswith("http://") or target.startswith("https://") or target.startswith("file://")):
                 return {"ok": False, "error": "url must start with http://, https://, or file://"}
+            if os_name == "Windows":
+                if act == "open_chrome_url":
+                    ok, detail = _run_command(["cmd", "/c", "start", "", "chrome", target])
+                    return {"ok": ok, "action": act, "detail": detail, "url": target}
+                try:
+                    os.startfile(target)  # type: ignore[attr-defined]
+                    return {"ok": True, "action": act, "detail": "opened", "url": target}
+                except Exception as exc:  # noqa: BLE001
+                    return {"ok": False, "action": act, "error": f"failed to open url: {exc}", "url": target}
             command = ["open", target]
             if act == "open_chrome_url":
                 command = ["open", "-a", "Google Chrome", target]
@@ -210,6 +294,18 @@ def make_desktop_control_tool(mode: str = "live") -> Tool:
                 return {"ok": False, "error": "key_combo is required for keystroke"}
             if not _KEY_COMBO_PATTERN.fullmatch(combo):
                 return {"ok": False, "error": "key_combo contains unsupported characters"}
+            if os_name == "Windows":
+                pyautogui, err = _load_pyautogui()
+                if not pyautogui:
+                    return {"ok": False, "action": act, "error": err}
+                keys = [item.strip().lower() for item in re.split(r"[+\s]+", combo) if item.strip()]
+                if not keys:
+                    return {"ok": False, "action": act, "error": "key_combo produced no keys"}
+                try:
+                    pyautogui.hotkey(*keys)
+                    return {"ok": True, "action": act, "detail": "hotkey sent", "key_combo": combo}
+                except Exception as exc:  # noqa: BLE001
+                    return {"ok": False, "action": act, "error": f"failed to send hotkey: {exc}", "key_combo": combo}
             script = (
                 'tell application "System Events"\n'
                 f'  keystroke "{combo}"\n'
@@ -225,6 +321,16 @@ def make_desktop_control_tool(mode: str = "live") -> Tool:
         if len(value) > _MAX_TEXT_CHARS:
             return {"ok": False, "error": f"text exceeds {_MAX_TEXT_CHARS} characters"}
 
+        if os_name == "Windows":
+            pyautogui, err = _load_pyautogui()
+            if not pyautogui:
+                return {"ok": False, "action": act, "error": err}
+            try:
+                pyautogui.write(value, interval=0.02)
+                return {"ok": True, "action": act, "detail": "text typed", "chars": len(value)}
+            except Exception as exc:  # noqa: BLE001
+                return {"ok": False, "action": act, "error": f"failed to type text: {exc}"}
+
         escaped = value.replace("\\", "\\\\").replace('"', '\\"')
         script = (
             'tell application "System Events"\n'
@@ -237,7 +343,7 @@ def make_desktop_control_tool(mode: str = "live") -> Tool:
     return Tool(
         name="desktop_control",
         description=(
-            "Control local macOS desktop actions: inspect the active window, focus an app, close the current window, "
+            "Control local desktop actions (macOS/Windows): inspect the active window, focus an app, close the current window, "
             "minimize the current window, take a screenshot, open an app, open a URL, open a URL in Google Chrome, send keystrokes, or type text into the focused app. Use carefully and only for explicit user requests."
         ),
         input_schema={

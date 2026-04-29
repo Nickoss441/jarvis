@@ -67,6 +67,34 @@ class Conversation:
             return True
         return False
 
+    def overwrite_last_user_text(self, text: str) -> bool:
+        """Replace the most recent plain user text message in-place."""
+        replacement = (text or "").strip()
+        if not replacement:
+            return False
+        for idx in range(len(self.messages) - 1, -1, -1):
+            msg = self.messages[idx]
+            if msg.get("role") != "user":
+                continue
+            content = msg.get("content")
+            if isinstance(content, str):
+                msg["content"] = replacement
+                self._persist()
+                return True
+            if isinstance(content, list):
+                text_blocks = [
+                    block for block in content
+                    if isinstance(block, dict) and block.get("type") == "text"
+                ]
+                if not text_blocks:
+                    continue
+                text_blocks[0]["text"] = replacement
+                for block in text_blocks[1:]:
+                    block["text"] = ""
+                self._persist()
+                return True
+        return False
+
     def overwrite_last_assistant_text(self, text: str) -> bool:
         """Replace the most recent assistant text block content in-place."""
         replacement = (text or "").strip()

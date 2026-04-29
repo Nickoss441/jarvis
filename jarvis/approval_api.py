@@ -168,6 +168,11 @@ _METALS_CACHE: dict[str, object] = {
     "updated_unix": 0.0,
 }
 
+_YAHOO_QUOTE_SYMBOLS = {
+    "gold": "GC=F",
+    "oil": "CL=F",
+}
+
 _HEALTH_CACHE: dict[str, object] = {
     "status": None,
     "payload": None,
@@ -550,6 +555,24 @@ def _latest_metals_payload() -> dict[str, object]:
     if isinstance(cached, dict) and (now - cached_at) < 15:
         return cached
 
+    def _fetch_yahoo_quote(symbol: str) -> float:
+        req = Request(
+            f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1m&range=1d",
+            headers={
+                "User-Agent": "JarvisHUD/1.0",
+                "Accept": "application/json",
+            },
+        )
+        with urlopen(req, timeout=2.8) as resp:  # noqa: S310 - fixed HTTPS endpoint
+            raw = resp.read()
+        parsed = json.loads(raw.decode("utf-8"))
+        result = (((parsed or {}).get("chart") or {}).get("result") or [None])[0]
+        if not isinstance(result, dict):
+            raise ValueError("invalid yahoo chart payload")
+        meta = result.get("meta") or {}
+        price = meta.get("regularMarketPrice")
+        return float(price)
+
     req = Request(
         "https://metals.live/api/v1/spot",
         headers={
@@ -567,14 +590,25 @@ def _latest_metals_payload() -> dict[str, object]:
             raise ValueError("invalid metals payload")
 
         updated_at = datetime.now(timezone.utc).isoformat()
+        try:
+            gold_live = _fetch_yahoo_quote(_YAHOO_QUOTE_SYMBOLS["gold"])
+        except (URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError, TypeError):
+            gold_live = _coerce_float(row.get("gold"), 2320.2)
+
+        try:
+            oil_live = _fetch_yahoo_quote(_YAHOO_QUOTE_SYMBOLS["oil"])
+        except (URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError, TypeError):
+            oil_live = 78.4
+
         payload = {
             "contract_version": 1,
-            "gold": _coerce_float(row.get("gold"), 2320.2),
+            "gold": gold_live,
             "silver": _coerce_float(row.get("silver"), 27.4),
             "platinum": _coerce_float(row.get("platinum"), 978.0),
             "palladium": _coerce_float(row.get("palladium"), 1048.0),
+            "oil": oil_live,
             "source": "metals_live",
-            "source_detail": "upstream",
+            "source_detail": "upstream+yahoo",
             "updated_at": updated_at,
             "cache_age_seconds": 0,
         }
@@ -589,14 +623,23 @@ def _latest_metals_payload() -> dict[str, object]:
                 "source_detail": "cached",
                 "cache_age_seconds": int(max(0.0, now - cached_at)),
             }
+        try:
+            gold_live = _fetch_yahoo_quote(_YAHOO_QUOTE_SYMBOLS["gold"])
+        except (URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError, TypeError):
+            gold_live = 2320.2
+        try:
+            oil_live = _fetch_yahoo_quote(_YAHOO_QUOTE_SYMBOLS["oil"])
+        except (URLError, TimeoutError, OSError, ValueError, json.JSONDecodeError, TypeError):
+            oil_live = 78.4
         return {
             "contract_version": 1,
-            "gold": 2320.2,
+            "gold": gold_live,
             "silver": 27.4,
             "platinum": 978.0,
             "palladium": 1048.0,
+            "oil": oil_live,
             "source": "fallback",
-            "source_detail": "static",
+            "source_detail": "static+yahoo",
             "updated_at": datetime.now(timezone.utc).isoformat(),
             "cache_age_seconds": 0,
         }
@@ -3659,13 +3702,24 @@ def create_approval_api_server(
                 if not text:
                     self._send(400, {"error": "text is required"})
                     return
-                preferred_voice = requested_voice if requested_voice in {"male", "female"} else ("female" if requested_agent == "eva" else (config.voice_tts_default_voice or "male"))
                 from .perception.voice.tts import build_tts_adapter
                 voice_ids: dict = {}
                 if config.voice_tts_voice_id_male:
                     voice_ids["male"] = config.voice_tts_voice_id_male
                 if config.voice_tts_voice_id_female:
                     voice_ids["female"] = config.voice_tts_voice_id_female
+                if config.voice_tts_voice_id_jarvis:
+                    voice_ids["jarvis"] = config.voice_tts_voice_id_jarvis
+                if config.voice_tts_voice_id_eva:
+                    voice_ids["eva"] = config.voice_tts_voice_id_eva
+                if requested_voice in voice_ids:
+                    preferred_voice = requested_voice
+                elif requested_agent in voice_ids:
+                    preferred_voice = requested_agent
+                elif requested_voice in {"male", "female"}:
+                    preferred_voice = requested_voice
+                else:
+                    preferred_voice = "female" if requested_agent == "eva" else (config.voice_tts_default_voice or "male")
                 adapter = build_tts_adapter(
                     config.voice_tts_provider,
                     api_key=config.voice_tts_api_key,
@@ -3727,6 +3781,10 @@ def create_approval_api_server(
                     improve_hint = _self_improvement_hint()
                     brain = _get_or_create_hud_brain(agent_id)
                     reply = brain.turn(agent_hint + capability_str + ctx_str + live_hint + improve_hint + text)
+                    try:
+                        brain.conversation.overwrite_last_user_text(text)
+                    except Exception:
+                        pass
                     try:
                         brain.conversation.annotate_last_assistant(agent_id=agent_id)
                     except Exception:
