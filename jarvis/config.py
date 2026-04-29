@@ -80,6 +80,11 @@ def _env_csv(name: str) -> tuple[str, ...]:
     return tuple(item for item in parts if item)
 
 
+def _default_conversation_store_path() -> Path:
+    # Always use D:/jarvis-data for persistent conversation storage
+    return Path("D:/jarvis-data/conversation.json")
+
+
 @dataclass
 class Config:
     anthropic_api_key: str
@@ -103,7 +108,7 @@ class Config:
     phase_telephony: bool = False
     phase_trading: bool = False
     phase_sandbox: bool = False
-    sandbox_dir: Path = Path(os.path.expanduser("~/.jarvis/sandbox"))
+    sandbox_dir: Path = Path("D:/jarvis-data/sandbox")
     sandbox_shell_timeout_seconds: int = 30
     voice_wake_word: str = "jarvis"
     voice_stt_provider: str = "faster-whisper"
@@ -111,9 +116,15 @@ class Config:
     voice_tts_api_key: str = ""
     voice_tts_model: str = "eleven_multilingual_v2"
     voice_tts_default_voice: str = "male"
+    voice_tts_persona: str = "jarvis"
     voice_tts_voice_id_male: str = ""
     voice_tts_voice_id_female: str = ""
     voice_tts_fallback_provider: str = "piper"
+    # Voice personality / soul parameters (ElevenLabs only)
+    voice_tts_stability: float = 0.7
+    voice_tts_similarity_boost: float = 0.75
+    voice_tts_style: float = 0.5
+    voice_tts_speaker_boost: bool = True
     mac_pc_pipeline_mode: str = "dry_run"
     mac_pc_pipeline_source_id: str = "mac"
     mac_pc_pipeline_target_id: str = "pc"
@@ -185,7 +196,7 @@ class Config:
     event_alerts_max_per_hour_by_kind: dict[str, int] = field(default_factory=dict)
     event_actions_retention_days: int = 30
     mail_drafts_path: Path = Path(os.path.expanduser("~/.jarvis/mail-drafts.jsonl"))
-    approvals_api_host: str = "127.0.0.1"
+    approvals_api_host: str = "0.0.0.0"
     approvals_api_port: int = 8080
     chat_account_id: str = ""
     chat_auth_token: str = ""
@@ -197,8 +208,21 @@ class Config:
     ntfy_token: str = ""
     twilio_webhook_token: str = ""
     trading_paper_broker: str = "alpaca"
-    helius_api_key: str = ""
+    helius_api_key: str = "helux 3e95acbf-855e-4331-a3a4-a03396566456"
     helius_network: str = "mainnet"
+    helius_api_url: str = "https://dashboard.helius.dev/b2eeb17e-e50b-458a-8106-e79014f6f4d8/api-keys"
+    mapbox_token: str = ""
+    owm_api_key: str = ""
+    ollama_enabled: bool = True
+    ollama_base_url: str = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+    ollama_timeout: int = 45
+    ollama_local_only: bool = False
+    ollama_warm_model: str = ""
+    ollama_fast_mode: bool = True
+    ollama_num_ctx: int = 8192
+    ollama_num_predict: int = 256
+    ollama_keep_alive: str = "30m"
+    # Anthropic fallback is already handled in brain.py if Ollama fails
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -228,7 +252,10 @@ class Config:
                 os.environ.get("JARVIS_AUDIT_DB", "~/.jarvis/audit.db")
             )),
             conversation_store_path=Path(os.path.expanduser(
-                os.environ.get("JARVIS_CONVERSATION_STORE_PATH", "~/.jarvis/conversation.json")
+                os.environ.get(
+                    "JARVIS_CONVERSATION_STORE_PATH",
+                    str(_default_conversation_store_path()),
+                )
             )),
             user_preferences_store_path=Path(os.path.expanduser(
                 os.environ.get("JARVIS_USER_PREFERENCES_STORE_PATH", "~/.jarvis/preferences.json")
@@ -272,12 +299,20 @@ class Config:
                 os.environ.get("JARVIS_VOICE_TTS_DEFAULT_VOICE", "male").strip().lower()
                 or "male"
             ),
+            voice_tts_persona=(
+                os.environ.get("JARVIS_VOICE_TTS_PERSONA", "jarvis").strip().lower()
+                or "jarvis"
+            ),
             voice_tts_voice_id_male=os.environ.get("JARVIS_VOICE_TTS_VOICE_ID_MALE", "").strip(),
             voice_tts_voice_id_female=os.environ.get("JARVIS_VOICE_TTS_VOICE_ID_FEMALE", "").strip(),
             voice_tts_fallback_provider=(
                 os.environ.get("JARVIS_VOICE_TTS_FALLBACK_PROVIDER", "piper").strip().lower()
                 or "piper"
             ),
+            voice_tts_stability=_env_float("JARVIS_VOICE_TTS_STABILITY", 0.7, 0.0, 1.0),
+            voice_tts_similarity_boost=_env_float("JARVIS_VOICE_TTS_SIMILARITY_BOOST", 0.75, 0.0, 1.0),
+            voice_tts_style=_env_float("JARVIS_VOICE_TTS_STYLE", 0.5, 0.0, 1.0),
+            voice_tts_speaker_boost=_env_bool("JARVIS_VOICE_TTS_SPEAKER_BOOST", True),
             mac_pc_pipeline_mode=(
                 os.environ.get("JARVIS_MAC_PC_PIPELINE_MODE", "dry_run").strip().lower()
                 or "dry_run"
@@ -492,7 +527,7 @@ class Config:
                     "~/.jarvis/mail-drafts.jsonl",
                 )
             )),
-            approvals_api_host=os.environ.get("JARVIS_APPROVALS_API_HOST", "127.0.0.1"),
+            approvals_api_host=os.environ.get("JARVIS_APPROVALS_API_HOST", "0.0.0.0"),
             approvals_api_port=int(os.environ.get("JARVIS_APPROVALS_API_PORT", "8080")),
             chat_account_id=(
                 os.environ.get("JARVIS_CHAT_ACCOUNT_ID", "").strip().lower()
@@ -526,6 +561,20 @@ class Config:
             ),
             helius_api_key=secret_provider.get("HELIUS_API_KEY"),
             helius_network=os.environ.get("HELIUS_NETWORK", "mainnet"),
+            mapbox_token=os.environ.get("MAPBOX_TOKEN", "").strip(),
+            owm_api_key=os.environ.get("OWM_API_KEY", "").strip(),
+            ollama_enabled=_env_bool("JARVIS_OLLAMA_ENABLED", default=True),
+            ollama_base_url=os.environ.get("JARVIS_OLLAMA_BASE_URL", "http://localhost:11434").strip(),
+            ollama_timeout=max(10, int(os.environ.get("JARVIS_OLLAMA_TIMEOUT", "45"))),
+            ollama_local_only=_env_bool("JARVIS_OLLAMA_LOCAL_ONLY", default=False),
+            ollama_warm_model=os.environ.get("JARVIS_OLLAMA_WARM_MODEL", "").strip(),
+            ollama_fast_mode=_env_bool("JARVIS_OLLAMA_FAST_MODE", default=True),
+            ollama_num_ctx=max(1024, int(os.environ.get("JARVIS_OLLAMA_NUM_CTX", "8192"))),
+            ollama_num_predict=max(64, int(os.environ.get("JARVIS_OLLAMA_NUM_PREDICT", "256"))),
+            ollama_keep_alive=(
+                os.environ.get("JARVIS_OLLAMA_KEEP_ALIVE", "30m").strip()
+                or "30m"
+            ),
         )
 
     def phase_enabled(self, phase: str) -> bool:

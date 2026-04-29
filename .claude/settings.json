@@ -1,7 +1,16 @@
 {
   "permissions": {
     "allow": [
-      "Bash(PYTHONIOENCODING=utf-8 echo \"status report\")"
+      "Bash(PYTHONIOENCODING=utf-8 echo \"status report\")",
+      "PowerShell(Get-Process -Id 28784 | Select-Object Name, Id, CommandLine 2>$null; \\(Get-WmiObject Win32_Process -Filter \"ProcessId=28784\"\\).CommandLine)",
+      "PowerShell(Get-NetTCPConnection -LocalPort 8080 -State Listen | Select-Object OwningProcess; $p = \\(Get-NetTCPConnection -LocalPort 8080 -State Listen\\).OwningProcess; if \\($p\\) { Get-Process -Id $p | Select-Object Id, Name, Path })",
+      "PowerShell(\\(Get-WmiObject Win32_Process | Where-Object { $_.ProcessId -eq 28784 }\\).CommandLine)",
+      "PowerShell(Start-Process \"C:\\\\Users\\\\Nickos\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\python.exe\" -ArgumentList \"-m\",\"jarvis\",\"approvals-api\" -WorkingDirectory \"C:\\\\Users\\\\Nickos\\\\jarvis\" -WindowStyle Hidden; Start-Sleep -Seconds 2; $p = \\(Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyContinue\\).OwningProcess; if \\($p\\) { Write-Host \"Server running on PID $p\" } else { Write-Host \"Server not yet up\" })",
+      "PowerShell(Start-Sleep -Seconds 4; $p = \\(Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyContinue\\).OwningProcess; if \\($p\\) { Write-Host \"Server running on PID $p\" } else { Write-Host \"Still not up — checking for errors...\" })",
+      "PowerShell($old = \\(Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyContinue\\).OwningProcess; if \\($old\\) { Stop-Process -Id $old -Force; Write-Host \"Stopped PID $old\" }; Start-Sleep -Milliseconds 800; Start-Process \"C:\\\\Users\\\\Nickos\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\python.exe\" -ArgumentList \"-m\",\"jarvis\",\"approvals-api\" -WorkingDirectory \"C:\\\\Users\\\\Nickos\\\\jarvis\" -WindowStyle Hidden; Start-Sleep -Seconds 4; $new = \\(Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyContinue\\).OwningProcess; if \\($new\\) { Write-Host \"Server up PID $new\" } else { Write-Host \"Not up yet\" })",
+      "PowerShell(Invoke-WebRequest -Uri \"http://127.0.0.1:8080/hud/globe/threat?region=hormuz&keywords=hormuz,iran,strait,persian+gulf,tanker\" -UseBasicParsing)",
+      "PowerShell(Start-Sleep -Seconds 3; try { $r = Invoke-WebRequest -Uri \"http://127.0.0.1:8080/hud/globe/threat?region=hormuz&keywords=hormuz,iran,strait\" -UseBasicParsing -TimeoutSec 20; $r.Content } catch { $_.Exception.Message })",
+      "PowerShell($old = \\(Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyContinue\\).OwningProcess; if \\($old\\) { Stop-Process -Id $old -Force }; Start-Sleep -Milliseconds 600; Start-Process \"C:\\\\Users\\\\Nickos\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\python.exe\" -ArgumentList \"-m\",\"jarvis\",\"approvals-api\" -WorkingDirectory \"C:\\\\Users\\\\Nickos\\\\jarvis\" -WindowStyle Hidden; Start-Sleep -Seconds 4; try { $r = Invoke-WebRequest -Uri \"http://127.0.0.1:8080/hud/globe/threat?region=hormuz&keywords=hormuz,iran,strait\" -UseBasicParsing -TimeoutSec 20; $r.Content } catch { $_.Exception.Message })"
     ]
   }
 }

@@ -74,7 +74,7 @@ class MonitorRunner:
         Returns:
             True if stopped sentinel exists at ~/.jarvis/stopped
         """
-        sentinel = Path.home() / ".jarvis" / "stopped"
+        sentinel = Path("D:/jarvis-data/stopped")
         return sentinel.exists()
 
     def run_once(self) -> int:

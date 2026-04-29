@@ -1,3 +1,134 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Globe HUD — Animation Pass II
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Globe marker slow color shift + pulse ring ── */
+@keyframes marker-color-shift {
+
+    0%,
+    100% {
+        filter: hue-rotate(0deg) brightness(1);
+    }
+
+    33% {
+        filter: hue-rotate(22deg) brightness(1.14);
+    }
+
+    66% {
+        filter: hue-rotate(-14deg) brightness(0.92);
+    }
+}
+
+@keyframes marker-pulse-ring {
+    0% {
+        box-shadow: 0 0 0 0 currentColor, 0 0 12px currentColor;
+    }
+
+    70% {
+        box-shadow: 0 0 0 6px transparent, 0 0 12px currentColor;
+    }
+
+    100% {
+        box-shadow: 0 0 0 0 transparent, 0 0 12px currentColor;
+    }
+}
+
+.hud-marker-dot {
+    animation: marker-color-shift 10s cubic-bezier(0.4, 0, 0.2, 1) infinite,
+        marker-pulse-ring 3.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    animation-delay: calc(var(--marker-i, 0) * 2.5s),
+        calc(var(--marker-i, 0) * 0.8s);
+    will-change: filter, box-shadow;
+}
+
+/* ── Globe frame animated border glow ── */
+@keyframes globe-border-glow {
+
+    0%,
+    100% {
+        border-color: rgba(91, 200, 255, 0.34);
+        box-shadow: inset 0 0 28px rgba(42, 163, 219, 0.18), 0 0 24px rgba(91, 200, 255, 0.08);
+    }
+
+    50% {
+        border-color: rgba(91, 200, 255, 0.64);
+        box-shadow: inset 0 0 40px rgba(42, 163, 219, 0.28), 0 0 42px rgba(91, 200, 255, 0.20);
+    }
+}
+
+.globe-frame {
+    animation: globe-border-glow 7.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    will-change: border-color, box-shadow;
+}
+
+/* ── Globe HUD shell border glow + randomised flicker ── */
+@keyframes hud-shell-border-glow {
+
+    0%,
+    100% {
+        box-shadow: 0 0 36px rgba(91, 200, 255, 0.18), inset 0 0 80px rgba(91, 200, 255, 0.04);
+        border-color: rgba(91, 200, 255, 0.50);
+    }
+
+    50% {
+        box-shadow: 0 0 58px rgba(91, 200, 255, 0.30), inset 0 0 100px rgba(91, 200, 255, 0.08);
+        border-color: rgba(91, 200, 255, 0.74);
+    }
+}
+
+@keyframes hud-shell-flicker {
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    4% {
+        opacity: 0.93;
+    }
+
+    8% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.97;
+    }
+
+    52% {
+        opacity: 1;
+    }
+}
+
+.hud-shell {
+    animation: hud-shell-border-glow 9.6s cubic-bezier(0.4, 0, 0.2, 1) infinite,
+        hud-shell-flicker 13s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    will-change: box-shadow, border-color, opacity;
+}
+
+/* ── Animated pulse for globe marker pills ── */
+@keyframes marker-pill-glow {
+
+    0%,
+    100% {
+        box-shadow: none;
+    }
+
+    50% {
+        box-shadow: 0 0 12px rgba(91, 200, 255, 0.20);
+    }
+}
+
+.hud-marker-pill {
+    animation: marker-pill-glow 4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    animation-delay: calc(var(--marker-i, 0) * 0.9s);
+    will-change: box-shadow;
+}
+
+.hud-marker-pill.is-active {
+    animation: marker-pill-glow 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
 :root {
     --bg-a: #03060d;
     --bg-b: #0a1120;
@@ -9,6 +140,7 @@
     --muted: #8fb8ce;
     --alert: #ff6b88;
     --gold: #ffd166;
+    --dither-noise: rgba(255, 255, 255, 0.018);
 }
 
 * {
@@ -18,6 +150,7 @@
 body {
     margin: 0;
     min-height: 100vh;
+    position: relative;
     font-family: "Space Grotesk", "Avenir Next", "Segoe UI", sans-serif;
     color: var(--text);
     background:
@@ -26,7 +159,22 @@ body {
         linear-gradient(135deg, var(--bg-a), var(--bg-b));
 }
 
+body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background-image:
+        repeating-linear-gradient(0deg, var(--dither-noise) 0px, transparent 1px, transparent 2px, var(--dither-noise) 3px),
+        repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.012) 0px, transparent 1px, transparent 2px, rgba(255, 255, 255, 0.012) 3px);
+    mix-blend-mode: soft-light;
+    opacity: 0.38;
+}
+
 #root {
+    position: relative;
+    z-index: 1;
     width: min(1520px, calc(100vw - 20px));
     margin: 16px auto;
     padding: 0 10px 20px;
@@ -109,11 +257,45 @@ body {
     line-height: 1.4;
 }
 
+.hud-marker-ribbon-wrap {
+    margin-top: 16px;
+}
+
+.hud-marker-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.hud-marker-summary {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.hud-marker-toggle {
+    border: 1px solid var(--line-soft);
+    border-radius: 999px;
+    background: rgba(8, 16, 30, 0.8);
+    color: #c9ecff;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 6px 10px;
+    cursor: pointer;
+}
+
+.hud-marker-toggle:hover {
+    border-color: rgba(125, 219, 255, 0.65);
+}
+
 .hud-marker-ribbon {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 10px;
-    margin-top: 16px;
 }
 
 .hud-marker-pill {
@@ -125,7 +307,7 @@ body {
     border-radius: 14px;
     background: rgba(8, 16, 30, 0.74);
     color: var(--text);
-    padding: 11px 12px;
+    padding: 9px 10px;
     cursor: pointer;
     transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
 }
@@ -151,7 +333,7 @@ body {
 .hud-marker-name {
     flex: 1 1 auto;
     text-align: left;
-    font-size: 12px;
+    font-size: 11px;
     letter-spacing: 0.05em;
     text-transform: uppercase;
 }
@@ -275,6 +457,63 @@ body {
     resize: none;
 }
 
+@keyframes globe-sweep-rotate {
+    0% {
+        transform: translate(-50%, -50%) rotate(0deg);
+        opacity: 0.26;
+    }
+
+    50% {
+        transform: translate(-50%, -50%) rotate(180deg);
+        opacity: 0.38;
+    }
+
+    100% {
+        transform: translate(-50%, -50%) rotate(360deg);
+        opacity: 0.26;
+    }
+}
+
+.globe-frame::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 150%;
+    aspect-ratio: 1;
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 1;
+    background:
+        radial-gradient(circle at center, rgba(91, 200, 255, 0.18) 0%, rgba(91, 200, 255, 0.08) 16%, rgba(91, 200, 255, 0.02) 26%, transparent 48%),
+        conic-gradient(from 0deg,
+            transparent 0deg 296deg,
+            rgba(91, 200, 255, 0.04) 312deg,
+            rgba(91, 200, 255, 0.16) 328deg,
+            rgba(182, 234, 255, 0.32) 340deg,
+            rgba(91, 200, 255, 0.12) 352deg,
+            transparent 360deg);
+    mix-blend-mode: screen;
+    filter: blur(1px);
+    transform: translate(-50%, -50%);
+    transform-origin: 50% 50%;
+    animation: globe-sweep-rotate 8.8s linear infinite;
+    will-change: transform, opacity;
+}
+
+.globe-frame::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 2;
+    background-image:
+        repeating-linear-gradient(35deg, rgba(255, 255, 255, 0.02) 0px, transparent 1px, transparent 3px),
+        repeating-linear-gradient(-35deg, rgba(91, 200, 255, 0.016) 0px, transparent 1px, transparent 4px);
+    mix-blend-mode: overlay;
+    opacity: 0.24;
+}
+
 .globe-canvas,
 .globe-canvas canvas {
     display: block;
@@ -285,13 +524,14 @@ body {
 .globe-canvas {
     position: absolute;
     inset: 0;
+    z-index: 0;
 }
 
 .globe-status-chip {
     position: absolute;
     top: 14px;
     left: 14px;
-    z-index: 1;
+    z-index: 3;
     border: 1px solid rgba(91, 200, 255, 0.38);
     border-radius: 999px;
     padding: 6px 10px;
@@ -313,24 +553,96 @@ body {
     pointer-events: none;
     will-change: left, top, width, transform;
     transition: width 90ms linear, transform 90ms linear;
+    box-shadow: 0 0 12px rgba(91, 200, 255, 0.5);
 }
 
 .globe-hover-card {
     position: absolute;
-    z-index: 3;
-    min-width: 244px;
-    max-width: 292px;
+    z-index: 4;
+    top: 16px;
+    right: 8px;
+    min-width: 200px;
+    max-width: 260px;
     border: 1px solid rgba(91, 200, 255, 0.46);
     border-radius: 14px;
     background: linear-gradient(160deg, rgba(8, 16, 30, 0.92), rgba(5, 10, 20, 0.96));
     backdrop-filter: blur(8px);
     box-shadow: 0 12px 34px rgba(0, 0, 0, 0.42), inset 0 0 18px rgba(91, 200, 255, 0.08);
     padding: 10px 12px;
-    display: none;
+    display: flex;
+    flex-direction: column;
     gap: 6px;
+    transition: opacity 120ms ease;
+}
+
+.globe-ui-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
     pointer-events: none;
-    will-change: left, top, transform;
-    transition: transform 120ms ease, opacity 120ms ease;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    padding: 10px 14px;
+    gap: 8px;
+}
+
+.globe-layer-chips {
+    display: flex;
+    gap: 6px;
+    pointer-events: all;
+}
+
+.globe-layer-chip {
+    font-family: inherit;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: rgba(7, 14, 28, 0.72);
+    border: 1px solid rgba(91, 200, 255, 0.22);
+    border-radius: 20px;
+    padding: 4px 12px;
+    cursor: pointer;
+    transition: border-color 150ms, color 150ms, background 150ms;
+}
+
+.globe-layer-chip:hover {
+    border-color: rgba(91, 200, 255, 0.5);
+    color: var(--text);
+}
+
+.globe-layer-chip.is-active {
+    border-color: var(--line);
+    color: var(--line);
+    background: rgba(91, 200, 255, 0.1);
+}
+
+.globe-timeline {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    pointer-events: all;
+    background: rgba(7, 14, 28, 0.72);
+    border: 1px solid rgba(91, 200, 255, 0.22);
+    border-radius: 20px;
+    padding: 5px 14px;
+}
+
+.globe-timeline-slider {
+    width: 200px;
+    accent-color: var(--line);
+    cursor: pointer;
+}
+
+.globe-timeline-year {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--line);
+    min-width: 34px;
+    text-align: right;
 }
 
 .globe-hover-title {
@@ -641,12 +953,53 @@ body {
     overflow: hidden;
 }
 
+@keyframes hud-social-bar-pulse {
+
+    0%,
+    100% {
+        opacity: 0.9;
+        filter: brightness(1);
+        box-shadow: 0 0 8px rgba(91, 200, 255, 0.36);
+    }
+
+    50% {
+        opacity: 1;
+        filter: brightness(1.12);
+        box-shadow: 0 0 14px rgba(91, 200, 255, 0.55), 0 0 22px rgba(255, 198, 122, 0.22);
+    }
+}
+
+@keyframes hud-social-gradient-shift {
+    0% {
+        background-position: 0% 50%;
+    }
+
+    50% {
+        background-position: 100% 50%;
+    }
+
+    100% {
+        background-position: 0% 50%;
+    }
+}
+
 .hud-mission-fill {
     display: block;
     height: 100%;
     border-radius: inherit;
-    background: linear-gradient(90deg, #5bc8ff, #ffc67a);
+    background: linear-gradient(100deg, #5bc8ff 8%, #7edbff 36%, #ffc67a 68%, #5bc8ff 100%);
+    background-size: 180% 100%;
     box-shadow: 0 0 10px rgba(91, 200, 255, 0.5);
+    animation: hud-social-bar-pulse 3.8s cubic-bezier(0.4, 0.0, 0.2, 1.0) infinite, hud-social-gradient-shift 6.4s linear infinite;
+    will-change: box-shadow, opacity, filter, background-position;
+}
+
+.hud-mission-card:nth-child(2n) .hud-mission-fill {
+    animation-delay: 0.7s;
+}
+
+.hud-mission-card:nth-child(3n) .hud-mission-fill {
+    animation-delay: 1.4s;
 }
 
 .hud-mission-meta {
@@ -746,15 +1099,74 @@ body {
     max-height: 320px;
     overflow-y: auto;
     padding-right: 4px;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(91, 200, 255, 0.55) rgba(8, 16, 30, 0.58);
+}
+
+.hud-shell * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(91, 200, 255, 0.55) rgba(8, 16, 30, 0.58);
 }
 
 .hud-market-list::-webkit-scrollbar {
-    width: 6px;
+    width: 8px;
+}
+
+.hud-shell *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+.hud-market-list::-webkit-scrollbar-track {
+    background: rgba(8, 16, 30, 0.58);
+    border-radius: 999px;
+    border: 1px solid rgba(91, 200, 255, 0.12);
+}
+
+.hud-shell *::-webkit-scrollbar-track {
+    background: rgba(8, 16, 30, 0.58);
+    border-radius: 999px;
+    border: 1px solid rgba(91, 200, 255, 0.12);
+}
+
+@keyframes hud-scrollbar-glow {
+
+    0%,
+    100% {
+        box-shadow: inset 0 0 4px rgba(91, 200, 255, 0.24), 0 0 6px rgba(91, 200, 255, 0.2);
+        filter: brightness(1);
+    }
+
+    50% {
+        box-shadow: inset 0 0 7px rgba(91, 200, 255, 0.38), 0 0 11px rgba(91, 200, 255, 0.36);
+        filter: brightness(1.15);
+    }
 }
 
 .hud-market-list::-webkit-scrollbar-thumb {
-    background: rgba(91, 200, 255, 0.25);
-    border-radius: 3px;
+    border-radius: 999px;
+    border: 1px solid rgba(91, 200, 255, 0.42);
+    background: linear-gradient(180deg, rgba(91, 200, 255, 0.76), rgba(255, 198, 122, 0.55));
+    animation: hud-scrollbar-glow 4.2s cubic-bezier(0.4, 0.0, 0.2, 1.0) infinite;
+    transition: filter 160ms ease, border-color 160ms ease;
+}
+
+.hud-shell *::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    border: 1px solid rgba(91, 200, 255, 0.42);
+    background: linear-gradient(180deg, rgba(91, 200, 255, 0.76), rgba(255, 198, 122, 0.55));
+    animation: hud-scrollbar-glow 4.2s cubic-bezier(0.4, 0.0, 0.2, 1.0) infinite;
+    transition: filter 160ms ease, border-color 160ms ease;
+}
+
+.hud-market-list::-webkit-scrollbar-thumb:hover {
+    filter: brightness(1.22);
+    border-color: rgba(91, 200, 255, 0.7);
+}
+
+.hud-shell *::-webkit-scrollbar-thumb:hover {
+    filter: brightness(1.22);
+    border-color: rgba(91, 200, 255, 0.7);
 }
 
 .hud-market-row {

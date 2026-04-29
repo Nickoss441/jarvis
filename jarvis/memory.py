@@ -1,9 +1,10 @@
-"""Conversation memory.
+﻿"""Conversation memory.
 
-Phase 1: in-process only — wiped on restart. Phase 2 adds a lightweight
+Phase 1: in-process only â€” wiped on restart. Phase 2 adds a lightweight
 file-backed store for long-term recall across restarts.
 """
 import json
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -43,23 +44,103 @@ class Conversation:
         self.storage_path.write_text(json.dumps(self.messages), encoding="utf-8")
 
     def add_user(self, text: str) -> None:
-        self.messages.append({"role": "user", "content": text})
+        self.messages.append({"role": "user", "content": text, "ts": int(time.time() * 1000)})
         self._persist()
 
     def add_assistant(self, content: list[dict[str, Any]]) -> None:
         """`content` is the list-of-blocks form Anthropic's API expects."""
-        self.messages.append({"role": "assistant", "content": content})
+        self.messages.append({"role": "assistant", "content": content, "ts": int(time.time() * 1000)})
         self._persist()
 
     def add_tool_results(self, tool_results: list[dict[str, Any]]) -> None:
         """Tool results are sent back as a `user` turn with `tool_result` blocks."""
-        self.messages.append({"role": "user", "content": tool_results})
+        self.messages.append({"role": "user", "content": tool_results, "ts": int(time.time() * 1000)})
         self._persist()
+
+    def annotate_last_assistant(self, **metadata: Any) -> bool:
+        for idx in range(len(self.messages) - 1, -1, -1):
+            msg = self.messages[idx]
+            if msg.get("role") != "assistant":
+                continue
+            msg.update(metadata)
+            self._persist()
+            return True
+        return False
+
+    def overwrite_last_assistant_text(self, text: str) -> bool:
+        """Replace the most recent assistant text block content in-place."""
+        replacement = (text or "").strip()
+        if not replacement:
+            return False
+        for idx in range(len(self.messages) - 1, -1, -1):
+            msg = self.messages[idx]
+            if msg.get("role") != "assistant":
+                continue
+            content = msg.get("content")
+            if isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        block["text"] = replacement
+                        self._persist()
+                        return True
+                msg["content"] = [{"type": "text", "text": replacement}]
+                self._persist()
+                return True
+            if isinstance(content, str):
+                msg["content"] = replacement
+                self._persist()
+                return True
+            msg["content"] = [{"type": "text", "text": replacement}]
+            self._persist()
+            return True
+        return False
 
     def reset(self) -> None:
         self.messages = []
         self._persist()
 
+
+    def trimmed_for_context(self, max_messages: int = 20) -> list[dict[str, Any]]:
+        """Return last max_messages with strict tool_use/tool_result pairing enforced."""
+        def _tool_use_ids(msg: dict) -> list[str]:
+            content = msg.get("content", [])
+            if not isinstance(content, list):
+                return []
+            return [b["id"] for b in content if isinstance(b, dict) and b.get("type") == "tool_use" and "id" in b]
+
+        def _tool_result_ids(msg: dict) -> set[str]:
+            content = msg.get("content", [])
+            if not isinstance(content, list):
+                return set()
+            return {b["tool_use_id"] for b in content if isinstance(b, dict) and b.get("type") == "tool_result" and "tool_use_id" in b}
+
+        msgs = list(self.messages[-max_messages:])
+        changed = True
+        while changed:
+            changed = False
+            clean: list[dict] = []
+            i = 0
+            while i < len(msgs):
+                m = msgs[i]
+                tool_ids = _tool_use_ids(m) if m.get("role") == "assistant" else []
+                if tool_ids:
+                    next_m = msgs[i + 1] if i + 1 < len(msgs) else None
+                    result_ids = _tool_result_ids(next_m) if next_m and next_m.get("role") == "user" else set()
+                    if all(tid in result_ids for tid in tool_ids) and next_m is not None:
+                        clean.append(m)
+                        clean.append(next_m)
+                        i += 2
+                    else:
+                        changed = True
+                        if next_m and next_m.get("role") == "user" and result_ids:
+                            i += 2
+                        else:
+                            i += 1
+                else:
+                    clean.append(m)
+                    i += 1
+            msgs = clean
+        return msgs[-max_messages:]
 
 _PREFERENCE_SECTIONS = {
     "profile",

@@ -750,6 +750,9 @@ def test_approval_api_health_endpoint_reports_event_bus_and_monitors(tmp_path):
         assert payload["chat"]["accounts"] >= 1
         assert payload["ai"]["provider"] == "anthropic"
         assert payload["ai"]["ready"] is True
+        assert "system" in payload
+        assert "cpu_percent" in payload["system"]
+        assert "gpu" in payload["system"]
     finally:
         server.shutdown()
         server.server_close()
@@ -781,6 +784,7 @@ def test_approval_api_health_endpoint_returns_503_when_event_bus_unhealthy(
         assert payload["chat"]["accounts"] == 0
         assert payload["ai"]["provider"] == "anthropic"
         assert payload["ai"]["ready"] is True
+        assert "system" in payload
     finally:
         server.shutdown()
         server.server_close()

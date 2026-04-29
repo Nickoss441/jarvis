@@ -17,6 +17,7 @@ from jarvis.voice_output import (
     [
         "say it out loud",
         "Please respond vocally.",
+        "respond vocally: status report",
         "Read that aloud for me",
         "Use your voice and tell me",
         "give me a voice reply",

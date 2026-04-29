@@ -276,8 +276,8 @@ def test_run_tool_denied_by_policy(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
     result = brain.run_tool("echo", {"text": "x"})
 
-    assert result["error"] == "policy-denied"
-    assert result["tool_name"] == "echo"
+    assert result["error_type"] == "ERR_POLICY_DENIED"
+    assert result["error_code"] == 1005
 
 
 def test_run_tool_checks_policy_once_at_dispatch_boundary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -295,7 +295,8 @@ def test_run_tool_checks_policy_once_at_dispatch_boundary(tmp_path: Path, monkey
     result = brain.run_tool("echo", {"text": "x"})
 
     assert calls == [("echo", {"text": "x"})]
-    assert result["error"] == "policy-denied"
+    assert result["error_type"] == "ERR_POLICY_DENIED"
+    assert result["error_code"] == 1005
 
 
 def test_dispatch_returns_typed_error_for_unknown_tool(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -304,8 +305,8 @@ def test_dispatch_returns_typed_error_for_unknown_tool(tmp_path: Path, monkeypat
 
     result = brain.run_tool("no_such_tool", {})
 
-    assert result["error"] == "tool-not-found"
-    assert result["tool_name"] == "no_such_tool"
+    assert result["error_type"] == "ERR_TOOL_NOT_FOUND"
+    assert result["error_code"] == 1002
 
 
 def test_dispatch_returns_typed_error_for_bad_args(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -314,8 +315,8 @@ def test_dispatch_returns_typed_error_for_bad_args(tmp_path: Path, monkeypatch: 
 
     result = brain.run_tool("echo", {"wrong_arg": "x"})
 
-    assert result["error"] == "tool-bad-args"
-    assert result["tool_name"] == "echo"
+    assert result["error_type"] == "ERR_TOOL_BAD_ARGS"
+    assert result["error_code"] == 1003
     assert "detail" in result
 
 
@@ -335,7 +336,8 @@ def test_dispatch_returns_typed_error_for_handler_exception(tmp_path: Path, monk
 
     result = brain.run_tool("boom", {})
 
-    assert result["error"] == "tool-failure"
+    assert result["error_type"] == "ERR_TOOL_FAILURE"
+    assert result["error_code"] == 1004
 
 
 def test_dispatch_retries_transient_failure_and_succeeds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -396,7 +398,8 @@ def test_dispatch_exhausts_retries_and_returns_tool_failure(tmp_path: Path, monk
 
     result = brain.run_tool("broken", {})
 
-    assert result["error"] == "tool-failure"
+    assert result["error_type"] == "ERR_TOOL_FAILURE"
+    assert result["error_code"] == 1004
 
 
 def test_end_to_end_request_approval_tool_action_and_audit(

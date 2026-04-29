@@ -1,17 +1,55 @@
+import sys
+try:
+    print("[DEBUG] approval_api.py loaded")
+    def _debug(msg):
+        print(f"[DEBUG] {msg}", file=sys.stderr)
+    _debug("Starting main import sequence...")
+except Exception as e:
+    print(f"[FATAL] Exception during import: {e}", file=sys.stderr)
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)
+if __name__ == "__main__":
+    print("[DEBUG] approval_api.py main block starting")
+    from .config import Config
+    config = Config.from_env()
+    server = create_approval_api_server(config)
+    print("Approval API listening on http://0.0.0.0:8080 (use your network IP to access from other devices)")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+print("[DEBUG] approval_api.py loaded")
+
+import sys
+def _debug(msg):
+    print(f"[DEBUG] {msg}", file=sys.stderr)
+
+_debug("Starting main import sequence...")
 """Minimal HTTP API surface for approval operations."""
 from dataclasses import asdict
 from datetime import datetime, timezone
+import io
 from email.utils import parsedate_to_datetime
 import html
 import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
+import shutil
+import subprocess
 import time
 from urllib.error import URLError
 from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 import xml.etree.ElementTree as ET
+
+LOCAL_UPLOAD_MAX_BYTES = 5 * 1024 * 1024 * 1024
+LOCAL_UPLOAD_MAX_REQUEST_OVERHEAD_BYTES = 1024 * 1024
+
+from .vision_analyze import analyze_frame_b64
 
 from .approval import ApprovalEnvelope
 from .approval_service import ApprovalService
@@ -29,12 +67,31 @@ from .trade_review import (
     load_latest_trade_review_artifact,
 )
 
+# --- Ollama silent process starter ---
+import socket
+def _is_ollama_running(host="127.0.0.1", port=11434):
+    try:
+        with socket.create_connection((host, port), timeout=1):
+            return True
+    except Exception:
+        return False
+
+def _start_ollama_if_needed():
+    if not _is_ollama_running():
+        try:
+            # Start Ollama in the background, suppress output
+            subprocess.Popen(["ollama", "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception as exc:
+            print(f"[ollama] Failed to start Ollama: {exc}")
+        else:
+            print("[ollama] Ollama started in background.")
 
 REACT_HUD_ASSETS = {
     "index.html": "text/html; charset=utf-8",
     "app.js": "application/javascript; charset=utf-8",
     "styles.css": "text/css; charset=utf-8",
     "data/april_27_dialogue.json": "application/json; charset=utf-8",
+    "data/canonical_orbs.json": "application/json; charset=utf-8",
 }
 REACT_HUD_DIR = Path(__file__).resolve().parent / "web" / "hud_react"
 
@@ -45,27 +102,18 @@ _GLOBE_TEXTURES = [
     "earth_normal_2048.jpg",
     "earth_lights_2048.png",
     "moon_1024.jpg",
+    "mercury.jpg",
+    "venus.jpg",
+    "mars_1k_color.jpg",
+    "mars_1k_normal.jpg",
+    "jupiter.jpg",
+    "saturn.jpg",
+    "uranus.jpg",
+    "neptune.jpg",
+    "pluto.jpg",
+    "saturnringcolor.jpg",
+    "saturnringpattern.gif",
 ]
-
-
-def _ensure_globe_textures() -> None:
-    """Download globe textures once and cache them locally."""
-    tex_dir = REACT_HUD_DIR / "textures"
-    tex_dir.mkdir(parents=True, exist_ok=True)
-    for name in _GLOBE_TEXTURES:
-        dest = tex_dir / name
-        if dest.exists():
-            continue
-        try:
-            req = Request(
-                _GLOBE_TEXTURE_BASE + name,
-                headers={"User-Agent": "JarvisHUD/1.0"},
-            )
-            with urlopen(req, timeout=20) as resp:
-                dest.write_bytes(resp.read())
-            print(f"[globe] cached texture: {name}")
-        except Exception as exc:
-            print(f"[globe] texture download failed ({name}): {exc}")
 
 COMMAND_CENTER_ASSETS = {
     "index.html": "text/html; charset=utf-8",
@@ -126,6 +174,196 @@ _HEALTH_CACHE: dict[str, object] = {
     "updated_unix": 0.0,
 }
 
+SELF_IMPROVEMENT_PATH = Path("D:/jarvis-data/self_improvement.json")
+
+
+def _load_self_improvement_state() -> dict[str, object]:
+    default: dict[str, object] = {
+        "total_turns": 0,
+        "error_turns": 0,
+        "operator_rules": [],
+        "recent_feedback": [],
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        payload = json.loads(SELF_IMPROVEMENT_PATH.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            return default
+        state = dict(default)
+        state.update(payload)
+        if not isinstance(state.get("operator_rules"), list):
+            state["operator_rules"] = []
+        if not isinstance(state.get("recent_feedback"), list):
+            state["recent_feedback"] = []
+        return state
+    except Exception:
+        return default
+
+
+def _save_self_improvement_state(state: dict[str, object]) -> None:
+    SELF_IMPROVEMENT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    state["updated_at"] = datetime.now(timezone.utc).isoformat()
+    SELF_IMPROVEMENT_PATH.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+
+
+def _extract_operator_rule(text: str) -> str:
+    lowered = text.strip()
+    if not lowered:
+        return ""
+    signals = (
+        "always ",
+        "never ",
+        "please ",
+        "do not ",
+        "don't ",
+        "stop ",
+        "use ",
+        "prefer ",
+        "avoid ",
+        "make sure",
+    )
+    t = lowered.lower()
+    if any(s in t for s in signals):
+        return lowered[:180]
+    return ""
+
+
+def _record_self_improvement_signal(user_text: str, error: str | None = None) -> None:
+    state = _load_self_improvement_state()
+    total_turns = int(state.get("total_turns") or 0) + 1
+    error_turns = int(state.get("error_turns") or 0) + (1 if error else 0)
+    rules = [str(x) for x in (state.get("operator_rules") or []) if str(x).strip()]
+    feedback = [str(x) for x in (state.get("recent_feedback") or []) if str(x).strip()]
+
+    maybe_rule = _extract_operator_rule(user_text)
+    if maybe_rule and maybe_rule not in rules:
+        rules.append(maybe_rule)
+    if maybe_rule:
+        feedback.append(maybe_rule)
+
+    state["total_turns"] = total_turns
+    state["error_turns"] = error_turns
+    state["operator_rules"] = rules[-12:]
+    state["recent_feedback"] = feedback[-24:]
+    _save_self_improvement_state(state)
+
+
+def _self_improvement_hint() -> str:
+    state = _load_self_improvement_state()
+    turns = int(state.get("total_turns") or 0)
+    errors = int(state.get("error_turns") or 0)
+    rules = [str(x) for x in (state.get("operator_rules") or []) if str(x).strip()]
+    error_rate = (errors / turns) if turns > 0 else 0.0
+    reliability = "high" if error_rate < 0.1 else ("medium" if error_rate < 0.25 else "low")
+    top_rules = " | ".join(rules[-4:]) if rules else "none"
+    return (
+        "[Self-improvement profile: "
+        f"turns={turns}; error_rate={error_rate:.2f}; reliability={reliability}; "
+        f"operator_rules={top_rules}] "
+    )
+
+
+def _dataset_root() -> Path:
+    root = Path("D:/DATASET")
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _sanitize_dataset_name(name: str) -> str:
+    import re
+
+    cleaned = re.sub(r"[^a-zA-Z0-9._-]+", "_", (name or "").strip())
+    return cleaned[:120].strip("._-")
+
+
+def _extract_text_from_message_content(content: object) -> str:
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, dict):
+                if block.get("type") == "text":
+                    parts.append(str(block.get("text", "")))
+                elif block.get("type") == "tool_result":
+                    parts.append(str(block.get("content", "")))
+        return " ".join(p for p in parts if p).strip()
+    return ""
+
+
+def _write_jsonl_dataset(path: Path, rows: list[dict[str, object]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as fh:
+        for row in rows:
+            fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
+def _create_self_dataset(config: Config, dataset_type: str, name: str, limit: int) -> dict[str, object]:
+    ds_type = (dataset_type or "").strip().lower()
+    safe_limit = max(1, min(int(limit), 5000))
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    safe_name = _sanitize_dataset_name(name) or f"{ds_type}_{stamp}"
+    root = _dataset_root()
+
+    if ds_type == "conversation":
+        messages: list[dict[str, object]] = []
+        try:
+            payload = json.loads(config.conversation_store_path.read_text(encoding="utf-8"))
+            if isinstance(payload, list):
+                messages = [m for m in payload if isinstance(m, dict)]
+        except Exception:
+            messages = []
+
+        rows = []
+        for i, msg in enumerate(messages[-safe_limit:], start=1):
+            rows.append(
+                {
+                    "idx": i,
+                    "role": str(msg.get("role", "")),
+                    "text": _extract_text_from_message_content(msg.get("content")),
+                }
+            )
+        out = root / f"{safe_name}.jsonl"
+        _write_jsonl_dataset(out, rows)
+        return {"ok": True, "dataset_type": ds_type, "rows": len(rows), "path": str(out)}
+
+    if ds_type == "events":
+        bus = EventBus(config.event_bus_db)
+        events = bus.recent(limit=safe_limit)
+        rows = [
+            {
+                "id": e.id,
+                "kind": e.kind,
+                "timestamp": e.timestamp,
+                "source": e.source,
+                "correlation_id": e.correlation_id,
+                "processed": e.processed,
+                "payload": e.payload,
+            }
+            for e in reversed(events)
+        ]
+        out = root / f"{safe_name}.jsonl"
+        _write_jsonl_dataset(out, rows)
+        return {"ok": True, "dataset_type": ds_type, "rows": len(rows), "path": str(out)}
+
+    if ds_type == "approvals":
+        service = ApprovalService(config)
+        rows = service.list_pending(limit=safe_limit)
+        out = root / f"{safe_name}.json"
+        out.write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
+        return {"ok": True, "dataset_type": ds_type, "rows": len(rows), "path": str(out)}
+
+    if ds_type == "audit":
+        from .audit import AuditLog
+
+        log = AuditLog(config.audit_db)
+        rows = log.recent(limit=safe_limit)
+        out = root / f"{safe_name}.jsonl"
+        _write_jsonl_dataset(out, list(reversed(rows)))
+        return {"ok": True, "dataset_type": ds_type, "rows": len(rows), "path": str(out)}
+
+    raise ValueError("dataset_type must be one of: conversation, events, approvals, audit")
+
 
 def _coerce_float(value: object, fallback: float) -> float:
     try:
@@ -137,12 +375,107 @@ def _coerce_float(value: object, fallback: float) -> float:
     return fallback
 
 
-def _parse_rss_datetime(raw: str) -> int:
-    text = str(raw or "").strip()
-    if not text:
+_THREAT_CACHE: dict[str, dict] = {}
+_THREAT_CACHE_TTL = 900  # 15 minutes
+
+_THREAT_KEYWORDS = [
+    "war", "attack", "military", "strike", "missile", "troops", "conflict",
+    "explosion", "sanctions", "crisis", "tension", "coup", "airstrike",
+    "casualties", "blockade", "invasion", "assault", "bombing", "rocket",
+    "hostage", "siege", "offensive", "militia", "insurgent", "drone strike",
+    "nuclear", "warship", "naval", "escalat",
+]
+_DEESCALATION_KEYWORDS = [
+    "ceasefire", "peace", "agreement", "deal", "talks", "cooperation",
+    "withdrawal", "accord", "truce", "negotiate", "diplomatic", "resolution",
+]
+
+_THREAT_LEVELS = [
+    (0.75, "Critical"),
+    (0.50, "High"),
+    (0.28, "Elevated"),
+    (0.10, "Guarded"),
+    (0.0,  "Nominal"),
+]
+
+_THREAT_COLORS = {
+    "Critical":  "#ff3333",
+    "High":      "#ff7043",
+    "Elevated":  "#ffb300",
+    "Guarded":   "#29b6f6",
+    "Nominal":   "#66bb6a",
+}
+
+
+def _score_threat(headlines: list[str], region_keywords: list[str]) -> tuple[float, list[str]]:
+    signals: list[str] = []
+    threat_hits = 0
+    deescalation_hits = 0
+    relevant = 0
+    for title in headlines:
+        tl = title.lower()
+        if not any(kw in tl for kw in region_keywords):
+            continue
+        relevant += 1
+        for kw in _THREAT_KEYWORDS:
+            if kw in tl:
+                threat_hits += 1
+                signals.append(title)
+                break
+        for kw in _DEESCALATION_KEYWORDS:
+            if kw in tl:
+                deescalation_hits += 1
+                break
+    if relevant == 0:
+        return 0.0, []
+    raw = (threat_hits * 1.0 - deescalation_hits * 0.6) / max(relevant, 1)
+    return max(0.0, min(1.0, raw)), signals[:6]
+
+
+def _threat_level_label(score: float) -> str:
+    for threshold, label in _THREAT_LEVELS:
+        if score >= threshold:
+            return label
+    return "Nominal"
+
+
+def _calculate_region_threat(region_id: str, region_keywords: list[str]) -> dict:
+    now = time.time()
+    cached = _THREAT_CACHE.get(region_id)
+    if cached and now - cached.get("ts", 0) < _THREAT_CACHE_TTL:
+        return cached
+
+    all_headlines: list[str] = []
+    for feed_url in NEWS_SOURCES.get("world", []):
+        for item in _fetch_news_items(feed_url, "world", per_feed_limit=25):
+            title = str(item.get("title") or "")
+            if title:
+                all_headlines.append(title)
+
+    score, signals = _score_threat(all_headlines, region_keywords)
+    label = _threat_level_label(score)
+    confidence = f"{int(60 + score * 39)}%"
+
+    result = {
+        "region_id": region_id,
+        "threat": label,
+        "score": round(score, 3),
+        "confidence": confidence,
+        "color": _THREAT_COLORS[label],
+        "signals": signals,
+        "headlines_scanned": len(all_headlines),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "ts": now,
+    }
+    _THREAT_CACHE[region_id] = result
+    return result
+
+
+def _parse_rss_datetime(value: str) -> int:
+    if not value:
         return 0
     try:
-        dt = parsedate_to_datetime(text)
+        dt = parsedate_to_datetime(value)
     except (TypeError, ValueError, IndexError):
         return 0
     if dt.tzinfo is None:
@@ -277,6 +610,7 @@ UI_HTML = """<!doctype html>
     <title>Jarvis Approvals</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/core@1.0.0-beta20/dist/css/tabler.min.css" />
     <style>
         :root {
             --bg:     #060a14;
@@ -583,306 +917,534 @@ UI_HTML = """<!doctype html>
             .hud { grid-template-columns: 1fr; }
             .queue-stats { grid-template-columns: 1fr; }
         }
+
+        /* ── Tabler bridge: keep Jarvis visual language while using admin primitives ── */
+        body.tabler-mode {
+            --tblr-body-bg: var(--bg);
+            --tblr-body-color: var(--text);
+            --tblr-font-sans-serif: var(--font);
+            --tblr-border-color: var(--border);
+            --tblr-card-bg: rgba(6,16,30,0.76);
+            --tblr-card-border-color: rgba(0,220,255,0.12);
+        }
+        body.tabler-mode .page-wrapper {
+            background: transparent;
+        }
+        body.tabler-mode .page-header {
+            background: rgba(4,8,18,0.85);
+            border-bottom: 1px solid var(--border);
+            padding: 12px 0;
+            margin-bottom: 0;
+        }
+        body.tabler-mode .page-header .page-title {
+            font-family: var(--mono);
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--cyan);
+            text-shadow: 0 0 12px rgba(0,229,255,0.3);
+        }
+        body.tabler-mode .page-body {
+            padding: 16px 0 40px;
+        }
+        body.tabler-mode .card {
+            background: rgba(6,16,30,0.76);
+            border: 1px solid rgba(0,220,255,0.12);
+            border-radius: 12px;
+            backdrop-filter: blur(18px);
+        }
+        body.tabler-mode .card-header {
+            background: transparent;
+            border-bottom: 1px solid rgba(0,220,255,0.1);
+            padding: 10px 14px;
+        }
+        body.tabler-mode .card-title {
+            font-family: var(--mono);
+            font-size: 9px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            color: var(--text2);
+            margin: 0;
+        }
+        body.tabler-mode .card-options {
+            margin-left: auto;
+        }
+        body.tabler-mode .card-body {
+            padding: 12px 14px;
+            color: var(--text);
+        }
+        body.tabler-mode .card-footer {
+            background: transparent;
+            border-top: 1px solid rgba(0,220,255,0.08);
+            padding: 8px 14px;
+        }
+        body.tabler-mode .table {
+            --tblr-table-bg: transparent;
+            --tblr-table-color: var(--text);
+            --tblr-table-border-color: rgba(0,220,255,0.1);
+        }
+        body.tabler-mode .table th {
+            font-family: var(--mono);
+            font-size: 9px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: var(--text2);
+            border-bottom-color: rgba(0,220,255,0.12);
+            background: rgba(0,220,255,0.02);
+        }
+        body.tabler-mode .table td {
+            color: var(--text);
+            border-bottom-color: rgba(0,220,255,0.06);
+            vertical-align: middle;
+        }
+        body.tabler-mode .table-hover tbody tr:hover td {
+            background: rgba(0,220,255,0.04);
+        }
+        body.tabler-mode .form-control,
+        body.tabler-mode .form-select,
+        body.tabler-mode select,
+        body.tabler-mode input:not([type=checkbox]):not([type=radio]),
+        body.tabler-mode textarea {
+            background: rgba(0,220,255,0.04) !important;
+            border-color: rgba(0,220,255,0.16) !important;
+            color: var(--text) !important;
+            font-family: var(--mono) !important;
+            font-size: 11px !important;
+        }
+        body.tabler-mode .form-control:focus,
+        body.tabler-mode .form-select:focus,
+        body.tabler-mode input:focus,
+        body.tabler-mode textarea:focus {
+            border-color: rgba(0,220,255,0.4) !important;
+            box-shadow: 0 0 0 0.08rem rgba(0,220,255,0.14) !important;
+        }
+        body.tabler-mode .form-label,
+        body.tabler-mode label {
+            font-family: var(--mono);
+            font-size: 9px;
+            font-weight: 500;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--text2);
+        }
+        body.tabler-mode .btn {
+            font-family: var(--mono);
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            font-size: 10px;
+            border-radius: 7px;
+        }
+        body.tabler-mode .queue-stat-label {
+            font-family: var(--mono);
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: var(--text2);
+        }
+        body.tabler-mode .queue-stat-value {
+            font-size: 28px;
+            font-weight: 300;
+            letter-spacing: -0.03em;
+            color: var(--cyan);
+            text-shadow: 0 0 14px rgba(0,229,255,0.25);
+            margin-top: 4px;
+        }
+        body.tabler-mode .summary-bar {
+            background: rgba(0,0,0,0.22);
+            border: 1px solid rgba(0,220,255,0.1);
+            border-radius: 8px;
+            padding: 9px 12px;
+            font-family: var(--mono);
+            font-size: 11px;
+            line-height: 1.6;
+            color: rgba(180,225,255,0.65);
+            white-space: pre-wrap;
+            min-height: 32px;
+        }
     </style>
 </head>
-<body>
-    <div class="wrap">
-        <div class="page-header">
-            <div class="dot"></div>
-            <h1>Jarvis — Approval Queue</h1>
-            <div class="nav-chips">
-                <a class="nav-chip" href="/hud/cc">Command Center</a>
-                <a class="nav-chip" href="/hud/globe">HUD React</a>
-            </div>
-        </div>
-        <div class="hud">
-            <div class="stack">
-                <section class="panel">
-                    <h3>Market Data</h3>
-                    <p class="sub">Oil and Gold signal stream</p>
-                    <div class="metrics">
-                        <div class="metric">
-                            <div class="label">Oil</div>
-                            <div id="oilPrice" class="value">78.40</div>
-                        </div>
-                        <div class="metric">
-                            <div class="label">Gold</div>
-                            <div id="goldPrice" class="value">2320.2</div>
+<body class="tabler-mode">
+    <div class="page-wrapper">
+
+        <!-- ── Page header ── -->
+        <div class="page-header d-print-none">
+            <div class="container-xl">
+                <div class="row align-items-center">
+                    <div class="col-auto d-flex align-items-center gap-2">
+                        <span class="dot"></span>
+                        <h2 class="page-title mb-0">Jarvis — Approval Queue</h2>
+                    </div>
+                    <div class="col-auto ms-auto">
+                        <div class="nav-chips">
+                            <a class="nav-chip" href="/hud/cc">Command Center</a>
+                            <a class="nav-chip" href="/hud/react">Strategic Globe</a>
                         </div>
                     </div>
-                    <svg class="spark" viewBox="0 0 220 64" preserveAspectRatio="none" aria-hidden="true">
-                        <polyline id="sparkMarket" fill="none" stroke="#5bbcff" stroke-width="2" points="0,41 20,37 40,38 60,31 80,34 100,28 120,30 140,26 160,29 180,24 200,22 220,18" />
-                    </svg>
-                </section>
-
-                <section class="panel">
-                    <h3>Geospatial Alert</h3>
-                    <p class="sub">Live radar focus</p>
-                    <div class="summary-bar" id="geoAlert">Focus region: Strait of Hormuz. Threat level normal.</div>
-                </section>
-
-                <section class="panel">
-                    <h3>Schedule</h3>
-                    <p class="sub">Upcoming timeline</p>
-                    <div class="summary-bar">7:00 PM - Ops review<br/>8:30 PM - Crypto check-in<br/>10:00 PM - Daily close</div>
-                </section>
+                </div>
             </div>
+        </div>
 
-            <section class="panel center-hub">
-                <svg class="connector-layer" viewBox="0 0 1000 700" preserveAspectRatio="none" aria-hidden="true">
-                    <path d="M500 286 C390 216, 245 182, 96 122" fill="none" stroke="rgba(84,178,255,0.48)" stroke-width="1.5" />
-                    <path d="M500 286 C390 320, 230 376, 86 464" fill="none" stroke="rgba(84,178,255,0.34)" stroke-width="1.3" />
-                    <path d="M500 286 C620 222, 770 164, 930 128" fill="none" stroke="rgba(84,178,255,0.48)" stroke-width="1.5" />
-                    <path d="M500 286 C620 330, 794 404, 938 518" fill="none" stroke="rgba(84,178,255,0.34)" stroke-width="1.3" />
-                </svg>
+        <!-- ── Page body ── -->
+        <div class="page-body">
+            <div class="container-xl">
 
-                <h1 class="title">Jarvis Approval Queue</h1>
-                <p class="muted">Review pending approvals, launch payment requests, and dispatch approved actions from one surface.</p>
-
-                <div class="globe-wrap" aria-hidden="true">
-                    <div class="orbit"></div>
-                    <div class="globe"></div>
-                    <div class="poi p1"></div>
-                    <div class="poi p2"></div>
-                    <div class="poi p3"></div>
+                <!-- Live summary + action bar -->
+                <div class="row mb-3 align-items-center g-2">
+                    <div class="col">
+                        <div class="summary-bar mb-0" id="liveSummary">Live transcript: awaiting latest command context...</div>
+                    </div>
+                    <div class="col-auto d-flex gap-2">
+                        <button class="primary" onclick="loadPending()">Refresh Pending</button>
+                        <button class="ok" onclick="dispatchApproved()">Dispatch Approved</button>
+                    </div>
                 </div>
 
-                <div class="summary-bar" id="liveSummary">Live transcript: awaiting latest command context...</div>
-
-                <div class="toolbar">
-                    <button class="primary" onclick="loadPending()">Refresh Pending</button>
-                    <button class="ok" onclick="dispatchApproved()">Dispatch Approved</button>
-                </div>
-
-                <div class="center-layout">
-                    <div class="queue-shell">
-                        <div class="queue-stats">
-                            <div class="queue-stat">
+                <!-- ── Stats row ── -->
+                <div class="row row-cards mb-3">
+                    <div class="col-sm-4">
+                        <div class="card">
+                            <div class="card-body py-3 px-4">
                                 <div class="queue-stat-label">Pending Queue</div>
                                 <div class="queue-stat-value" id="pendingCountMetric">00</div>
                             </div>
-                            <div class="queue-stat">
+                        </div>
+                    </div>
+                    <div class="col-sm-4">
+                        <div class="card">
+                            <div class="card-body py-3 px-4">
                                 <div class="queue-stat-label">Payment Requests</div>
                                 <div class="queue-stat-value" id="pendingPaymentsMetric">00</div>
                             </div>
-                            <div class="queue-stat">
+                        </div>
+                    </div>
+                    <div class="col-sm-4">
+                        <div class="card">
+                            <div class="card-body py-3 px-4">
                                 <div class="queue-stat-label">Highest Risk Tier</div>
                                 <div class="queue-stat-value" id="pendingRiskMetric">LOW</div>
                             </div>
                         </div>
-
-                        <div class="queue-panel">
-                            <div class="queue-panel-header">
-                                <div>
-                                    <div class="queue-panel-title">Approval Command Deck</div>
-                                    <div class="queue-panel-meta">Live queue, review actions, and dispatch readiness</div>
-                                </div>
-                            </div>
-                            <table id="pendingTable">
-                                <thead>
-                                    <tr>
-                                        <th>ID</th>
-                                        <th>Kind</th>
-                                        <th>Payload</th>
-                                        <th>Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody></tbody>
-                            </table>
-                            <div id="status"></div>
-                        </div>
                     </div>
-
-                    <aside class="payment-dock">
-                        <div class="payment-dock-header">
-                            <div>
-                                <div class="payment-dock-title">Payment Requests</div>
-                                <div class="payment-dock-meta">Integrated with approval queue</div>
-                            </div>
-                        </div>
-                        <div class="payment-dock-copy">Queue card-backed payments from the same workspace you use to review and dispatch approvals. CVV remains optional only for temporary cards.</div>
-                        <div class="payment-dock-grid">
-                            <div class="row">
-                                <div class="field">
-                                    <label for="paymentAmount">Amount</label>
-                                    <input id="paymentAmount" type="number" min="0.01" step="0.01" placeholder="40.00" />
-                                </div>
-                                <div class="field">
-                                    <label for="paymentCurrency">Currency</label>
-                                    <input id="paymentCurrency" type="text" maxlength="3" placeholder="USD" />
-                                </div>
-                            </div>
-                            <div class="row">
-                                <div class="field">
-                                    <label for="paymentRecipient">Recipient (email/phone/account)</label>
-                                    <input id="paymentRecipient" type="text" placeholder="merchant@example.com" />
-                                </div>
-                                <div class="field">
-                                    <label for="paymentMerchant">Merchant</label>
-                                    <input id="paymentMerchant" type="text" placeholder="Lupa" />
-                                </div>
-                            </div>
-                            <div class="row">
-                                <div class="field" style="min-width: 100%;">
-                                    <label for="paymentReason">Reason</label>
-                                    <input id="paymentReason" type="text" placeholder="Reservation deposit" />
-                                </div>
-                            </div>
-                            <div class="row">
-                                <div class="field">
-                                    <label for="cardHolderName">Cardholder Name</label>
-                                    <input id="cardHolderName" type="text" placeholder="Nickos" />
-                                </div>
-                                <div class="field">
-                                    <label for="cardNumber">Card Number</label>
-                                    <input id="cardNumber" type="text" inputmode="numeric" autocomplete="cc-number" placeholder="4242 4242 4242 4242" />
-                                </div>
-                            </div>
-                            <div class="row">
-                                <div class="field">
-                                    <label for="cardExpMonth">Exp Month</label>
-                                    <input id="cardExpMonth" type="number" min="1" max="12" inputmode="numeric" placeholder="12" />
-                                </div>
-                                <div class="field">
-                                    <label for="cardExpYear">Exp Year</label>
-                                    <input id="cardExpYear" type="number" min="2024" max="2099" inputmode="numeric" placeholder="2028" />
-                                </div>
-                                <div class="field">
-                                    <label for="cardBillingZip">Billing ZIP</label>
-                                    <input id="cardBillingZip" type="text" placeholder="10001" />
-                                </div>
-                            </div>
-                            <div class="row">
-                                <div class="field" style="min-width: auto; flex: 0 0 auto; display: flex; align-items: center; gap: 8px;">
-                                    <input id="cardTemporary" type="checkbox" onchange="toggleCardCvvRequirement()" />
-                                    <label for="cardTemporary" style="margin: 0;">Temporary card</label>
-                                </div>
-                                <div class="field" style="flex: 1;">
-                                    <label for="cardCvv">CVV <span id="cardCvvRequirement">(required)</span></label>
-                                    <input id="cardCvv" type="password" inputmode="numeric" autocomplete="cc-csc" placeholder="123" />
-                                </div>
-                            </div>
-                            <div class="toolbar">
-                                <button class="primary" onclick="requestPaymentApproval()">Queue Payment Approval</button>
-                            </div>
-                            <div id="paymentStatus" class="payment-status"></div>
-                        </div>
-                    </aside>
                 </div>
-            </section>
 
-            <div class="stack">
-                <section class="panel">
-                    <h3>App Lifecycle</h3>
-                    <p class="sub">Install, check, and remove apps</p>
-                    <div class="row">
-                        <div class="field" style="min-width: 100%;">
-                            <label for="appSelector">App</label>
-                            <select id="appSelector" name="app">
-                                <option value="">Select an app...</option>
-                                <option value="arc">Arc</option>
-                                <option value="spotify">Spotify</option>
-                                <option value="visual studio code">Visual Studio Code</option>
-                                <option value="google chrome">Google Chrome</option>
-                                <option value="slack">Slack</option>
-                            </select>
+                <!-- ── Main three-column grid ── -->
+                <div class="row row-cards align-items-start">
+
+                    <!-- Left rail: market / geo / schedule -->
+                    <div class="col-lg-2 col-md-12">
+                        <div class="row row-cards">
+
+                            <div class="col-12">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h3 class="card-title">Market Data</h3>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="metrics">
+                                            <div class="metric">
+                                                <div class="label">Oil</div>
+                                                <div id="oilPrice" class="value">78.40</div>
+                                            </div>
+                                            <div class="metric">
+                                                <div class="label">Gold</div>
+                                                <div id="goldPrice" class="value">2320.2</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="col-12">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h3 class="card-title">Geospatial Alert</h3>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="summary-bar" id="geoAlert">Focus region: Strait of Hormuz. Threat level normal.</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="col-12">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h3 class="card-title">Schedule</h3>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="summary-bar">7:00 PM - Ops review<br/>8:30 PM - Crypto check-in<br/>10:00 PM - Daily close</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="col-12">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h3 class="card-title">Social Metrics</h3>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="metrics">
+                                            <div class="metric">
+                                                <div class="label">Followers</div>
+                                                <div id="followersCount" class="value" style="color:#9bb4ca">—</div>
+                                            </div>
+                                            <div class="metric">
+                                                <div class="label">Bitcoin</div>
+                                                <div id="btcPrice" class="value" style="color:#9bb4ca">—</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
                         </div>
                     </div>
-                    <div class="toolbar">
-                        <button class="primary" onclick="requestAppStatus()">Check Status</button>
-                        <button class="ok" onclick="requestAppInstall()">Install</button>
-                        <button class="danger" onclick="requestAppUninstall()">Uninstall</button>
-                    </div>
-                    <div id="appStatus" style="margin-top: 10px; padding: 10px; border-radius: 8px; border: 1px solid var(--line); background: rgba(9, 20, 38, 0.7); font-family: 'IBM Plex Mono', 'SFMono-Regular', monospace; font-size: 12px; min-height: 26px; white-space: pre-wrap; display: none;"></div>
-                </section>
 
-                <section class="panel">
-                    <h3>Trade Review Policy</h3>
-                    <p class="sub">Active live-unlock thresholds from config</p>
-                    <div class="summary-bar" style="white-space: pre-wrap; line-height: 1.6;">
-Min trading days: __TRADE_REVIEW_MIN_TRADING_DAYS__
+                    <!-- Center: approval queue table -->
+                    <div class="col-lg-6 col-md-12">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3 class="card-title">Approval Command Deck</h3>
+                                <div class="card-options">
+                                    <span class="queue-panel-meta">Live queue · review · dispatch</span>
+                                </div>
+                            </div>
+                            <div class="card-body p-0">
+                                <div class="table-responsive">
+                                    <table id="pendingTable" class="table table-hover table-sm table-vcenter card-table mb-0">
+                                        <thead>
+                                            <tr>
+                                                <th>ID</th>
+                                                <th>Kind</th>
+                                                <th>Payload</th>
+                                                <th>Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            <div class="card-footer">
+                                <div id="status" class="summary-bar mb-0" style="min-height:0; padding: 6px 10px;"></div>
+                            </div>
+                        </div>
+
+                        <!-- Chat with Jarvis (below queue in center) -->
+                        <div class="card mt-3">
+                            <div class="card-header">
+                                <h3 class="card-title">Chat with Jarvis</h3>
+                            </div>
+                            <div class="card-body">
+                                <div class="row g-2 mb-2">
+                                    <div class="col">
+                                        <label class="form-label" for="chatAccount">Account ID</label>
+                                        <input id="chatAccount" name="account_id" type="text" placeholder="nick" />
+                                    </div>
+                                    <div class="col">
+                                        <label class="form-label" for="chatToken">Token</label>
+                                        <input id="chatToken" name="token" type="password" placeholder="chat-secret" />
+                                    </div>
+                                </div>
+                                <label class="form-label" for="chatText">Message</label>
+                                <textarea id="chatText" name="text" placeholder="hey jarvis, help me plan tomorrow"></textarea>
+                                <div class="toolbar mt-2">
+                                    <button onclick="loadChatHistory()">Load History</button>
+                                    <button class="primary" onclick="sendChat()">Send Message</button>
+                                </div>
+                                <p style="font-family:var(--mono);font-size:10px;color:var(--text2);margin-top:6px;">Ctrl+Enter to send quickly.</p>
+                                <div id="chatTranscript" class="mt-2" style="max-height:180px;overflow-y:auto;"></div>
+                                <div id="chatStatus"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right rail: payment + app lifecycle + trade review -->
+                    <div class="col-lg-4 col-md-12">
+                        <div class="row row-cards">
+
+                            <!-- Payment dock -->
+                            <div class="col-12">
+                                <div class="card payment-dock">
+                                    <div class="card-header">
+                                        <h3 class="card-title">Payment Requests</h3>
+                                        <div class="card-options">
+                                            <span class="payment-dock-meta">Integrated with queue</span>
+                                        </div>
+                                    </div>
+                                    <div class="card-body">
+                                        <p class="payment-dock-copy">Queue card-backed payments alongside your approvals. CVV is optional for temporary cards only.</p>
+                                        <div class="row g-2 mb-2">
+                                            <div class="col">
+                                                <label class="form-label" for="paymentAmount">Amount</label>
+                                                <input id="paymentAmount" type="number" min="0.01" step="0.01" placeholder="40.00" />
+                                            </div>
+                                            <div class="col-auto" style="min-width:80px;">
+                                                <label class="form-label" for="paymentCurrency">Currency</label>
+                                                <input id="paymentCurrency" type="text" maxlength="3" placeholder="USD" />
+                                            </div>
+                                        </div>
+                                        <div class="row g-2 mb-2">
+                                            <div class="col">
+                                                <label class="form-label" for="paymentRecipient">Recipient</label>
+                                                <input id="paymentRecipient" type="text" placeholder="merchant@example.com" />
+                                            </div>
+                                            <div class="col">
+                                                <label class="form-label" for="paymentMerchant">Merchant</label>
+                                                <input id="paymentMerchant" type="text" placeholder="Lupa" />
+                                            </div>
+                                        </div>
+                                        <div class="mb-2">
+                                            <label class="form-label" for="paymentReason">Reason</label>
+                                            <input id="paymentReason" type="text" placeholder="Reservation deposit" />
+                                        </div>
+                                        <div class="row g-2 mb-2">
+                                            <div class="col">
+                                                <label class="form-label" for="cardHolderName">Cardholder</label>
+                                                <input id="cardHolderName" type="text" placeholder="Nickos" />
+                                            </div>
+                                            <div class="col">
+                                                <label class="form-label" for="cardNumber">Card Number</label>
+                                                <input id="cardNumber" type="text" inputmode="numeric" autocomplete="cc-number" placeholder="4242 4242 4242 4242" />
+                                            </div>
+                                        </div>
+                                        <div class="row g-2 mb-2">
+                                            <div class="col">
+                                                <label class="form-label" for="cardExpMonth">Exp Mo.</label>
+                                                <input id="cardExpMonth" type="number" min="1" max="12" inputmode="numeric" placeholder="12" />
+                                            </div>
+                                            <div class="col">
+                                                <label class="form-label" for="cardExpYear">Exp Yr.</label>
+                                                <input id="cardExpYear" type="number" min="2024" max="2099" inputmode="numeric" placeholder="2028" />
+                                            </div>
+                                            <div class="col">
+                                                <label class="form-label" for="cardBillingZip">ZIP</label>
+                                                <input id="cardBillingZip" type="text" placeholder="10001" />
+                                            </div>
+                                        </div>
+                                        <div class="row g-2 mb-3 align-items-end">
+                                            <div class="col-auto d-flex align-items-center gap-2" style="padding-bottom:6px;">
+                                                <input id="cardTemporary" type="checkbox" onchange="toggleCardCvvRequirement()" />
+                                                <label for="cardTemporary" class="form-label mb-0">Temp card</label>
+                                            </div>
+                                            <div class="col">
+                                                <label class="form-label" for="cardCvv">CVV <span id="cardCvvRequirement">(required)</span></label>
+                                                <input id="cardCvv" type="password" inputmode="numeric" autocomplete="cc-csc" placeholder="123" />
+                                            </div>
+                                        </div>
+                                        <button class="primary" onclick="requestPaymentApproval()">Queue Payment Approval</button>
+                                        <div id="paymentStatus" class="payment-status"></div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- App Lifecycle -->
+                            <div class="col-12">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h3 class="card-title">App Lifecycle</h3>
+                                    </div>
+                                    <div class="card-body">
+                                        <label class="form-label" for="appSelector">App</label>
+                                        <select id="appSelector" name="app">
+                                            <option value="">Select an app...</option>
+                                            <option value="arc">Arc</option>
+                                            <option value="spotify">Spotify</option>
+                                            <option value="visual studio code">Visual Studio Code</option>
+                                            <option value="google chrome">Google Chrome</option>
+                                            <option value="slack">Slack</option>
+                                        </select>
+                                        <div class="toolbar mt-2">
+                                            <button class="primary" onclick="requestAppStatus()">Check Status</button>
+                                            <button class="ok" onclick="requestAppInstall()">Install</button>
+                                            <button class="danger" onclick="requestAppUninstall()">Uninstall</button>
+                                        </div>
+                                        <div id="appStatus" class="summary-bar mt-2" style="display:none;"></div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Trade Review Policy -->
+                            <div class="col-12">
+                                <div class="card">
+                                    <div class="card-header">
+                                        <h3 class="card-title">Trade Review Policy</h3>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="summary-bar" style="white-space:pre-wrap;line-height:1.6;font-size:10px;">Min trading days: __TRADE_REVIEW_MIN_TRADING_DAYS__
 Min paper trades: __TRADE_REVIEW_MIN_TRADES__
 Min win rate: __TRADE_REVIEW_MIN_WIN_RATE__
 Min profit factor: __TRADE_REVIEW_MIN_PROFIT_FACTOR__
-Min avg R multiple: __TRADE_REVIEW_MIN_AVG_R_MULTIPLE__
+Min avg R: __TRADE_REVIEW_MIN_AVG_R_MULTIPLE__
 Max anomalies: __TRADE_REVIEW_MAX_ANOMALIES__
-Daily drawdown guardrail: __TRADE_REVIEW_DRAWDOWN_LIMIT__
-                    </div>
-                    <div class="row" style="margin-top: 10px;">
-                        <div class="field">
-                            <label for="tradeReviewReviewer">Reviewer</label>
-                            <input id="tradeReviewReviewer" type="text" placeholder="Ops" />
-                        </div>
-                        <div class="field">
-                            <label for="tradeReviewVersion">Strategy Version</label>
-                            <input id="tradeReviewVersion" type="text" placeholder="v1.2.3" />
-                        </div>
-                    </div>
-                    <div class="toolbar">
-                        <button class="primary" onclick="generateTradeReviewArtifact()">Generate Review Artifact</button>
-                        <button onclick="downloadTradeReviewArtifact()">Download Selected Review</button>
-                    </div>
-                    <div class="toolbar" style="margin-top: 8px;">
-                        <button onclick="downloadTradeReviewSupportingArtifact('trade_performance_report')">Performance JSON</button>
-                        <button onclick="downloadTradeReviewSupportingArtifact('trade_replay_report')">Replay JSON</button>
-                        <button onclick="downloadTradeReviewSupportingArtifact('audit_export')">Audit JSONL</button>
-                    </div>
-                    <div id="tradeReviewStatus" style="margin-top: 10px; padding: 10px; border-radius: 8px; border: 1px solid var(--line); background: rgba(9, 20, 38, 0.7); font-family: 'IBM Plex Mono', 'SFMono-Regular', monospace; font-size: 12px; min-height: 26px; white-space: pre-wrap; display: none;"></div>
-                    <div style="margin-top: 10px; font-size: 12px; color: rgba(208, 221, 255, 0.72); text-transform: uppercase; letter-spacing: 0.08em;">Latest Review Preview</div>
-                    <div id="tradeReviewPreview" style="margin-top: 8px; padding: 12px; border-radius: 8px; border: 1px solid var(--line); background: rgba(6, 14, 28, 0.92); font-family: 'IBM Plex Mono', 'SFMono-Regular', monospace; font-size: 12px; min-height: 72px; max-height: 280px; overflow: auto; white-space: pre-wrap; display: none;"></div>
-                    <div style="margin-top: 12px; font-size: 12px; color: rgba(208, 221, 255, 0.72); text-transform: uppercase; letter-spacing: 0.08em;">Recent Reviews</div>
-                    <div id="tradeReviewHistory" style="margin-top: 8px; display: grid; gap: 8px;"></div>
-                </section>
+Daily drawdown: __TRADE_REVIEW_DRAWDOWN_LIMIT__</div>
+                                        <div class="row g-2 mt-2 mb-2">
+                                            <div class="col">
+                                                <label class="form-label" for="tradeReviewReviewer">Reviewer</label>
+                                                <input id="tradeReviewReviewer" type="text" placeholder="Ops" />
+                                            </div>
+                                            <div class="col">
+                                                <label class="form-label" for="tradeReviewVersion">Version</label>
+                                                <input id="tradeReviewVersion" type="text" placeholder="v1.2.3" />
+                                            </div>
+                                        </div>
+                                        <div class="toolbar mb-2">
+                                            <button class="primary" onclick="generateTradeReviewArtifact()">Generate Artifact</button>
+                                            <button onclick="downloadTradeReviewArtifact()">Download</button>
+                                        </div>
+                                        <div class="toolbar">
+                                            <button onclick="downloadTradeReviewSupportingArtifact('trade_performance_report')">Perf JSON</button>
+                                            <button onclick="downloadTradeReviewSupportingArtifact('trade_replay_report')">Replay JSON</button>
+                                            <button onclick="downloadTradeReviewSupportingArtifact('audit_export')">Audit JSONL</button>
+                                        </div>
+                                        <div id="tradeReviewStatus" class="summary-bar mt-2" style="display:none;"></div>
+                                        <div id="tradeReviewPreview" class="summary-bar mt-2" style="display:none;max-height:200px;overflow:auto;white-space:pre-wrap;font-size:10px;"></div>
+                                        <div id="tradeReviewHistory" style="margin-top:8px;display:grid;gap:6px;"></div>
+                                    </div>
+                                </div>
+                            </div>
 
-                <section class="panel">
-                    <h3>Social Metrics</h3>
-                    <p class="sub">Community pulse</p>
-                    <div class="metrics">
-                        <div class="metric">
-                            <div class="label">Followers</div>
-                            <div id="followersCount" class="value" style="color:#9bb4ca">No data</div>
-                        </div>
-                        <div class="metric">
-                            <div class="label">Bitcoin</div>
-                            <div id="btcPrice" class="value" style="color:#9bb4ca">No data</div>
                         </div>
                     </div>
-                    <svg class="spark" viewBox="0 0 220 64" preserveAspectRatio="none" aria-hidden="true">
-                        <polyline id="sparkBitcoin" fill="none" stroke="#f2c66b" stroke-width="2" points="0,30 20,32 40,27 60,29 80,24 100,25 120,18 140,19 160,15 180,17 200,13 220,14" />
-                    </svg>
-                </section>
 
-                <section class="panel chat">
-                    <h2>Chat with Jarvis</h2>
-                    <p class="sub">Send a direct message through <code>/chat/inbound</code> and load context via <code>/chat/history</code>.</p>
-                    <div class="row">
-                        <div class="field">
-                            <label for="chatAccount">Account ID</label>
-                            <input id="chatAccount" name="account_id" type="text" placeholder="nick" />
-                        </div>
-                        <div class="field">
-                            <label for="chatToken">Token</label>
-                            <input id="chatToken" name="token" type="password" placeholder="chat-secret" />
-                        </div>
-                    </div>
-                    <div class="row">
-                        <div class="field" style="min-width: 100%;">
-                            <label for="chatText">Message</label>
-                            <textarea id="chatText" name="text" placeholder="hey jarvis, help me plan tomorrow"></textarea>
-                        </div>
-                    </div>
-                    <div class="toolbar">
-                        <button onclick="loadChatHistory()">Load History</button>
-                        <button class="primary" onclick="sendChat()">Send Message</button>
-                    </div>
-                    <p class="sub">Tip: press Ctrl+Enter (or Cmd+Enter on Mac) to send quickly.</p>
-                    <div id="chatTranscript"></div>
-                    <div id="chatStatus"></div>
-                </section>
+                </div>
             </div>
         </div>
     </div>
     <script>
+        function hydrateTablerAdminSurface() {
+            document.querySelectorAll('button').forEach((btn) => {
+                btn.classList.add('btn', 'btn-sm');
+                if (btn.classList.contains('primary')) {
+                    btn.classList.add('btn-info');
+                } else if (btn.classList.contains('ok')) {
+                    btn.classList.add('btn-success');
+                } else if (btn.classList.contains('danger')) {
+                    btn.classList.add('btn-danger');
+                } else if (btn.classList.contains('ghost')) {
+                    btn.classList.add('btn-outline-secondary');
+                } else {
+                    btn.classList.add('btn-outline-info');
+                }
+            });
+
+            document.querySelectorAll('select').forEach((el) => {
+                el.classList.add('form-select', 'form-select-sm');
+            });
+
+            document.querySelectorAll('input, textarea').forEach((el) => {
+                if ((el.type || '').toLowerCase() === 'checkbox') return;
+                el.classList.add('form-control', 'form-control-sm');
+            });
+
+            document.querySelectorAll('table').forEach((el) => {
+                el.classList.add('table', 'table-hover', 'table-sm');
+            });
+        }
+
+        hydrateTablerAdminSurface();
+
         let currentTradeReviewId = '';
         let currentTradeReviewArtifacts = {};
 
@@ -1510,6 +2072,7 @@ def _health_payload(config: Config) -> tuple[int, dict]:
             "provider": "anthropic",
             "ready": ai_ready,
         },
+        "system": _system_usage_snapshot(),
     }
 
     if event_bus_healthy:
@@ -1524,6 +2087,67 @@ def _health_payload(config: Config) -> tuple[int, dict]:
         payload["monitors"]["status"] = stats["monitor_status"]
 
     return (200 if event_bus_healthy else 503), payload
+
+
+def _system_usage_snapshot() -> dict[str, object]:
+    cpu_percent = None
+    memory_percent = None
+    memory_used_gb = None
+    memory_total_gb = None
+
+    try:
+        import psutil  # type: ignore
+
+        cpu_percent = round(float(psutil.cpu_percent(interval=0.05)), 1)
+        vm = psutil.virtual_memory()
+        memory_percent = round(float(vm.percent), 1)
+        memory_used_gb = round(float(vm.used) / (1024 ** 3), 2)
+        memory_total_gb = round(float(vm.total) / (1024 ** 3), 2)
+    except Exception:
+        pass
+
+    gpu = {
+        "available": False,
+        "name": None,
+        "utilization_percent": None,
+        "memory_used_mb": None,
+        "memory_total_mb": None,
+    }
+    nvidia_smi = shutil.which("nvidia-smi")
+    if nvidia_smi:
+        try:
+            completed = subprocess.run(
+                [
+                    nvidia_smi,
+                    "--query-gpu=name,utilization.gpu,memory.used,memory.total",
+                    "--format=csv,noheader,nounits",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=1.5,
+                check=True,
+            )
+            first_line = (completed.stdout or "").strip().splitlines()
+            if first_line:
+                cols = [part.strip() for part in first_line[0].split(",")]
+                if len(cols) >= 4:
+                    gpu = {
+                        "available": True,
+                        "name": cols[0] or None,
+                        "utilization_percent": float(cols[1]) if cols[1] else None,
+                        "memory_used_mb": float(cols[2]) if cols[2] else None,
+                        "memory_total_mb": float(cols[3]) if cols[3] else None,
+                    }
+        except Exception:
+            pass
+
+    return {
+        "cpu_percent": cpu_percent,
+        "memory_percent": memory_percent,
+        "memory_used_gb": memory_used_gb,
+        "memory_total_gb": memory_total_gb,
+        "gpu": gpu,
+    }
 
 
 def _latest_health_payload(config: Config, ttl_seconds: int = 5) -> tuple[int, dict]:
@@ -1545,6 +2169,55 @@ def _latest_health_payload(config: Config, ttl_seconds: int = 5) -> tuple[int, d
     _HEALTH_CACHE["payload"] = payload
     _HEALTH_CACHE["updated_unix"] = now
     return status, payload
+
+
+def _hud_live_context_hint(config: Config) -> str:
+    """Build a compact live runtime hint for HUD chat turns."""
+    try:
+        _, health = _latest_health_payload(config, ttl_seconds=5)
+        monitors = health.get("monitors") if isinstance(health, dict) else {}
+        event_bus = health.get("event_bus") if isinstance(health, dict) else {}
+
+        monitor_count = int((monitors or {}).get("configured") or 0)
+        monitors_stopped = bool((monitors or {}).get("stopped"))
+        total_events = int((event_bus or {}).get("total_events") or 0)
+        unprocessed_events = int((event_bus or {}).get("unprocessed_events") or 0)
+        runtime_status = str((health or {}).get("status") or "unknown")
+
+        approvals = ApprovalService(config).list_pending(limit=100)
+        pending_count = len(approvals)
+        pending_high_risk = 0
+        pending_by_kind: dict[str, int] = {}
+        for row in approvals:
+            kind = str(row.get("kind") or "unknown")
+            pending_by_kind[kind] = pending_by_kind.get(kind, 0) + 1
+            if str(row.get("risk_tier") or "").lower() == "high":
+                pending_high_risk += 1
+        top_kinds = ", ".join(
+            f"{kind}:{count}"
+            for kind, count in sorted(
+                pending_by_kind.items(),
+                key=lambda item: (-item[1], item[0]),
+            )[:3]
+        ) or "none"
+
+        recent_rows = EventBus(config.event_bus_db).recent(limit=4)
+        recent_events = ", ".join(
+            f"{row.kind}@{row.source}"
+            for row in recent_rows
+        ) or "none"
+
+        return (
+            "[HUD live runtime: "
+            f"status={runtime_status}; "
+            f"monitors={monitor_count}; stopped={str(monitors_stopped).lower()}; "
+            f"event_bus_total={total_events}; unprocessed={unprocessed_events}; "
+            f"pending_approvals={pending_count}; high_risk_pending={pending_high_risk}; "
+            f"pending_top_kinds={top_kinds}; "
+            f"recent_events={recent_events}] "
+        )
+    except Exception:
+        return ""
 
 
 def _render_ui_html(config: Config) -> str:
@@ -2153,7 +2826,7 @@ def _load_react_hud_asset(filename: str) -> tuple[str, bytes | str] | None:
     # Binary texture files served from the textures/ subdirectory
     if filename.startswith("textures/"):
         ext = filename.rsplit(".", 1)[-1].lower()
-        binary_types = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png"}
+        binary_types = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "gif": "image/gif"}
         ct = binary_types.get(ext)
         if ct is None:
             return None
@@ -2201,138 +2874,144 @@ def _payments_signature_ok(secret: str, raw_body: bytes, provided_sig: str) -> b
     return hmac.compare_digest(expected, provided)
 
 
+def _ensure_globe_textures() -> None:
+    """Download globe textures once and cache them locally."""
+    tex_dir = REACT_HUD_DIR / "textures"
+    tex_dir.mkdir(parents=True, exist_ok=True)
+    for name in _GLOBE_TEXTURES:
+        dest = tex_dir / name
+        if dest.exists():
+            continue
+        try:
+            req = Request(
+                _GLOBE_TEXTURE_BASE + name,
+                headers={"User-Agent": "JarvisHUD/1.0"},
+            )
+            with urlopen(req, timeout=20) as resp:
+                dest.write_bytes(resp.read())
+            print(f"[globe] cached texture: {name}")
+        except Exception as exc:
+            print(f"[globe] texture download failed ({name}): {exc}")
+
+
 def create_approval_api_server(
     config: Config,
-    host: str = "127.0.0.1",
+    host: str = "0.0.0.0",
     port: int = 8080,
 ) -> ThreadingHTTPServer:
+
+    # Ensure Ollama is running (silent background start if not)
+    _start_ollama_if_needed()
+
     chat_brains: dict[str, object] = {}
+    from .brain import SYSTEM_PROMPT
+    from .memory import Conversation
+
+    shared_hud_conversation = Conversation(storage_path=config.conversation_store_path)
+
+    JARVIS_HUD_PROMPT = SYSTEM_PROMPT + """
+
+<agent_specialization>
+- You are the all-round primary agent.
+- Strengths: general reasoning, planning, execution, technical problem-solving, system control, and broad task coverage.
+- When a request spans multiple domains, lead confidently and synthesize the answer.
+- Keep a capable, grounded tone, but talk like a helpful companion instead of a rigid operator.
+- Default to clear, friendly language unless the task calls for a terse or highly formal response.
+</agent_specialization>
+"""
+
+    EVA_HUD_PROMPT = SYSTEM_PROMPT.replace(
+        "You are Jarvis, a personal agent for {user_name}.",
+        "You are EVA, a personal assistant for {user_name}."
+    ) + """
+
+<agent_specialization>
+- You are a specialist assistant, not the all-round operator.
+- Strengths: organization, coordination, summaries, planning support, communication drafting, reminders, prioritization, and polished operator assistance.
+- Prefer being structured, anticipatory, elegant, and warm.
+- If a request is deeply technical or broad systems work, still help, but frame yourself as a strong assistant who organizes and supports execution rather than an all-purpose controller.
+- You share the same conversation memory as Jarvis, so you can reference prior context naturally.
+- Sound personable and easy to talk to, not distant or overly corporate.
+</agent_specialization>
+"""
+
+    def _hud_brain_key(agent_id: str) -> str:
+        return f"__hud_voice__:{agent_id}"
+
+    def _conversation_text(message: dict[str, object]) -> str:
+        content = message.get("content")
+        if isinstance(content, str):
+            return content.strip()
+        if isinstance(content, list):
+            text_parts: list[str] = []
+            for block in content:
+                if not isinstance(block, dict) or block.get("type") != "text":
+                    continue
+                block_text = str(block.get("text", "")).strip()
+                if block_text:
+                    text_parts.append(block_text)
+            return "\n".join(text_parts).strip()
+        return ""
+
+    def _shared_hud_history(limit: int = 200) -> list[dict[str, object]]:
+        items: list[dict[str, object]] = []
+        fallback_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
+        for index, message in enumerate(shared_hud_conversation.messages):
+            if not isinstance(message, dict):
+                continue
+            role = str(message.get("role", "")).strip().lower()
+            if role not in {"user", "assistant"}:
+                continue
+            text = _conversation_text(message)
+            if not text:
+                continue
+            raw_ts = message.get("ts")
+            try:
+                ts = int(raw_ts)
+            except (TypeError, ValueError):
+                ts = fallback_ts + index
+            if role == "assistant":
+                agent_role = str(message.get("agent_id", "jarvis")).strip().lower()
+                if agent_role not in {"jarvis", "eva"}:
+                    agent_role = "jarvis"
+                items.append({"role": agent_role, "text": text, "ts": ts})
+            else:
+                items.append({"role": "user", "text": text, "ts": ts})
+        return items[-limit:]
+
+    def _get_or_create_hud_brain(agent_id: str):
+        brain_key = _hud_brain_key(agent_id)
+        if brain_key not in chat_brains:
+            from .cli import build_brain_from_config
+            prompt = EVA_HUD_PROMPT if agent_id == "eva" else JARVIS_HUD_PROMPT
+            brain = build_brain_from_config(config, system_prompt_template=prompt)
+            brain.conversation = shared_hud_conversation
+            chat_brains[brain_key] = brain
+        return chat_brains[brain_key]
 
     class ApprovalApiHandler(BaseHTTPRequestHandler):
-                            # Kaggle dataset download endpoint
-                            if parsed.path == "/dataset/kaggle":
-                                try:
-                                    body = self._read_json(raw_body)
-                                    kaggle_cmd = body.get("command", "").strip()
-                                    if not kaggle_cmd or not kaggle_cmd.startswith("kaggle "):
-                                        self._send(400, {"error": "Missing or invalid Kaggle command"})
-                                        return
-                                    # Only allow 'kaggle datasets download' or 'kaggle kernels pull'
-                                    if not ("datasets download" in kaggle_cmd or "kernels pull" in kaggle_cmd):
-                                        self._send(400, {"error": "Only 'kaggle datasets download' or 'kaggle kernels pull' allowed"})
-                                        return
-                                    import subprocess
-                                    import shlex
-                                    # Download to a temp directory
-                                    import tempfile, shutil
-                                    temp_dir = tempfile.mkdtemp()
-                                    try:
-                                        # Add --path if not present
-                                        if "--path" not in kaggle_cmd:
-                                            kaggle_cmd += f" --path {shlex.quote(temp_dir)}"
-                                        result = subprocess.run(kaggle_cmd, shell=True, capture_output=True, text=True, timeout=600)
-                                        if result.returncode != 0:
-                                            self._send(500, {"error": "Kaggle command failed", "stderr": result.stderr})
-                                            return
-                                        # Move all files to D:/DATASET
-                                        dataset_dir = Path("D:/DATASET")
-                                        dataset_dir.mkdir(parents=True, exist_ok=True)
-                                        for item in Path(temp_dir).iterdir():
-                                            dest = dataset_dir / item.name
-                                            if dest.exists():
-                                                if dest.is_file():
-                                                    dest.unlink()
-                                                elif dest.is_dir():
-                                                    shutil.rmtree(dest)
-                                            if item.is_file():
-                                                shutil.move(str(item), str(dest))
-                                            elif item.is_dir():
-                                                shutil.move(str(item), str(dest))
-                                        self._send(200, {"ok": True, "output": result.stdout})
-                                    finally:
-                                        shutil.rmtree(temp_dir, ignore_errors=True)
-                                except Exception as exc:
-                                    self._send(500, {"error": f"Kaggle download failed: {exc}"})
-                                return
-                # --- Local File Access Endpoints (D:\jarvis-data) ---
-                def _safe_data_dir(self) -> Path:
-                    data_dir = Path("D:/jarvis-data").resolve()
-                    data_dir.mkdir(parents=True, exist_ok=True)
-                    return data_dir
 
-                def _is_safe_path(self, path: Path) -> bool:
-                    try:
-                        return self._safe_data_dir() in path.parents or self._safe_data_dir() == path
-                    except Exception:
-                        return False
+        def _safe_data_dir(self) -> Path:
+            data_dir = Path("D:/jarvis-data").resolve()
+            data_dir.mkdir(parents=True, exist_ok=True)
+            return data_dir
 
-                def do_GET(self) -> None:  # noqa: N802
-                    parsed = urlparse(self.path)
-                    # ...existing code...
+        def _is_safe_path(self, path: Path) -> bool:
+            try:
+                data_dir = self._safe_data_dir()
+                # Allow files anywhere inside the data dir (including subdirs)
+                resolved = path.resolve()
+                return resolved != data_dir and str(resolved).startswith(str(data_dir) + ("\\" if "\\" in str(data_dir) else "/"))
+            except Exception:
+                return False
 
-                    # List files in D:/jarvis-data
-                    if parsed.path == "/local/files":
-                        data_dir = self._safe_data_dir()
-                        files = [f.name for f in data_dir.iterdir() if f.is_file()]
-                        self._send(200, {"files": files})
-                        return
+        def _sanitize_filename(self, fname: str) -> str:
+            # Remove path separators and dangerous chars
+            import re
+            fname = re.sub(r"[\\/]+", "_", fname)
+            fname = re.sub(r"[^a-zA-Z0-9._-]", "_", fname)
+            return fname[:128]
 
-                    # Download a file from D:/jarvis-data
-                    if parsed.path == "/local/file":
-                        query = parse_qs(parsed.query)
-                        fname = str(query.get("name", [""])[0]).strip()
-                        if not fname:
-                            self._send(400, {"error": "name is required"})
-                            return
-                        file_path = self._safe_data_dir() / fname
-                        if not self._is_safe_path(file_path) or not file_path.exists() or not file_path.is_file():
-                            self._send(404, {"error": "file not found"})
-                            return
-                        with open(file_path, "rb") as f:
-                            data = f.read()
-                        self._send_bytes(200, data, "application/octet-stream")
-                        return
-
-                def do_POST(self) -> None:  # noqa: N802
-                    parsed = urlparse(self.path)
-                    # Upload a file to D:/jarvis-data
-                    if parsed.path == "/local/upload":
-                        ctype = self.headers.get("Content-Type", "")
-                        if not ctype.startswith("multipart/form-data"):
-                            self._send(400, {"error": "Content-Type must be multipart/form-data"})
-                            return
-                        boundary = ctype.split("boundary=")[-1].strip()
-                        if not boundary:
-                            self._send(400, {"error": "Missing boundary in Content-Type"})
-                            return
-                        raw = self._read_raw_body()
-                        # Simple multipart parser (single file, field name 'file')
-                        try:
-                            parts = raw.split(b"--" + boundary.encode())
-                            for part in parts:
-                                if b"Content-Disposition" in part and b"filename=" in part:
-                                    header, filedata = part.split(b"\r\n\r\n", 1)
-                                    filedata = filedata.rstrip(b"\r\n--")
-                                    fname = None
-                                    for line in header.split(b"\r\n"):
-                                        if b"filename=" in line:
-                                            fname = line.split(b"filename=")[1].split(b";")[0].strip().strip(b'"').decode()
-                                            break
-                                    if not fname:
-                                        continue
-                                    file_path = self._safe_data_dir() / fname
-                                    if not self._is_safe_path(file_path):
-                                        self._send(403, {"error": "invalid file path"})
-                                        return
-                                    with open(file_path, "wb") as f:
-                                        f.write(filedata)
-                                    self._send(200, {"ok": True, "filename": fname})
-                                    return
-                            self._send(400, {"error": "no file found in upload"})
-                        except Exception as exc:
-                            self._send(500, {"error": f"upload failed: {exc}"})
-                        return
-                    # ...existing code...
         def _read_raw_body(self) -> bytes:
             length = int(self.headers.get("Content-Length", "0"))
             if length <= 0:
@@ -2381,10 +3060,17 @@ def create_approval_api_server(
             self.end_headers()
             self.wfile.write(data)
 
-        def _send_bytes(self, status: int, data: bytes, content_type: str, filename: str) -> None:
+        def _send_bytes(
+            self,
+            status: int,
+            data: bytes,
+            content_type: str,
+            filename: str | None = None,
+        ) -> None:
             self.send_response(status)
             self.send_header("Content-Type", content_type)
-            self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+            if filename:
+                self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
@@ -2413,13 +3099,6 @@ def create_approval_api_server(
             except (BrokenPipeError, ConnectionResetError):
                 pass
 
-        def _send_bytes(self, status: int, data: bytes, content_type: str) -> None:
-            self.send_response(status)
-            self.send_header("Content-Type", content_type)
-            self.send_header("Content-Length", str(len(data)))
-            self.end_headers()
-            self.wfile.write(data)
-
         def _send_text(self, status: int, text: str, content_type: str) -> None:
             data = text.encode("utf-8")
             self.send_response(status)
@@ -2438,6 +3117,11 @@ def create_approval_api_server(
                 self._send(200, {"version": _hud_assets_version()})
                 return
 
+            if parsed.path == "/hud/conversation-state":
+                history = _shared_hud_history()
+                self._send(200, {"items": history, "count": len(history)})
+                return
+
             if parsed.path == "/hud/contracts":
                 self._send(
                     200,
@@ -2449,8 +3133,47 @@ def create_approval_api_server(
                 )
                 return
 
+            if parsed.path in ("/hud/improvement", "/api/hud/improvement"):
+                self._send(200, _load_self_improvement_state())
+                return
+
             if parsed.path in ("/hud/ops", "/hud/ops/", "/hud/wallboard", "/hud/wallboard/"):
                 self._send_html(200, _inject_live_reload(OPS_WALLBOARD_HTML))
+                return
+
+            if parsed.path == "/hud/globe/threat":
+                import json as _json
+                from urllib.parse import parse_qsl as _pqsl
+                qs = dict(_pqsl(parsed.query or ""))
+                region_id = qs.get("region", "").strip().lower()
+                keywords_raw = qs.get("keywords", "").strip()
+                region_keywords = [k.strip().lower() for k in keywords_raw.split(",") if k.strip()] if keywords_raw else [region_id]
+                if not region_id:
+                    self._send(400, {"error": "region param required"})
+                    return
+                result = _calculate_region_threat(region_id, region_keywords)
+                body = _json.dumps(result).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(body)
+                return
+
+            if parsed.path == "/hud/globe/config":
+                import json as _json
+                payload = {
+                    "mapboxToken": getattr(config, "mapbox_token", "") or "",
+                    "owmKey": getattr(config, "owm_api_key", "") or "",
+                }
+                body = _json.dumps(payload).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(body)
                 return
 
             if parsed.path in ("/hud/react", "/hud/react/", "/hud/globe", "/hud/globe/"):
@@ -2691,11 +3414,214 @@ def create_approval_api_server(
                 self._send(200, _latest_metals_payload())
                 return
 
+            if parsed.path == "/local/files":
+                data_dir = self._safe_data_dir()
+                entries = []
+                for f in sorted(data_dir.rglob("*")):
+                    if f.is_file():
+                        try:
+                            rel = f.relative_to(data_dir).as_posix()
+                            entries.append({"path": rel, "name": f.name, "size": f.stat().st_size})
+                        except Exception:
+                            pass
+                self._send(200, {"files": entries})
+                return
+
+            if parsed.path == "/local/file":
+                query = parse_qs(parsed.query)
+                # Accept 'path' (relative path incl. subdirs) or legacy 'name'
+                rel = str(query.get("path", query.get("name", [""]))[0]).strip()
+                if not rel:
+                    self._send(400, {"error": "path is required"})
+                    return
+                data_dir = self._safe_data_dir()
+                # Resolve to absolute and ensure it stays inside data_dir
+                file_path = (data_dir / rel).resolve()
+                if not self._is_safe_path(file_path) or not file_path.exists() or not file_path.is_file():
+                    self._send(404, {"error": "file not found or invalid path"})
+                    return
+                # Limit file size to 10MB
+                if file_path.stat().st_size > 10 * 1024 * 1024:
+                    self._send(413, {"error": "file too large (max 10MB)"})
+                    return
+                with open(file_path, "rb") as f:
+                    data = f.read()
+                self._send_bytes(200, data, "application/octet-stream")
+                return
+
             self._send(404, {"error": "not found"})
 
         def do_POST(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
-            raw_body = self._read_raw_body()
+            raw_body: bytes | None = None
+
+            def ensure_raw_body() -> bytes:
+                nonlocal raw_body
+                if raw_body is None:
+                    raw_body = self._read_raw_body()
+                return raw_body
+
+            if parsed.path == "/hud/show":
+                self._send(200, {"status": "show"})
+                return
+
+            if parsed.path == "/hud/hide":
+                self._send(200, {"status": "hide"})
+                return
+
+            if parsed.path == "/local/upload":
+                import cgi
+                import re
+                ctype = self.headers.get("Content-Type", "")
+                if not ctype.startswith("multipart/form-data"):
+                    self._send(400, {"error": "Content-Type must be multipart/form-data"})
+                    return
+                content_length = int(self.headers.get("Content-Length", "0") or "0")
+                if content_length <= 0:
+                    self._send(400, {"error": "Content-Length is required"})
+                    return
+                if content_length > LOCAL_UPLOAD_MAX_BYTES + LOCAL_UPLOAD_MAX_REQUEST_OVERHEAD_BYTES:
+                    self._send(413, {"error": "file too large (max 5GB)"})
+                    return
+                _, params = cgi.parse_header(ctype)
+                boundary = str(params.get("boundary", "")).strip()
+                if not boundary:
+                    self._send(400, {"error": "Missing boundary in Content-Type"})
+                    return
+                try:
+                    form = cgi.FieldStorage(
+                        fp=self.rfile,
+                        headers=self.headers,
+                        environ={
+                            "REQUEST_METHOD": "POST",
+                            "CONTENT_TYPE": ctype,
+                            "CONTENT_LENGTH": str(content_length),
+                        },
+                    )
+                    upload_field = form["file"] if "file" in form else None
+                    if upload_field is None:
+                        if getattr(form, "filename", None):
+                            upload_field = form
+                        else:
+                            self._send(400, {"error": "no file found in upload"})
+                            return
+                    if isinstance(upload_field, list):
+                        upload_field = upload_field[0] if upload_field else None
+                    if upload_field is None or not getattr(upload_field, "filename", None):
+                        self._send(400, {"error": "no file found in upload"})
+                        return
+
+                    fname = self._sanitize_filename(str(upload_field.filename))
+                    file_path = self._safe_data_dir() / fname
+                    if not self._is_safe_path(file_path):
+                        self._send(403, {"error": "invalid file path"})
+                        return
+
+                    allowed_ext = {".txt", ".csv", ".json", ".md", ".jpg", ".png", ".pdf"}
+                    ext = re.sub(r"^.*(\.[a-zA-Z0-9]+)$", r"\1", fname)
+                    if ext.lower() not in allowed_ext:
+                        self._send(415, {"error": f"file type not allowed: {ext}"})
+                        return
+
+                    file_obj = upload_field.file
+                    if file_obj is None:
+                        self._send(400, {"error": "no file found in upload"})
+                        return
+
+                    bytes_written = 0
+                    with open(file_path, "wb") as f:
+                        while True:
+                            chunk = file_obj.read(1024 * 1024)
+                            if not chunk:
+                                break
+                            bytes_written += len(chunk)
+                            if bytes_written > LOCAL_UPLOAD_MAX_BYTES:
+                                f.close()
+                                try:
+                                    file_path.unlink(missing_ok=True)
+                                except Exception:
+                                    pass
+                                self._send(413, {"error": "file too large (max 5GB)"})
+                                return
+                            f.write(chunk)
+
+                    if bytes_written <= 0:
+                        try:
+                            file_path.unlink(missing_ok=True)
+                        except Exception:
+                            pass
+                        self._send(400, {"error": "no file found in upload"})
+                        return
+
+                    self._send(200, {"ok": True, "filename": fname, "bytes": bytes_written})
+                    return
+                    self._send(400, {"error": "no file found in upload"})
+                except Exception as exc:
+                    self._send(500, {"error": f"upload failed: {exc}"})
+                return
+
+            if parsed.path == "/dataset/kaggle":
+                import shlex, shutil, tempfile, subprocess
+                try:
+                    body = self._read_json(ensure_raw_body())
+                    kaggle_cmd = body.get("command", "").strip()
+                    if not kaggle_cmd or not kaggle_cmd.startswith("kaggle "):
+                        self._send(400, {"error": "Missing or invalid Kaggle command"})
+                        return
+                    if not ("datasets download" in kaggle_cmd or "kernels pull" in kaggle_cmd):
+                        self._send(400, {"error": "Only 'kaggle datasets download' or 'kaggle kernels pull' allowed"})
+                        return
+                    temp_dir = tempfile.mkdtemp()
+                    try:
+                        if "--path" not in kaggle_cmd:
+                            kaggle_cmd += f" --path {shlex.quote(temp_dir)}"
+                        result = subprocess.run(kaggle_cmd, shell=True, capture_output=True, text=True, timeout=600)
+                        if result.returncode != 0:
+                            self._send(500, {"error": "Kaggle command failed", "stderr": result.stderr})
+                            return
+                        dataset_dir = Path("D:/DATASET")
+                        dataset_dir.mkdir(parents=True, exist_ok=True)
+                        for item in Path(temp_dir).iterdir():
+                            dest = dataset_dir / item.name
+                            if dest.exists():
+                                if dest.is_file():
+                                    dest.unlink()
+                                elif dest.is_dir():
+                                    shutil.rmtree(dest)
+                            shutil.move(str(item), str(dest))
+                        self._send(
+                            200,
+                            {
+                                "ok": True,
+                                "output": result.stdout,
+                                "dataset_dir": str(dataset_dir),
+                                "message": f"Dataset downloaded to {dataset_dir}",
+                            },
+                        )
+                    finally:
+                        shutil.rmtree(temp_dir, ignore_errors=True)
+                except Exception as exc:
+                    self._send(500, {"error": f"Kaggle download failed: {exc}"})
+                return
+
+            if parsed.path == "/dataset/create":
+                try:
+                    body = self._read_json(ensure_raw_body())
+                    dataset_type = str(body.get("dataset_type", "conversation")).strip().lower()
+                    name = str(body.get("name", "")).strip()
+                    limit_raw = body.get("limit", 500)
+                    try:
+                        limit = int(limit_raw)
+                    except Exception:
+                        self._send(400, {"error": "limit must be an integer"})
+                        return
+                    result = _create_self_dataset(config, dataset_type=dataset_type, name=name, limit=limit)
+                    self._send(200, result)
+                except ValueError as exc:
+                    self._send(400, {"error": str(exc)})
+                except Exception as exc:
+                    self._send(500, {"error": f"dataset create failed: {exc}"})
+                return
 
             if parsed.path in HUD_ROUTE_CONTRACT["runtime_stop"]:
                 self._send(200, _runtime_stop())
@@ -2705,32 +3631,242 @@ def create_approval_api_server(
                 self._send(200, _runtime_resume())
                 return
 
+            if parsed.path == "/hud/reset-conversation":
+                try:
+                    shared_hud_conversation.reset()
+                except Exception:
+                    pass
+                for brain in chat_brains.values():
+                    try:
+                        brain.conversation = shared_hud_conversation
+                    except Exception:
+                        pass
+                # Also wipe the file directly as a fallback
+                try:
+                    from pathlib import Path as _Path
+                    conv_path = _Path("D:/jarvis-data/conversation.json")
+                    conv_path.write_text("[]", encoding="utf-8")
+                except Exception:
+                    pass
+                self._send(200, {"ok": True, "message": "Conversation memory cleared."})
+                return
+
+            if parsed.path == "/hud/tts":
+                body = self._read_json(ensure_raw_body())
+                text = str(body.get("text", "")).strip()
+                requested_agent = str(body.get("agent", "")).strip().lower()
+                requested_voice = str(body.get("voice", "")).strip().lower()
+                if not text:
+                    self._send(400, {"error": "text is required"})
+                    return
+                preferred_voice = requested_voice if requested_voice in {"male", "female"} else ("female" if requested_agent == "eva" else (config.voice_tts_default_voice or "male"))
+                from .perception.voice.tts import build_tts_adapter
+                voice_ids: dict = {}
+                if config.voice_tts_voice_id_male:
+                    voice_ids["male"] = config.voice_tts_voice_id_male
+                if config.voice_tts_voice_id_female:
+                    voice_ids["female"] = config.voice_tts_voice_id_female
+                adapter = build_tts_adapter(
+                    config.voice_tts_provider,
+                    api_key=config.voice_tts_api_key,
+                    voice_ids=voice_ids or None,
+                    default_voice=preferred_voice,
+                    model=config.voice_tts_model or "eleven_multilingual_v2",
+                    stability=config.voice_tts_stability,
+                    similarity_boost=config.voice_tts_similarity_boost,
+                    style=config.voice_tts_style,
+                    speaker_boost=config.voice_tts_speaker_boost,
+                )
+                result = adapter.synthesize(text, voice=preferred_voice)
+                if result.get("error"):
+                    self._send(500, {"error": result["error"]})
+                    return
+                audio = result.get("audio", b"")
+                if not audio:
+                    self._send(500, {"error": "no audio returned"})
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "audio/mpeg")
+                self.send_header("Content-Length", str(len(audio)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(audio)
+                return
+
             if parsed.path == "/hud/ask":
-                body = self._read_json(raw_body)
+                body = self._read_json(ensure_raw_body())
                 text = str(body.get("text", "")).strip()
                 if not text:
                     self._send(400, {"error": "text is required"})
                     return
-                brain_key = "__hud_voice__"
-                if brain_key not in chat_brains:
-                    from .cli import build_brain_from_config
-                    chat_brains[brain_key] = build_brain_from_config(config)
                 try:
                     ctx = body.get("context", {})
                     ctx_str = ""
+                    agent_id = "jarvis"
                     capability_str = (
                         "[HUD operator guidance: You have live tools for web_search, web_fetch, notes_list, notes_read, notes_write, recall, and other Jarvis actions. "
                         "When the operator says 'learn a dataset', 'learn datasets', 'use this dataset', or asks to automate that process, interpret it as a request to find/fetch/analyze/store dataset knowledge for future retrieval rather than a question about retraining model weights. "
+                        "For local dataset storage, treat D:/DATASET as canonical and do not suggest generic placeholders like C:/Users/<name>/BinanceData unless the operator explicitly requests a different directory. "
                         "Prefer taking action with tools or proposing a concrete ingest workflow over explaining LLM limitations. "
                         "If the user asks for a coding project, prefer an actionable implementation plan or tool-driven work over generic refusal. "
                         "Only discuss model retraining limits if the operator explicitly asks about fine-tuning or weights.] "
                     )
                     if isinstance(ctx, dict):
                         view = str(ctx.get("view", "")).strip()
+                        agent_id = str(ctx.get("agent", "jarvis")).strip().lower() or "jarvis"
+                        if agent_id not in {"jarvis", "eva"}:
+                            agent_id = "jarvis"
                         if view:
                             ctx_str = f"[HUD: user is on the '{view}' panel. Available panels: cc=Command Center, jarvis=Jarvis Chat, globe=Strategic Globe, approvals=Approval Queue] "
-                    reply = chat_brains[brain_key].turn(capability_str + ctx_str + text)
-                    self._send(200, {"reply": reply})
+                    agent_hint = (
+                        "[Active HUD agent: EVA. Shared memory is available, but answer with EVA's assistant-first style and strengths.] "
+                        if agent_id == "eva"
+                        else "[Active HUD agent: Jarvis. Shared memory is available, and you are the broad all-round operator.] "
+                    )
+                    live_hint = _hud_live_context_hint(config)
+                    improve_hint = _self_improvement_hint()
+                    brain = _get_or_create_hud_brain(agent_id)
+                    reply = brain.turn(agent_hint + capability_str + ctx_str + live_hint + improve_hint + text)
+                    try:
+                        brain.conversation.annotate_last_assistant(agent_id=agent_id)
+                    except Exception:
+                        pass
+                    _record_self_improvement_signal(text)
+                    self._send(200, {"reply": reply, "agent": agent_id})
+                except Exception as exc:
+                    _record_self_improvement_signal(text, error=str(exc))
+                    self._send(500, {"error": str(exc)})
+                return
+
+            if parsed.path == "/hud/vision/frame":
+                body = self._read_json(ensure_raw_body())
+                image_b64 = str(body.get("image_b64", "")).strip()
+                question = str(body.get("question", "")).strip() or "Describe what you see in this image concisely."
+                if not image_b64:
+                    self._send(400, {"error": "image_b64 is required"})
+                    return
+                try:
+                    local_analysis = analyze_frame_b64(
+                        image_b64,
+                        detect_faces_flag=True,
+                        detect_colors_flag=False,
+                        detect_landmarks_flag=False,
+                        max_colors=1,
+                    )
+                    faces = local_analysis.get("faces") if isinstance(local_analysis, dict) else []
+                    if not isinstance(faces, list):
+                        faces = []
+
+                    focus_regions = []
+                    for idx, face in enumerate(faces, start=1):
+                        if not isinstance(face, dict):
+                            continue
+                        try:
+                            x = float(face.get("x", 0.0))
+                            y_bottom = float(face.get("y", 0.0))
+                            w = float(face.get("w", 0.0))
+                            h = float(face.get("h", 0.0))
+                            score = float(face.get("confidence", 0.0))
+                        except (TypeError, ValueError):
+                            continue
+                        y_top = max(0.0, min(1.0, 1.0 - y_bottom - h))
+                        focus_regions.append(
+                            {
+                                "x": round(max(0.0, min(1.0, x)), 4),
+                                "y": round(y_top, 4),
+                                "w": round(max(0.0, min(1.0, w)), 4),
+                                "h": round(max(0.0, min(1.0, h)), 4),
+                                "kind": "face",
+                                "label": f"Face {idx}",
+                                "score": round(max(0.0, min(1.0, score)), 4),
+                                "color": "#22d3ee",
+                            }
+                        )
+
+                    people: list[dict[str, object]] = []
+                    description = ""
+                    raw_text = ""
+                    parsed_payload: dict[str, object] | None = None
+
+                    try:
+                        import anthropic as _anthropic
+
+                        _api_key = config.get_secret("ANTHROPIC_API_KEY") or config.anthropic_api_key
+                        _client = _anthropic.Anthropic(api_key=_api_key)
+                        people_prompt = (
+                            "Analyze this image and return STRICT JSON only with this shape: "
+                            '{"description":"string","people":[{"index":1,"gender":"string","age_range":"string","mood":"string","confidence":"low|medium|high"}]}. '
+                            "Use empty people array if no clear face is visible. "
+                            "Gender and age must be presented as perceived estimates and may be uncertain. "
+                            "Mood should be brief (e.g., neutral, happy, stressed). "
+                            f"Operator question: {question}"
+                        )
+                        _resp = _client.messages.create(
+                            model="claude-sonnet-4-6",
+                            max_tokens=512,
+                            messages=[{
+                                "role": "user",
+                                "content": [
+                                    {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": image_b64}},
+                                    {"type": "text", "text": people_prompt},
+                                ],
+                            }],
+                        )
+                        raw_text = _resp.content[0].text if _resp.content else ""
+
+                        if raw_text:
+                            try:
+                                parsed_payload = json.loads(raw_text)
+                            except Exception:
+                                start = raw_text.find("{")
+                                end = raw_text.rfind("}")
+                                if start != -1 and end != -1 and end > start:
+                                    try:
+                                        parsed_payload = json.loads(raw_text[start : end + 1])
+                                    except Exception:
+                                        parsed_payload = None
+
+                        if isinstance(parsed_payload, dict):
+                            description = str(parsed_payload.get("description") or "").strip()
+                            raw_people = parsed_payload.get("people")
+                            if isinstance(raw_people, list):
+                                for idx, person in enumerate(raw_people, start=1):
+                                    if not isinstance(person, dict):
+                                        continue
+                                    people.append(
+                                        {
+                                            "index": int(person.get("index") or idx),
+                                            "gender": str(person.get("gender") or "unknown").strip()[:40],
+                                            "age_range": str(person.get("age_range") or "unknown").strip()[:40],
+                                            "mood": str(person.get("mood") or "unknown").strip()[:40],
+                                            "confidence": str(person.get("confidence") or "unknown").strip()[:16],
+                                        }
+                                    )
+                        if not description:
+                            description = raw_text or ""
+                    except Exception:
+                        # Keep camera analyze usable even when remote provider is unavailable.
+                        face_count = len(focus_regions)
+                        if face_count > 0:
+                            description = f"Local vision fallback: detected {face_count} face region(s) in frame."
+                        else:
+                            description = "Local vision fallback: frame captured successfully, but no clear faces were detected."
+
+                    if not description:
+                        if focus_regions:
+                            description = f"Detected {len(focus_regions)} face region(s) in frame."
+                        else:
+                            description = "Frame captured successfully."
+
+                    self._send(
+                        200,
+                        {
+                            "description": description,
+                            "focus_regions": focus_regions,
+                            "people": people,
+                            "face_count": len(focus_regions),
+                        },
+                    )
                 except Exception as exc:
                     self._send(500, {"error": str(exc)})
                 return
@@ -2741,7 +3877,7 @@ def create_approval_api_server(
                     return
 
                 query = parse_qs(parsed.query)
-                form = parse_qs(raw_body.decode("utf-8", errors="ignore"))
+                form = parse_qs(ensure_raw_body().decode("utf-8", errors="ignore"))
                 response_format = str(query.get("response_format", [""])[0]).strip().lower()
                 wants_json = response_format == "json"
 
@@ -2845,7 +3981,7 @@ def create_approval_api_server(
                     return
 
                 query = parse_qs(parsed.query)
-                form = parse_qs(raw_body.decode("utf-8", errors="ignore"))
+                form = parse_qs(ensure_raw_body().decode("utf-8", errors="ignore"))
                 token = str(
                     (query.get("token", [""])[0] or form.get("token", [""])[0])
                 ).strip()
@@ -2887,7 +4023,7 @@ def create_approval_api_server(
                 self._send(200, {"status": "accepted", "event_id": event.id})
                 return
 
-            body = self._read_json(raw_body)
+            body = self._read_json(ensure_raw_body())
             if body.get("_invalid_json"):
                 self._send(400, {"error": "invalid json"})
                 return

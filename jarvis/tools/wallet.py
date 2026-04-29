@@ -336,11 +336,10 @@ class WalletManager:
         """Initialize wallet manager.
         
         Args:
-            data_dir: Directory for wallet persistence (defaults to ~/.jarvis/wallets/)
+            data_dir: Directory for wallet persistence (defaults to D:/jarvis-data/wallets/)
         """
         if data_dir is None:
-            data_dir = Path.home() / ".jarvis" / "wallets"
-        
+            data_dir = Path("D:/jarvis-data/wallets")
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.wallets: dict[str, Wallet] = {}

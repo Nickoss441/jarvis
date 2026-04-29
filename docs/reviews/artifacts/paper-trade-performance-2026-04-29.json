@@ -1,0 +1,41 @@
+{
+  "anomalies": {
+    "latency_count": 0,
+    "latency_threshold_ms": 1000.0,
+    "slippage_count": 0,
+    "slippage_threshold_bps": 50.0
+  },
+  "audit": {
+    "dispatch_failure_count": 0,
+    "policy_violation_count": 0
+  },
+  "meets_minimum_window": false,
+  "minimum_window": {
+    "trades": 100,
+    "trading_days": 20
+  },
+  "mode": "paper",
+  "ok": true,
+  "pnl": {
+    "average_loss": null,
+    "average_per_trade": 0.0,
+    "average_win": null,
+    "gross_loss": 0,
+    "gross_profit": 0,
+    "net": 0,
+    "profit_factor": null,
+    "win_rate": 0.0
+  },
+  "risk": {
+    "max_drawdown": 0.0
+  },
+  "trade_count": 0,
+  "trades_log": "C:\\Users\\Nickos\\.jarvis\\trades-log.jsonl",
+  "trading_days": 0,
+  "window": {
+    "end": null,
+    "end_ts": null,
+    "start": null,
+    "start_ts": null
+  }
+}

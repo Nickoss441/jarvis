@@ -1,0 +1,23 @@
+{
+  "name": "jarvis-overlay",
+  "version": "1.0.0",
+  "description": "Transparent always-on-top HUD overlay for Jarvis",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win portable"
+  },
+  "build": {
+    "appId": "com.jarvis.overlay",
+    "productName": "Jarvis HUD",
+    "win": {
+      "target": "portable",
+      "icon": "build/tray.ico"
+    },
+    "files": ["main.js", "build/**"]
+  },
+  "devDependencies": {
+    "electron": "^29.0.0",
+    "electron-builder": "^24.0.0"
+  }
+}

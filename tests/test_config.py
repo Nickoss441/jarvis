@@ -295,6 +295,24 @@ def test_validate_rejects_smart_home_phase_without_home_assistant_config(tmp_pat
         assert "JARVIS_PHASE_SMART_HOME requires JARVIS_HOME_ASSISTANT_TOKEN" in msg
 
 
+def test_validate_rejects_missing_anthropic_api_key(tmp_path):
+    config = Config(
+        anthropic_api_key="",
+        model="claude-sonnet-4-6",
+        deployment_target="laptop",
+        voice_stack="local",
+        notes_dir=tmp_path / "notes",
+        audit_db=tmp_path / "audit.db",
+        user_name="Nick",
+    )
+
+    try:
+        config.validate()
+        assert False, "expected ValueError"
+    except ValueError as e:
+        assert "ANTHROPIC_API_KEY is required" in str(e)
+
+
 def test_validate_rejects_voice_phase_with_empty_wake_word(tmp_path):
     config = Config(
         anthropic_api_key="test",

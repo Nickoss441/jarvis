@@ -65,7 +65,7 @@ Operating style:
 """
 
 
-def build_brain_from_config(config: Config) -> Brain:
+def build_brain_from_config(config: Config, system_prompt_template: str | None = None) -> Brain:
     audit = AuditLog(config.audit_db)
     policy_path = Path(__file__).parent.parent / "policies.yaml"
     policy = Policy.from_file(
@@ -187,7 +187,7 @@ def build_brain_from_config(config: Config) -> Brain:
         )
     )
 
-    return Brain(config, audit, policy, tools)
+    return Brain(config, audit, policy, tools, system_prompt_template=system_prompt_template)
 
 
 def build_system_control_brain_from_config(config: Config) -> Brain:

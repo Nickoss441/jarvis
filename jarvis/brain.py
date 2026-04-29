@@ -1,26 +1,98 @@
+ERROR_CODES = {
+    # Protocol and conversation errors
+    "ERR_TOOL_RESULT_PROTOCOL": {
+        "code": 1001,
+        "message": "A tool_result must immediately follow tool_use."
+    },
+    "ERR_TOOL_NOT_FOUND": {
+        "code": 1002,
+        "message": "Requested tool handler not found."
+    },
+    "ERR_TOOL_BAD_ARGS": {
+        "code": 1003,
+        "message": "Tool called with wrong arguments."
+    },
+    "ERR_TOOL_FAILURE": {
+        "code": 1004,
+        "message": "Tool handler raised an exception."
+    },
+    "ERR_POLICY_DENIED": {
+        "code": 1005,
+        "message": "Policy preflight denied this tool call."
+    },
+    "ERR_INVALID_TOOL_INPUT": {
+        "code": 1006,
+        "message": "Tool input must be an object."
+    },
+    "ERR_CONVERSATION_OVERFLOW": {
+        "code": 1007,
+        "message": "Conversation context window overflowed."
+    },
+    "ERR_LLM_API": {
+        "code": 1008,
+        "message": "LLM API error or timeout."
+    },
+    # Add more as needed
+}
+
+def make_error_payload(kind: str, detail: str = "") -> dict:
+    info = ERROR_CODES.get(kind, {"code": 1999, "message": "Unknown error."})
+    payload = {
+        "type": "error",
+        "error_code": info["code"],
+        "error_type": kind,
+        "message": info["message"],
+    }
+    if detail:
+        payload["detail"] = detail
+    return payload
+class ToolResultProtocolError(Exception):
+    """Raised when tool_result does not immediately follow tool_use as required by protocol."""
+    def __init__(self, message: str = None):
+        super().__init__(message or make_error_payload("ERR_TOOL_RESULT_PROTOCOL")["message"])
+
 """The agent loop.
 
 Each call to `Brain.turn(user_input)`:
-  1. Logs the user input.
-  2. Asks Claude what to do, given the conversation, system prompt, and tool
-     schemas.
-  3. If Claude returns text, returns it.
-  4. If Claude requested tools, runs each tool through the policy engine,
-     dispatches it, logs the result, and feeds results back to Claude.
-  5. Repeats up to MAX_ITERATIONS.
+    1. Logs the user input.
+    2. Asks Claude what to do, given the conversation, system prompt, and tool schemas.
+    3. If Claude returns text, returns it.
+    4. If Claude requested tools, runs each tool through the policy engine, dispatches it, logs the result, and feeds results back to Claude.
+    5. Repeats up to MAX_ITERATIONS.
+
+All errors are returned as structured payloads with a unique error code and type from ERROR_CODES.
+Use make_error_payload(kind, detail) to generate a standard error response.
 """
+# Export error codes for use by other modules
+__all__ = ["Brain", "ERROR_CODES", "make_error_payload"]
 from datetime import date
+import re
 from typing import Any, cast
 from uuid import uuid4
 
 from .config import Config
 from .audit import AuditLog
 from .memory import Conversation
+from .ollama_adapter import OllamaModelRouter
 from .policy import Policy
 from .runtime import RuntimeOrchestrator, RuntimeToolError
 from .runtime.retry import RetryPolicy
 from .runtime.turn import RuntimeTurnContext
 from .tools import ToolRegistry
+
+
+class _OllamaTextBlock:
+    """Minimal text block that mimics anthropic.types.TextBlock."""
+    type = "text"
+    def __init__(self, text: str):
+        self.text = text
+
+
+class _OllamaResponse:
+    """Minimal response object that mimics anthropic.types.Message for text-only replies."""
+    stop_reason = "end_turn"
+    def __init__(self, text: str):
+        self.content = [_OllamaTextBlock(text)]
 
 MAX_ITERATIONS = 10
 MAX_TOKENS = 2048
@@ -56,10 +128,14 @@ Today is {date}.
 </planning_rules>
 
 <response_contract>
-- Be concise.
+- Be concise when the task calls for it, but do not sound clipped or robotic.
+- Sound natural, warm, and conversational in normal chat.
+- Be friendly and reassuring when the user sounds frustrated, tired, or casual.
 - Ask one focused clarifying question rather than guessing.
 - If a gated tool is denied by policy, explain that briefly and continue with safe alternatives.
 - Do not claim a tool succeeded unless the tool result confirms it.
+- Never simulate a transcript with multiple speakers (for example "User:" / "Jarvis:").
+- Reply as Jarvis only; do not roleplay both sides of a conversation.
 - All actions are logged to the audit log and can be replayed.
 </response_contract>
 """
@@ -90,6 +166,17 @@ class Brain:
         self.client = anthropic.Anthropic(
             api_key=(config.get_secret("ANTHROPIC_API_KEY") or config.anthropic_api_key)
         )
+
+        self.ollama = OllamaModelRouter(
+            base_url=config.ollama_base_url,
+            timeout=config.ollama_timeout,
+            fast_mode=config.ollama_fast_mode,
+            num_ctx=config.ollama_num_ctx,
+            num_predict=config.ollama_num_predict,
+            keep_alive=config.ollama_keep_alive,
+        ) if config.ollama_enabled else None
+        if self.ollama:
+            self.ollama.warm_load(config.ollama_warm_model)
 
     def _tool_inventory(self) -> str:
         """Render the live tool registry as a tier-grouped bullet list.
@@ -137,9 +224,28 @@ class Brain:
     def _plan(self, turn: RuntimeTurnContext) -> Any:
         turn.advance_iteration()
         turn.begin_react_cycle()
-        # Anthropic types are stricter than our dynamic tool/message shapes.
+
+        # Try Ollama first (free, local). In local-only mode, use Ollama on every
+        # iteration and never fall back to Claude.
+        if self.ollama and (turn.iteration == 1 or self.config.ollama_local_only):
+            ollama_messages = self.conversation.trimmed_for_context(max_messages=12)
+            text = self.ollama.chat(
+                messages=ollama_messages,
+                system=self._system(),
+            )
+            if text:
+                return _OllamaResponse(text)
+
+        if self.config.ollama_local_only:
+            return _OllamaResponse(
+                "Local-only mode is enabled and Ollama returned no response. "
+                "Please check that Ollama is running and a model is loaded, then try again."
+            )
+
+        # Fall back to Claude (handles tool calls, complex reasoning).
         tools_payload: Any = self.tools.schemas()
-        messages_payload: Any = self.conversation.messages
+        # Use trimmed conversation for context, preserving tool_use/tool_result pairs
+        messages_payload: Any = self.conversation.trimmed_for_context(max_messages=20)
         return self.client.messages.create(
             model=self.config.model,
             max_tokens=MAX_TOKENS,
@@ -170,6 +276,67 @@ class Brain:
         if not normalized:
             return ""
         return f"Thought: {normalized}"
+
+    @staticmethod
+    def _looks_like_self_dialogue(text: str) -> bool:
+        if not text:
+            return False
+        markers = re.findall(
+            r"(?im)(?:^|\n)\s*(?:\*\*)?\s*(user|you|jarvis(?:\s*\(me\))?|assistant)\s*[:：]",
+            text,
+        )
+        if len(markers) < 2:
+            return False
+        roles = {m.lower() for m in markers}
+        has_user = any(r in roles for r in {"user", "you"})
+        has_assistant = any(r.startswith("jarvis") or r == "assistant" for r in roles)
+        return has_user and has_assistant
+
+    @staticmethod
+    def _strip_role_prefixes(text: str) -> str:
+        if not text:
+            return ""
+        # Prefer the last assistant segment if the model emitted a transcript.
+        parts = re.split(
+            r"(?im)(?:^|\n)\s*(?:\*\*)?\s*(?:jarvis(?:\s*\(me\))?|assistant)\s*[:：]\s*",
+            text,
+        )
+        candidate = parts[-1].strip() if len(parts) > 1 else text.strip()
+        candidate = re.sub(
+            r"(?im)^\s*(?:\*\*)?\s*(?:user|you)\s*[:：].*$",
+            "",
+            candidate,
+        ).strip()
+        return candidate
+
+    @classmethod
+    def _sanitize_final_text(cls, text: str) -> str:
+        cleaned = (text or "").strip()
+        if not cleaned:
+            return cleaned
+        if cls._looks_like_self_dialogue(cleaned):
+            cleaned = cls._strip_role_prefixes(cleaned)
+            if not cleaned:
+                cleaned = (
+                    "Understood. I will answer directly as Jarvis only. "
+                    "Tell me the exact task and I will execute it."
+                )
+        return cleaned
+
+    @staticmethod
+    def _is_self_dialogue_request(user_input: str) -> bool:
+        text = (user_input or "").strip().lower()
+        if not text:
+            return False
+        triggers = (
+            "self dialog",
+            "self dialogue",
+            "self talk",
+            "talk to yourself",
+            "simulate conversation",
+            "start some self",
+        )
+        return any(t in text for t in triggers)
 
     def _observe(self, response: Any, correlation_id: str) -> list[dict[str, Any]]:
         blocks = self._content_blocks(response)
@@ -214,20 +381,11 @@ class Brain:
             "policy": {"allowed": decision.allowed, "reason": decision.reason},
         })
         if not decision.allowed:
-            return RuntimeToolError(
-                kind="policy-denied",
-                tool_name=name,
-                message="policy preflight denied this tool call",
-                detail=decision.reason,
-            ).to_dict()
+            return make_error_payload("ERR_POLICY_DENIED", detail=decision.reason)
 
         tool = self.tools.get(name)
         if not tool:
-            return RuntimeToolError(
-                kind="tool-not-found",
-                tool_name=name,
-                message=f"no handler registered for '{name}'",
-            ).to_dict()
+            return make_error_payload("ERR_TOOL_NOT_FOUND", detail=f"no handler registered for '{name}'")
 
         result: Any = None
         for attempt in range(1, self.retry_policy.max_attempts + 1):
@@ -235,21 +393,12 @@ class Brain:
                 result = tool.handler(**args)
                 break
             except TypeError as e:
-                result = RuntimeToolError(
-                    kind="tool-bad-args",
-                    tool_name=name,
-                    message="tool called with wrong arguments",
-                    detail=str(e),
-                ).to_dict()
+                result = make_error_payload("ERR_TOOL_BAD_ARGS", detail=str(e))
                 break
             except Exception as e:
                 if self.retry_policy.should_retry(attempt):
                     continue
-                result = RuntimeToolError(
-                    kind="tool-failure",
-                    tool_name=name,
-                    message=f"{e.__class__.__name__}: {e}",
-                ).to_dict()
+                result = make_error_payload("ERR_TOOL_FAILURE", detail=f"{e.__class__.__name__}: {e}")
 
         self.audit.append(
             "tool_result",
@@ -272,12 +421,7 @@ class Brain:
             tool_name = str(getattr(block, "name", ""))
             tool_use_id = getattr(block, "id", None)
             if not isinstance(raw_input, dict):
-                result = RuntimeToolError(
-                    kind="tool-bad-args",
-                    tool_name=tool_name or "<unknown>",
-                    message="tool input must be an object",
-                    detail=f"got {type(raw_input).__name__}",
-                ).to_dict()
+                result = make_error_payload("ERR_INVALID_TOOL_INPUT", detail=f"got {type(raw_input).__name__}")
                 self.audit.append(
                     "tool_call",
                     {
@@ -312,27 +456,67 @@ class Brain:
             tool_results.append(turn.add_tool_result(tool_use_id, result))
         return tool_results
 
+
     def turn(self, user_input: str) -> str:
-        """One conversational turn. Returns the agent's final text."""
-        correlation_id = str(uuid4())
-        turn = self.runtime.start_turn(user_input, correlation_id)
-        self._active_turn = turn
-        self._perceive(turn)
+        """One conversational turn. Returns the agent's final text (always a str)."""
+        import time
 
-        while not turn.exhausted:
-            response = self._plan(turn)
+        if self._is_self_dialogue_request(user_input):
+            return (
+                "I won't run self-dialogue mode. "
+                "Give me one concrete task and I will answer directly."
+            )
 
-            self._observe(response, correlation_id)
+        def _run_turn(t_user_input: str) -> str:
+            t_correlation_id = str(uuid4())
+            t_turn = self.runtime.start_turn(t_user_input, t_correlation_id)
+            self._active_turn = t_turn
+            self._perceive(t_turn)
 
-            if getattr(response, "stop_reason", None) != "tool_use":
+            while not t_turn.exhausted:
+                t0 = time.perf_counter()
+                response = self._plan(t_turn)
+                t1 = time.perf_counter()
+                print(f"[DEBUG] LLM API call took {t1-t0:.2f}s")
+                self._observe(response, t_correlation_id)
+
                 blocks = self._content_blocks(response)
-                return self.runtime.final_text_from_blocks(blocks)
+                has_tool_use = any(getattr(b, "type", None) == "tool_use" for b in blocks)
 
-            tool_results = self._dispatch_requested_tools(response, turn)
-            turn.complete_react_cycle()
-            self.conversation.add_tool_results(tool_results)
+                if has_tool_use:
+                    t2 = time.perf_counter()
+                    tool_results = self._dispatch_requested_tools(response, t_turn)
+                    t3 = time.perf_counter()
+                    print(f"[DEBUG] Tool execution took {t3-t2:.2f}s")
+                    t_turn.complete_react_cycle()
+                    if tool_results:
+                        self.conversation.add_tool_results(tool_results)
+                    continue
 
-        return "(stopped after max iterations — task too long for one turn)"
+                final_text = self.runtime.final_text_from_blocks(blocks)
+                sanitized = self._sanitize_final_text(final_text)
+                if sanitized != final_text:
+                    self.conversation.overwrite_last_assistant_text(sanitized)
+                return sanitized
+
+            return "(stopped after max iterations — task too long for one turn)"
+
+        try:
+            return _run_turn(user_input)
+        except ToolResultProtocolError as e:
+            self.conversation.reset()
+            return f"I had a tool protocol error and reset my memory. Please repeat your request."
+        except Exception as e:
+            err_str = str(e)
+            # Claude 400: dangling tool_use in stored history — reset and retry once
+            if "tool_use" in err_str and "tool_result" in err_str:
+                print(f"[WARN] Corrupt conversation history detected, resetting: {err_str[:160]}")
+                self.conversation.reset()
+                try:
+                    return _run_turn(user_input)
+                except Exception as e2:
+                    return f"Sorry, I couldn't recover after resetting memory. Error: {e2}"
+            return f"Error: {err_str}"
 
     def run_tool(
         self,

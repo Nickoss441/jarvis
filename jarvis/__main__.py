@@ -37,6 +37,7 @@ from .tools.trade import (
     log_trade_journal_entry,
 )
 from .perception.voice import WakeWordListener, build_voice_adapter_stack
+from .perception.voice.mic import MicVoiceLoop
 from .runtime import RuntimeEventEnvelope
 
 
@@ -176,7 +177,7 @@ def _trade_journal(
 
 def _stop() -> int:
     """Write sentinel file to pause all monitors and gated operations."""
-    sentinel = Path.home() / ".jarvis" / "stopped"
+    sentinel = Path("D:/jarvis-data/stopped")
     sentinel.parent.mkdir(parents=True, exist_ok=True)
     sentinel.write_text(str(int(time.time())), encoding="utf-8")
     print(f"Jarvis stopped. Sentinel file: {sentinel}")
@@ -185,7 +186,7 @@ def _stop() -> int:
 
 def _resume() -> int:
     """Remove sentinel file to resume monitors and gated operations."""
-    sentinel = Path.home() / ".jarvis" / "stopped"
+    sentinel = Path("D:/jarvis-data/stopped")
     if sentinel.exists():
         sentinel.unlink()
         print(f"Jarvis resumed. Removed sentinel file: {sentinel}")
@@ -323,7 +324,7 @@ def _approvals_dispatch() -> int:
     return 0 if summary.failures == 0 else 2
 
 
-_LOCALHOST_HOSTS = {"127.0.0.1", "localhost", "::1"}
+_LOCALHOST_HOSTS = {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
 
 
 def _approvals_api(host: str | None = None, port: int | None = None, expose: bool = False) -> int:
@@ -368,7 +369,7 @@ def _approvals_api(host: str | None = None, port: int | None = None, expose: boo
             f"using http://{bind_host}:{active_port} instead."
         )
 
-    print(f"Approval API listening on http://{bind_host}:{active_port}")
+    print(f"Approval API listening on http://{bind_host}:{active_port}"); print(f"💻 Access from MacBook: http://192.168.0.171:{active_port}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -1045,6 +1046,47 @@ def _wake_word_listen_with_confirmation(
         payload["action_outcome"] = "confirmation_failed"
         payload["outcome_message"] = "Confirmation failed after retry attempts; action was canceled."
     print(json.dumps(payload, sort_keys=True))
+    return 0
+
+
+def _voice_listen() -> int:
+    """Run the continuous microphone voice loop."""
+    import os
+    from .cli import build_brain_from_config
+
+    config = Config.from_env()
+    try:
+        brain = build_brain_from_config(config)
+    except Exception as exc:
+        print(f"[voice] Startup error: {exc}")
+        return 1
+
+    tts_adapter = None
+    if config.voice_tts_provider:
+        from .perception.voice import build_tts_adapter
+        tts_adapter = build_tts_adapter(
+            config.voice_tts_provider,
+            api_key=config.voice_tts_api_key,
+            voice_ids={
+                "male": config.voice_tts_voice_id_male,
+                "female": config.voice_tts_voice_id_female,
+            },
+            default_voice=config.voice_tts_default_voice,
+            model=config.voice_tts_model,
+            fallback_provider=config.voice_tts_fallback_provider,
+        )
+
+    whisper_model = os.getenv("JARVIS_WHISPER_MODEL", "base")
+    loop = MicVoiceLoop(
+        brain=brain,
+        wake_word=config.voice_wake_word or "jarvis",
+        tts_adapter=tts_adapter,
+        whisper_model_size=whisper_model,
+    )
+    try:
+        loop.run()
+    except KeyboardInterrupt:
+        pass
     return 0
 
 
@@ -2645,6 +2687,9 @@ def main(argv: list[str] | None = None) -> int:
         url = args[1] if len(args) >= 2 else None
         return _vision_shortcut_guide(url=url)
 
+    if args[0] == "voice-listen":
+        return _voice_listen()
+
     if args[0] == "voice-self-test":
         iterations = 10
         max_roundtrip_ms = 100.0
@@ -3459,6 +3504,7 @@ def main(argv: list[str] | None = None) -> int:
         "mac-pc-pipeline-self-test [--strict]|"
         "messaging-strategy-self-test [--strict]|"
         "webhook-listen [source] [host] [port]|"
+        "voice-listen|"
         "voice-self-test [--iterations N] [--max-roundtrip-ms X]|"
         "wake-word-listen <audio_text> [--confirm <text>] [--max-confirmation-retries N]|"
         "vision-listen [source] [host] [port]|"

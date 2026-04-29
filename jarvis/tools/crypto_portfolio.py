@@ -346,11 +346,10 @@ class PortfolioManager:
         """Initialize portfolio manager.
         
         Args:
-            data_dir: Directory for portfolio persistence (defaults to ~/.jarvis/portfolios/)
+            data_dir: Directory for portfolio persistence (defaults to D:/jarvis-data/portfolios/)
         """
         if data_dir is None:
-            data_dir = Path.home() / ".jarvis" / "portfolios"
-        
+            data_dir = Path("D:/jarvis-data/portfolios")
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.portfolios: dict[str, Portfolio] = {}

@@ -1,0 +1,14 @@
+﻿c:/Users/Nickos/jarvis/.venv/Scripts/python.exe : JARVIS_NTFY_TOPIC not set 
+ΓÇö ntfy notifications disabled, falling back to log-only notifier
+At line:1 char:124
++ ... input.txt | c:/Users/Nickos/jarvis/.venv/Scripts/python.exe -m jarvis ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (JARVIS_NTFY_TOP...g-only notifier 
+   :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+Jarvis (phase 1) ΓÇö type 'quit' to exit, 'reset' to clear conversation.
+
+you > (error: RateLimitError: Error code: 429 - {'type': 'error', 'error': {'type': 'rate_limit_error', 'message': "This request would exceed your organization's rate limit of 30,000 input tokens per minute (org: 7e4f7a9b-358f-40d8-80a0-28371dc86949, model: claude-sonnet-4-6). For details, refer to: https://docs.claude.com/en/api/rate-limits. You can see the response headers for current usage. Please reduce the prompt length or the maximum tokens requested, or try again later. You may also contact sales at https://claude.com/contact-sales to discuss your options for a rate limit increase."}, 'request_id': 'req_011CaWPD7vzhZpPzAEhg4UT5'})
+
+you > 
