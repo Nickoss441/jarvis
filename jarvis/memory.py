@@ -4,10 +4,13 @@ Phase 1: in-process only — wiped on restart. Phase 2 adds a lightweight
 file-backed store for long-term recall across restarts.
 """
 import json
+import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+_log = logging.getLogger(__name__)
 
 from .manifest import (
     decrypt_manifest_payload,
@@ -28,7 +31,8 @@ class Conversation:
             payload = json.loads(self.storage_path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             return
-        except (OSError, json.JSONDecodeError):
+        except (OSError, json.JSONDecodeError) as exc:
+            _log.warning("conversation history at %s is corrupt — resetting: %s", self.storage_path, exc)
             self.messages = []
             return
 

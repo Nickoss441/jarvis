@@ -721,8 +721,14 @@ function smoothPath(values, W, H) {
     return { line: d, fill: `${d} L${W},${H} L0,${H} Z` };
 }
 
-// live tick buffer: coinId — [price, ...]
+// live tick buffer: coinId — [price, ...] (max 50 coins, 300 ticks each)
 const _liveTicks = new Map();
+function _liveTicksSet(coinId, ticks) {
+    if (!_liveTicks.has(coinId) && _liveTicks.size >= 50) {
+        _liveTicks.delete(_liveTicks.keys().next().value);
+    }
+    _liveTicks.set(coinId, ticks);
+}
 
 // shared metals cache so multiple components don't hammer the API
 let _metalsCache = null;
@@ -855,7 +861,7 @@ function useAssetPrice(coinId, coinSymbol) {
                     prevRef.current = p;
                     const ticks = _liveTicks.get(coinId) ?? [];
                     ticks.push(p); if (ticks.length > 300) ticks.shift();
-                    _liveTicks.set(coinId, ticks);
+                    _liveTicksSet(coinId, ticks);
                     if (active) { setPrice(p); setDelta(0); setLoading(false); }
                 } catch (_) { if (active) setLoading(false); }
             };
@@ -878,7 +884,7 @@ function useAssetPrice(coinId, coinSymbol) {
                 prevRef.current = p;
                 const ticks = _liveTicks.get(coinId) ?? [];
                 ticks.push(p); if (ticks.length > 300) ticks.shift();
-                _liveTicks.set(coinId, ticks);
+                _liveTicksSet(coinId, ticks);
                 setPrice(p); setDelta(d); setLoading(false);
             } catch (_backendErr) {
                 // Fallback: fetch directly from Binance
@@ -895,7 +901,7 @@ function useAssetPrice(coinId, coinSymbol) {
                     prevRef.current = p;
                     const ticks = _liveTicks.get(coinId) ?? [];
                     ticks.push(p); if (ticks.length > 300) ticks.shift();
-                    _liveTicks.set(coinId, ticks);
+                    _liveTicksSet(coinId, ticks);
                     if (active) { setPrice(p); setDelta(d); setLoading(false); }
                 } catch (_) { if (active) setLoading(false); }
             }
@@ -1038,6 +1044,10 @@ const _thumbCache = new Map();
 
 function newsThumb(item) {
     if (_thumbCache.has(item.id)) return _thumbCache.get(item.id);
+    if (_thumbCache.size > 500) {
+        const oldest = _thumbCache.keys().next().value;
+        _thumbCache.delete(oldest);
+    }
     const preview = item.preview?.images?.[0]?.resolutions?.slice(-1)[0]?.url?.replaceAll("&amp;", "&")
         || item.preview?.images?.[0]?.source?.url?.replaceAll("&amp;", "&");
     const url = preview || (item.thumbnail?.startsWith("http") ? item.thumbnail : null);
@@ -2003,9 +2013,9 @@ function useVoice(device = "desktop", { onAgentSwitch } = {}) {
                 }),
                 signal: ctrl.signal,
             });
-            const j = await res.json();
+            const j = (await res.json()) ?? {};
             abortRef.current = null;
-            const r = j.reply || j.error || "No response";
+            const r = j?.reply || j?.error || "No response";
             const replyAgentId = typeof j.agent === "string" ? j.agent : activeAgentId;
             setReply(r);
             pushHistory(replyAgentId, r);

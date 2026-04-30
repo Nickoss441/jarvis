@@ -10,17 +10,26 @@ import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
+import re
+import shlex
 import shutil
 import subprocess
 import time
 from urllib.error import URLError
 from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
-import re
 import xml.etree.ElementTree as ET
 
 LOCAL_UPLOAD_MAX_BYTES = 5 * 1024 * 1024 * 1024
 LOCAL_UPLOAD_MAX_REQUEST_OVERHEAD_BYTES = 1024 * 1024
+
+_IPC_ALLOWED_ROOTS: tuple[Path, ...] = (
+    Path.home() / "jarvis-notes",
+    Path.home() / ".jarvis",
+    Path("D:/jarvis-data"),
+    Path("D:/DATASET"),
+    Path("c:/Users/Nickos/jarvis/jarvis-data"),
+)
 
 from .vision_analyze import analyze_frame_b64
 
@@ -3974,13 +3983,12 @@ KNOWLEDGE SHARING:
 
                     self._send(200, {"ok": True, "filename": fname, "bytes": bytes_written})
                     return
-                    self._send(400, {"error": "no file found in upload"})
                 except Exception as exc:
                     self._send(500, {"error": f"upload failed: {exc}"})
                 return
 
             if parsed.path == "/dataset/kaggle":
-                import shlex, shutil, tempfile, subprocess
+                import tempfile
                 try:
                     body = self._read_json(ensure_raw_body())
                     kaggle_cmd = body.get("command", "").strip()
@@ -3994,7 +4002,12 @@ KNOWLEDGE SHARING:
                     try:
                         if "--path" not in kaggle_cmd:
                             kaggle_cmd += f" --path {shlex.quote(temp_dir)}"
-                        result = subprocess.run(kaggle_cmd, shell=True, capture_output=True, text=True, timeout=600)
+                        try:
+                            parts = shlex.split(kaggle_cmd)
+                        except ValueError as exc:
+                            self._send(400, {"error": f"invalid command syntax: {exc}"})
+                            return
+                        result = subprocess.run(parts, shell=False, capture_output=True, text=True, timeout=600)
                         if result.returncode != 0:
                             self._send(500, {"error": "Kaggle command failed", "stderr": result.stderr})
                             return
@@ -4438,19 +4451,27 @@ KNOWLEDGE SHARING:
                 """Execute a shell command (restricted)."""
                 body = self._read_json(ensure_raw_body())
                 cmd = str(body.get("command", "")).strip()
-                
+
                 if not cmd:
                     self._send(400, {"error": "command is required"})
                     return
-                
-                # Only allow safe commands — expand as needed
-                safe_commands = ["python", "npm", "node", "git", "ls", "dir"]
-                if not any(cmd.lower().startswith(sc) for sc in safe_commands):
-                    self._send(403, {"error": f"command '{cmd}' not in whitelist"})
-                    return
-                
+
+                _SAFE_EXECUTABLES = {"python", "python3", "npm", "node", "git"}
                 try:
-                    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+                    parts = shlex.split(cmd)
+                except ValueError as exc:
+                    self._send(400, {"error": f"invalid command syntax: {exc}"})
+                    return
+                if not parts:
+                    self._send(400, {"error": "command is empty after parsing"})
+                    return
+                exe = Path(parts[0]).name.lower()
+                if exe not in _SAFE_EXECUTABLES:
+                    self._send(403, {"error": f"'{parts[0]}' not in whitelist"})
+                    return
+
+                try:
+                    result = subprocess.run(parts, shell=False, capture_output=True, text=True, timeout=10)
                     self._send(200, {
                         "status": "executed",
                         "stdout": result.stdout,
@@ -4467,22 +4488,25 @@ KNOWLEDGE SHARING:
                 """List files in a directory."""
                 qs = parse_qs(parsed.query)
                 dir_path = (qs.get("path", ["."])[0]).strip()
-                
+
                 try:
                     p = Path(dir_path).resolve()
+                    if not any(str(p).startswith(str(root.resolve())) for root in _IPC_ALLOWED_ROOTS):
+                        self._send(403, {"error": "path not in allowed directories"})
+                        return
                     if not p.is_dir():
                         self._send(400, {"error": "not a directory"})
                         return
-                    
+
                     files = []
-                    for item in sorted(p.iterdir())[:100]:  # Limit to 100 items
+                    for item in sorted(p.iterdir())[:100]:
                         files.append({
                             "name": item.name,
                             "type": "dir" if item.is_dir() else "file",
                             "size": item.stat().st_size if item.is_file() else None,
                             "path": str(item)
                         })
-                    
+
                     self._send(200, {"files": files, "path": str(p)})
                 except Exception as exc:
                     self._send(500, {"error": str(exc)})
@@ -4492,21 +4516,24 @@ KNOWLEDGE SHARING:
                 """Read file contents (text only)."""
                 qs = parse_qs(parsed.query)
                 file_path = (qs.get("path", [""])[0]).strip()
-                
+
                 if not file_path:
                     self._send(400, {"error": "path parameter required"})
                     return
-                
+
                 try:
                     p = Path(file_path).resolve()
+                    if not any(str(p).startswith(str(root.resolve())) for root in _IPC_ALLOWED_ROOTS):
+                        self._send(403, {"error": "path not in allowed directories"})
+                        return
                     if not p.exists():
                         self._send(404, {"error": "file not found"})
                         return
-                    
-                    if p.stat().st_size > 5 * 1024 * 1024:  # >5MB
+
+                    if p.stat().st_size > 5 * 1024 * 1024:
                         self._send(413, {"error": "file too large"})
                         return
-                    
+
                     content = p.read_text(encoding="utf-8", errors="replace")
                     self._send(200, {"path": file_path, "content": content})
                 except Exception as exc:
@@ -4590,7 +4617,7 @@ KNOWLEDGE SHARING:
                             f"Operator question: {question}"
                         )
                         _resp = _client.messages.create(
-                            model="claude-sonnet-4-6",
+                            model=config.model,
                             max_tokens=512,
                             messages=[{
                                 "role": "user",
@@ -4776,7 +4803,7 @@ KNOWLEDGE SHARING:
                 if not token:
                     self._send(400, {"error": "token is required"})
                     return
-                if token != config.twilio_webhook_token:
+                if not hmac.compare_digest(token, config.twilio_webhook_token):
                     self._send(401, {"error": "unauthorized"})
                     return
 
@@ -5233,7 +5260,6 @@ KNOWLEDGE SHARING:
 
 
 if __name__ == "__main__":
-    print("[DEBUG] approval_api.py main block starting")
     from jarvis.config import Config
     config = Config.from_env()
     server = create_approval_api_server(config)

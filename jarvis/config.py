@@ -210,9 +210,9 @@ class Config:
     ntfy_token: str = ""
     twilio_webhook_token: str = ""
     trading_paper_broker: str = "alpaca"
-    helius_api_key: str = "helux 3e95acbf-855e-4331-a3a4-a03396566456"
+    helius_api_key: str = ""
     helius_network: str = "mainnet"
-    helius_api_url: str = "https://dashboard.helius.dev/b2eeb17e-e50b-458a-8106-e79014f6f4d8/api-keys"
+    helius_api_url: str = "https://api.helius.xyz"
     mapbox_token: str = ""
     owm_api_key: str = ""
     ollama_enabled: bool = True

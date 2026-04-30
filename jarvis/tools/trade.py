@@ -519,7 +519,7 @@ def dispatch_trade(
         broker_kind = "live broker" if mode == "live" else "paper broker"
         return {"error": f"Unsupported {broker_kind}: {paper_broker}"}
 
-    if not alpaca_api_key or not alpaca_api_secret:
+    if not alpaca_api_key.strip() or not alpaca_api_secret.strip():
         return {"error": "alpaca paper credentials are required (ALPACA_API_KEY/ALPACA_API_SECRET)"}
 
     if httpx is None:

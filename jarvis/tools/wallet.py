@@ -5,8 +5,8 @@ category-based expense analysis, and spending alerts with integration
 to travel itineraries and payment governance.
 """
 
-from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone, timedelta
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Optional

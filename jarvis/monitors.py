@@ -15,6 +15,7 @@ from typing import Any
 import logging
 import threading
 import time
+import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
 

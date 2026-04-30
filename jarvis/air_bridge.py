@@ -399,7 +399,10 @@ class WatchlistManager:
     def _load(self) -> list:
         try:
             return json.loads(self._path.read_text(encoding="utf-8")).get("ids", [])
-        except Exception:
+        except FileNotFoundError:
+            return []
+        except Exception as exc:
+            logger.warning("watchlist load failed, using empty list: %s", exc)
             return []
 
     def _save(self, ids: list) -> None:

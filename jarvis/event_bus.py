@@ -291,13 +291,7 @@ class EventBus:
 
             conn = sqlite3.connect(self.db_path, timeout=5.0)
             try:
-                conn.execute("SELECT 1 FROM events LIMIT 1").fetchone()
-                conn.execute("BEGIN IMMEDIATE")
-                conn.execute(
-                    "CREATE TEMP TABLE IF NOT EXISTS healthcheck_tmp (id INTEGER PRIMARY KEY)"
-                )
-                conn.execute("INSERT INTO healthcheck_tmp DEFAULT VALUES")
-                conn.rollback()
+                conn.execute("SELECT COUNT(*) FROM events LIMIT 1").fetchone()
                 return True
             except sqlite3.Error:
                 return False

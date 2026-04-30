@@ -5,8 +5,8 @@ portfolio rebalancing analysis, and integration with sentiment analysis for
 trading signals.
 """
 
-from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone, timedelta
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Optional

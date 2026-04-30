@@ -134,7 +134,7 @@ class AuditLog:
                 "id": r[0],
                 "ts": r[1],
                 "kind": r[2],
-                "payload": json.loads(r[3]),
+                "payload": json.loads(r[3]) if r[3] else {},
             }
             for r in rows
         ]

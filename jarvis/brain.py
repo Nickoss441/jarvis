@@ -473,7 +473,6 @@ class Brain:
 
     def turn(self, user_input: str) -> str:
         """One conversational turn. Returns the agent's final text (always a str)."""
-        import time
 
         if self._is_self_dialogue_request(user_input):
             return (
@@ -488,20 +487,14 @@ class Brain:
             self._perceive(t_turn)
 
             while not t_turn.exhausted:
-                t0 = time.perf_counter()
                 response = self._plan(t_turn)
-                t1 = time.perf_counter()
-                print(f"[DEBUG] LLM API call took {t1-t0:.2f}s")
                 self._observe(response, t_correlation_id)
 
                 blocks = self._content_blocks(response)
                 has_tool_use = any(getattr(b, "type", None) == "tool_use" for b in blocks)
 
                 if has_tool_use:
-                    t2 = time.perf_counter()
                     tool_results = self._dispatch_requested_tools(response, t_turn)
-                    t3 = time.perf_counter()
-                    print(f"[DEBUG] Tool execution took {t3-t2:.2f}s")
                     t_turn.complete_react_cycle()
                     if tool_results:
                         self.conversation.add_tool_results(tool_results)
