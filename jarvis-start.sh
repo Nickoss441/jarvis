@@ -11,7 +11,7 @@ source .env.local
 set +a
 
 # Create required directories
-mkdir -p ~/.jarvis-dev/{notes,artifacts}
+mkdir -p D:/jarvis-data/{notes,artifacts}
 
 # Start approvals API server
 echo "🚀 Starting Jarvis Approvals API..."

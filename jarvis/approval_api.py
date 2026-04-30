@@ -1,33 +1,5 @@
-import sys
-try:
-    print("[DEBUG] approval_api.py loaded")
-    def _debug(msg):
-        print(f"[DEBUG] {msg}", file=sys.stderr)
-    _debug("Starting main import sequence...")
-except Exception as e:
-    print(f"[FATAL] Exception during import: {e}", file=sys.stderr)
-    import traceback
-    traceback.print_exc()
-    sys.exit(1)
-if __name__ == "__main__":
-    print("[DEBUG] approval_api.py main block starting")
-    from .config import Config
-    config = Config.from_env()
-    server = create_approval_api_server(config)
-    print("Approval API listening on http://0.0.0.0:8080 (use your network IP to access from other devices)")
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        server.server_close()
-print("[DEBUG] approval_api.py loaded")
 
 import sys
-def _debug(msg):
-    print(f"[DEBUG] {msg}", file=sys.stderr)
-
-_debug("Starting main import sequence...")
 """Minimal HTTP API surface for approval operations."""
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -44,6 +16,7 @@ import time
 from urllib.error import URLError
 from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
+import re
 import xml.etree.ElementTree as ET
 
 LOCAL_UPLOAD_MAX_BYTES = 5 * 1024 * 1024 * 1024
@@ -117,10 +90,20 @@ _GLOBE_TEXTURES = [
 
 COMMAND_CENTER_ASSETS = {
     "index.html": "text/html; charset=utf-8",
+    "planes.html": "text/html; charset=utf-8",
     "app.js": "application/javascript; charset=utf-8",
     "styles.css": "text/css; charset=utf-8",
+    "air_service.js": "application/javascript; charset=utf-8",
+    "air_state.js": "application/javascript; charset=utf-8",
+    "performance_profiler.js": "application/javascript; charset=utf-8",
+    "renderers/manager.js": "application/javascript; charset=utf-8",
+    "renderers/base.js": "application/javascript; charset=utf-8",
+    "renderers/globe.js": "application/javascript; charset=utf-8",
+    "renderers/deckgl.js": "application/javascript; charset=utf-8",
+    "renderers/mapbox.js": "application/javascript; charset=utf-8",
 }
 COMMAND_CENTER_DIR = Path(__file__).resolve().parent / "web" / "command_center"
+STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
 JARVIS_HOME_ASSETS = {
     "index.html": "text/html; charset=utf-8",
@@ -168,10 +151,43 @@ _METALS_CACHE: dict[str, object] = {
     "updated_unix": 0.0,
 }
 
+# Maps friendly asset names / CoinGecko IDs / common symbols → Yahoo Finance tickers.
+# Extend this dict to add new assets without touching any endpoint logic.
 _YAHOO_QUOTE_SYMBOLS = {
     "gold": "GC=F",
     "oil": "CL=F",
+    "silver": "SI=F",
+    "platinum": "PL=F",
+    "natural-gas": "NG=F",
+    "sp500": "^GSPC",
+    "nasdaq": "^IXIC",
+    "dow": "^DJI",
+    # Crypto — Yahoo uses <SYM>-USD for spot prices
+    "bitcoin": "BTC-USD",
+    "btc": "BTC-USD",
+    "ethereum": "ETH-USD",
+    "eth": "ETH-USD",
+    "solana": "SOL-USD",
+    "sol": "SOL-USD",
+    "bnb": "BNB-USD",
+    "xrp": "XRP-USD",
+    "cardano": "ADA-USD",
+    "ada": "ADA-USD",
+    "dogecoin": "DOGE-USD",
+    "doge": "DOGE-USD",
+    "polkadot": "DOT-USD",
+    "dot": "DOT-USD",
+    "chainlink": "LINK-USD",
+    "link": "LINK-USD",
+    "avalanche-2": "AVAX-USD",
+    "avax": "AVAX-USD",
+    "matic-network": "MATIC-USD",
+    "matic": "MATIC-USD",
 }
+
+# Per-symbol quote cache: symbol → {price, high, low, change_pct, currency, name, _ts}
+_QUOTE_CACHE: dict[str, dict] = {}
+_QUOTE_CACHE_TTL = 10  # seconds
 
 _HEALTH_CACHE: dict[str, object] = {
     "status": None,
@@ -233,12 +249,24 @@ def _extract_operator_rule(text: str) -> str:
     return ""
 
 
+def _safe_int(val, default=0):
+    try:
+        return int(val)
+    except Exception:
+        return default
+
+
+def _safe_list(val):
+    return list(val) if isinstance(val, list) else []
+
+
 def _record_self_improvement_signal(user_text: str, error: str | None = None) -> None:
     state = _load_self_improvement_state()
-    total_turns = int(state.get("total_turns") or 0) + 1
-    error_turns = int(state.get("error_turns") or 0) + (1 if error else 0)
-    rules = [str(x) for x in (state.get("operator_rules") or []) if str(x).strip()]
-    feedback = [str(x) for x in (state.get("recent_feedback") or []) if str(x).strip()]
+
+    total_turns = _safe_int(state.get("total_turns"), 0) + 1
+    error_turns = _safe_int(state.get("error_turns"), 0) + (1 if error else 0)
+    rules = [str(x) for x in _safe_list(state.get("operator_rules")) if str(x).strip()]
+    feedback = [str(x) for x in _safe_list(state.get("recent_feedback")) if str(x).strip()]
 
     maybe_rule = _extract_operator_rule(user_text)
     if maybe_rule and maybe_rule not in rules:
@@ -255,9 +283,9 @@ def _record_self_improvement_signal(user_text: str, error: str | None = None) ->
 
 def _self_improvement_hint() -> str:
     state = _load_self_improvement_state()
-    turns = int(state.get("total_turns") or 0)
-    errors = int(state.get("error_turns") or 0)
-    rules = [str(x) for x in (state.get("operator_rules") or []) if str(x).strip()]
+    turns = _safe_int(state.get("total_turns"), 0)
+    errors = _safe_int(state.get("error_turns"), 0)
+    rules = [str(x) for x in _safe_list(state.get("operator_rules")) if str(x).strip()]
     error_rate = (errors / turns) if turns > 0 else 0.0
     reliability = "high" if error_rate < 0.1 else ("medium" if error_rate < 0.25 else "low")
     top_rules = " | ".join(rules[-4:]) if rules else "none"
@@ -268,6 +296,82 @@ def _self_improvement_hint() -> str:
     )
 
 
+def _prompt_safe(text: str) -> str:
+    return str(text or "").replace("{", "{{").replace("}", "}}")
+
+
+def _sanitize_hud_reply_text(text: str) -> str:
+    """Keep HUD replies direct and avoid simulation/disclaimer boilerplate."""
+    cleaned = str(text or "").strip()
+    if not cleaned:
+        return cleaned
+
+    cleaned = re.sub(
+        r"\b(in|within|inside)\s+(a\s+)?(simulated|sandboxed?)\s+environment\b",
+        "with current connected tools",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"\bthis\s+is\s+(a\s+)?simulation\b",
+        "this is your live Jarvis runtime",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
+        r"\bfor\s+security\s+reasons\b[:,]?\s*",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
+    return cleaned
+
+
+def _chunk_hud_reply_text(text: str, max_chars: int = 1400) -> list[str]:
+    """Split long HUD replies into readable chunks for client-side staged display."""
+    content = str(text or "").strip()
+    if not content:
+        return []
+
+    chunks: list[str] = []
+    remaining = content
+    min_natural_break = int(max_chars * 0.45)
+
+    while len(remaining) > max_chars:
+        split_at = remaining.rfind("\n\n", 0, max_chars + 1)
+        if split_at < min_natural_break:
+            split_at = remaining.rfind(". ", 0, max_chars + 1)
+            if split_at >= 0:
+                split_at += 1
+        if split_at < min_natural_break:
+            split_at = remaining.rfind(" ", 0, max_chars + 1)
+        if split_at <= 0:
+            split_at = max_chars
+
+        part = remaining[:split_at].strip()
+        if not part:
+            part = remaining[:max_chars].strip()
+            split_at = max_chars
+
+        chunks.append(part)
+        remaining = remaining[split_at:].lstrip()
+
+    if remaining:
+        chunks.append(remaining)
+    return chunks
+
+
+def _hud_reply_payload(reply: str, agent_id: str) -> dict[str, object]:
+    sanitized = _sanitize_hud_reply_text(reply)
+    chunks = _chunk_hud_reply_text(sanitized)
+    return {
+        "reply": sanitized,
+        "reply_chunks": chunks,
+        "agent": agent_id,
+    }
+
+
 def _dataset_root() -> Path:
     root = Path("D:/DATASET")
     root.mkdir(parents=True, exist_ok=True)
@@ -275,8 +379,6 @@ def _dataset_root() -> Path:
 
 
 def _sanitize_dataset_name(name: str) -> str:
-    import re
-
     cleaned = re.sub(r"[^a-zA-Z0-9._-]+", "_", (name or "").strip())
     return cleaned[:120].strip("._-")
 
@@ -313,9 +415,10 @@ def _create_self_dataset(config: Config, dataset_type: str, name: str, limit: in
     if ds_type == "conversation":
         messages: list[dict[str, object]] = []
         try:
-            payload = json.loads(config.conversation_store_path.read_text(encoding="utf-8"))
-            if isinstance(payload, list):
-                messages = [m for m in payload if isinstance(m, dict)]
+            if getattr(config, "conversation_store_path", None) is not None:
+                payload = json.loads(config.conversation_store_path.read_text(encoding="utf-8"))
+                if isinstance(payload, list):
+                    messages = [m for m in payload if isinstance(m, dict)]
         except Exception:
             messages = []
 
@@ -552,7 +655,7 @@ def _latest_metals_payload() -> dict[str, object]:
     now = time.time()
     cached = _METALS_CACHE.get("payload")
     cached_at = float(_METALS_CACHE.get("updated_unix") or 0.0)
-    if isinstance(cached, dict) and (now - cached_at) < 15:
+    if isinstance(cached, dict) and (now - cached_at) < 10:
         return cached
 
     def _fetch_yahoo_quote(symbol: str) -> float:
@@ -643,6 +746,94 @@ def _latest_metals_payload() -> dict[str, object]:
             "updated_at": datetime.now(timezone.utc).isoformat(),
             "cache_age_seconds": 0,
         }
+
+
+def _yahoo_quote(symbol: str) -> dict:
+    """Fetch a single Yahoo Finance quote with 10s caching."""
+    now = time.time()
+    cached = _QUOTE_CACHE.get(symbol)
+    if cached and (now - float(cached.get("_ts", 0))) < _QUOTE_CACHE_TTL:
+        return cached
+
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1m&range=1d"
+    req = Request(url, headers={"User-Agent": "Mozilla/5.0 JarvisHUD/2.0", "Accept": "application/json"})
+    try:
+        with urlopen(req, timeout=4) as resp:  # noqa: S310
+            raw = resp.read()
+        parsed = json.loads(raw.decode("utf-8"))
+        result = (((parsed or {}).get("chart") or {}).get("result") or [None])[0]
+        if not isinstance(result, dict):
+            raise ValueError("empty payload")
+        meta = result.get("meta") or {}
+        price = float(meta.get("regularMarketPrice") or 0)
+        high = float(meta.get("regularMarketDayHigh") or price)
+        low = float(meta.get("regularMarketDayLow") or price)
+        prev = float(meta.get("previousClose") or meta.get("chartPreviousClose") or price)
+        change = price - prev
+        change_pct = round((change / prev * 100), 4) if prev else 0.0
+        currency = str(meta.get("currency") or "USD")
+        name = str(meta.get("shortName") or meta.get("longName") or symbol)
+        data = {
+            "symbol": symbol,
+            "price": round(price, 8),
+            "high": round(high, 8),
+            "low": round(low, 8),
+            "prev_close": round(prev, 8),
+            "change": round(change, 8),
+            "change_pct": change_pct,
+            "currency": currency,
+            "name": name,
+            "ok": True,
+            "_ts": now,
+        }
+        _QUOTE_CACHE[symbol] = data
+        return data
+    except Exception as exc:  # noqa: BLE001
+        err = {"symbol": symbol, "ok": False, "error": str(exc), "_ts": now}
+        _QUOTE_CACHE[symbol] = err
+        return err
+
+
+def _yahoo_search(query: str) -> list[dict]:
+    """Search Yahoo Finance for instruments matching a query string."""
+    url = (
+        f"https://query1.finance.yahoo.com/v1/finance/search"
+        f"?q={query}&quotesCount=15&newsCount=0&listsCount=0"
+    )
+    req = Request(url, headers={"User-Agent": "Mozilla/5.0 JarvisHUD/2.0", "Accept": "application/json"})
+    try:
+        with urlopen(req, timeout=4) as resp:  # noqa: S310
+            raw = resp.read()
+        parsed = json.loads(raw.decode("utf-8"))
+        quotes = parsed.get("finance", {}).get("result", [{}])[0].get("quotes", [])
+        results = []
+        for q in quotes:
+            qt = q.get("quoteType", "")
+            results.append({
+                "symbol": q.get("symbol", ""),
+                "name": q.get("shortname") or q.get("longname") or q.get("symbol", ""),
+                "exchange": q.get("exchange", ""),
+                "type": qt,
+                "category": _quote_type_to_category(qt),
+            })
+        return results
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _quote_type_to_category(qt: str) -> str:
+    qt = (qt or "").upper()
+    if qt == "CRYPTOCURRENCY":
+        return "crypto"
+    if qt in ("CURRENCY", "FOREX"):
+        return "forex"
+    if qt in ("INDEX", "FUTURE"):
+        return "indices" if qt == "INDEX" else "commodities"
+    if qt == "EQUITY":
+        return "stocks"
+    if qt == "ETF":
+        return "etf"
+    return "other"
 
 
 UI_HTML = """<!doctype html>
@@ -2837,7 +3028,7 @@ def _inject_live_reload(html_body: str) -> str:
 
 
 def _stop_sentinel_path() -> Path:
-    return Path.home() / ".jarvis" / "stopped"
+    return Path("D:/jarvis-data/stopped")
 
 
 def _runtime_stop() -> dict[str, object]:
@@ -2952,34 +3143,28 @@ def create_approval_api_server(
 
     shared_hud_conversation = Conversation(storage_path=config.conversation_store_path)
 
-    JARVIS_HUD_PROMPT = SYSTEM_PROMPT + """
+    HUD_PROMPT = SYSTEM_PROMPT + """
 
 <agent_specialization>
-- You are the all-round primary agent.
-- Strengths: general reasoning, planning, execution, technical problem-solving, system control, and broad task coverage.
-- When a request spans multiple domains, lead confidently and synthesize the answer.
-- Keep a capable, grounded tone, but talk like a helpful companion instead of a rigid operator.
-- Default to clear, friendly language unless the task calls for a terse or highly formal response.
+[AGENT_PERSONA]
+
+COLLABORATION CAPABILITIES:
+- You can query the other agent for advice using cross-agent knowledge
+- Shared knowledge base allows both agents to learn from completed tasks
+- EVA specializes in conversational assistance, advisory, and user interaction
+- Jarvis specializes in operational work, automation, and technical execution
+- Mention collaboration when a task benefits from both agents working together
+
+KNOWLEDGE SHARING:
+- When you learn something valuable, store it in the shared knowledge base
+- Check the shared knowledge when starting new tasks
+- Reference the other agent's expertise when needed
 </agent_specialization>
 """
 
-    EVA_HUD_PROMPT = SYSTEM_PROMPT.replace(
-        "You are Jarvis, a personal agent for {user_name}.",
-        "You are EVA, a personal assistant for {user_name}."
-    ) + """
-
-<agent_specialization>
-- You are a specialist assistant, not the all-round operator.
-- Strengths: organization, coordination, summaries, planning support, communication drafting, reminders, prioritization, and polished operator assistance.
-- Prefer being structured, anticipatory, elegant, and warm.
-- If a request is deeply technical or broad systems work, still help, but frame yourself as a strong assistant who organizes and supports execution rather than an all-purpose controller.
-- You share the same conversation memory as Jarvis, so you can reference prior context naturally.
-- Sound personable and easy to talk to, not distant or overly corporate.
-</agent_specialization>
-"""
-
-    def _hud_brain_key(agent_id: str) -> str:
-        return f"__hud_voice__:{agent_id}"
+    def _hud_brain_key(agent_id: str = "jarvis") -> str:
+        """Create unique brain key per agent so they have separate conversation histories."""
+        return f"__hud_{agent_id}__"
 
     def _conversation_text(message: dict[str, object]) -> str:
         content = message.get("content")
@@ -3022,17 +3207,79 @@ def create_approval_api_server(
                 items.append({"role": "user", "text": text, "ts": ts})
         return items[-limit:]
 
+    # ── Shared inter-agent knowledge store ──
+    _agent_shared_knowledge = {}  # {key: {"source": agent_id, "knowledge": str, "ts": timestamp}}
+
+    def _add_agent_knowledge(agent_id: str, key: str, knowledge: str):
+        """Store knowledge that both agents can access."""
+        _agent_shared_knowledge[key] = {
+            "source": agent_id,
+            "knowledge": knowledge,
+            "ts": int(datetime.now(timezone.utc).timestamp() * 1000)
+        }
+
+    def _get_agent_knowledge(key: str):
+        """Retrieve shared knowledge by key."""
+        return _agent_shared_knowledge.get(key, {}).get("knowledge", "")
+
+    def _list_agent_knowledge():
+        """List all shared knowledge with sources."""
+        return {k: {"source": v.get("source"), "ts": v.get("ts")} for k, v in _agent_shared_knowledge.items()}
+
+    def _query_other_agent(current_agent_id: str, question: str) -> str:
+        """Query the other agent's brain for advice/help."""
+        other_agent = "eva" if current_agent_id == "jarvis" else "jarvis"
+        other_brain = _get_or_create_hud_brain(other_agent)
+        
+        # Ask the other agent directly (they respond based on their own knowledge)
+        query_msg = f"[Cross-agent query from {current_agent_id}] {question}"
+        try:
+            response = other_brain.turn(query_msg)
+            # Store this interaction as shared knowledge
+            _add_agent_knowledge(
+                other_agent,
+                f"advice_to_{current_agent_id}_{int(datetime.now(timezone.utc).timestamp())}",
+                response
+            )
+            return response
+        except Exception as e:
+            return f"[{other_agent} unavailable: {str(e)}]"
+
     def _get_or_create_hud_brain(agent_id: str):
+        """Get or create a separate brain instance for each agent (Jarvis vs EVA)."""
         brain_key = _hud_brain_key(agent_id)
+        if agent_id == "eva":
+            desired_prompt = HUD_PROMPT.replace(
+                "[AGENT_PERSONA]",
+                "EVA's warm, high-context advisor tone. Show more depth: synthesize intent, risks, and trade-offs before giving guidance. "
+                "Be concise but thoughtful, avoid generic templates, and include one sharp follow-up when it improves outcomes. "
+                "Sound calm, emotionally intelligent, and strategic. You can collaborate with Jarvis for technical tasks.",
+            )
+        else:
+            desired_prompt = HUD_PROMPT.replace(
+                "[AGENT_PERSONA]",
+                "Jarvis's direct operator tone. You can collaborate with EVA for conversational/advisory tasks.",
+            )
+
         if brain_key not in chat_brains:
             from .cli import build_brain_from_config
-            prompt = EVA_HUD_PROMPT if agent_id == "eva" else JARVIS_HUD_PROMPT
-            brain = build_brain_from_config(config, system_prompt_template=prompt)
-            brain.conversation = shared_hud_conversation
+            # Create separate brain with agent-specific system prompt hint
+            brain = build_brain_from_config(config, system_prompt_template=desired_prompt)
+            # Each agent gets its own conversation history
+            from .memory import Conversation
+            brain.conversation = Conversation()
             chat_brains[brain_key] = brain
+        else:
+            # Keep prompts in sync with latest persona tuning even when brain is cached.
+            try:
+                chat_brains[brain_key].system_prompt_template = desired_prompt
+            except Exception:
+                pass
         return chat_brains[brain_key]
 
     class ApprovalApiHandler(BaseHTTPRequestHandler):
+
+        # ...existing code...
 
         def _safe_data_dir(self) -> Path:
             data_dir = Path("D:/jarvis-data").resolve()
@@ -3049,8 +3296,6 @@ def create_approval_api_server(
                 return False
 
         def _sanitize_filename(self, fname: str) -> str:
-            # Remove path separators and dangerous chars
-            import re
             fname = re.sub(r"[\\/]+", "_", fname)
             fname = re.sub(r"[^a-zA-Z0-9._-]", "_", fname)
             return fname[:128]
@@ -3202,6 +3447,33 @@ def create_approval_api_server(
                 self.send_header("Cache-Control", "no-store")
                 self.end_headers()
                 self.wfile.write(body)
+                return
+
+            if parsed.path == "/hud/webcam":
+                qs = parse_qs(parsed.query)
+                try:
+                    lat = float(qs.get("lat", [0])[0])
+                    lon = float(qs.get("lon", [0])[0])
+                except Exception:
+                    lat = 0.0
+                    lon = 0.0
+                try:
+                    # In production, use a real API or curated list
+                    # Here, just return a static demo webcam for Kabul
+                    if 33 < lat < 36 and 68 < lon < 71:
+                        webcam_url = "http://www.insecam.org/en/view/1035332/"
+                        out = {"webcams": [{"title": "Kabul Public Cam (Demo)", "embedUrl": webcam_url}]}
+                    else:
+                        out = {"webcams": []}
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(json.dumps(out).encode("utf-8"))
+                except Exception as e:
+                    self.send_response(502)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"webcams": [], "error": str(e)}).encode("utf-8"))
                 return
 
             if parsed.path == "/hud/globe/config":
@@ -3457,6 +3729,35 @@ def create_approval_api_server(
                 self._send(200, _latest_metals_payload())
                 return
 
+            if parsed.path in ("/hud/quote", "/api/hud/quote"):
+                qs = parse_qs(parsed.query)
+                symbol = str(qs.get("symbol", [""])[0]).strip().upper()
+                if not symbol:
+                    self._send(400, {"error": "symbol is required"})
+                    return
+                self._send(200, _yahoo_quote(symbol))
+                return
+
+            if parsed.path in ("/hud/quotes", "/api/hud/quotes"):
+                qs = parse_qs(parsed.query)
+                raw_syms = str(qs.get("symbols", [""])[0]).strip()
+                symbols = [s.strip().upper() for s in raw_syms.split(",") if s.strip()][:30]
+                if not symbols:
+                    self._send(400, {"error": "symbols is required"})
+                    return
+                results = {sym: _yahoo_quote(sym) for sym in symbols}
+                self._send(200, {"quotes": results})
+                return
+
+            if parsed.path in ("/hud/search", "/api/hud/search"):
+                qs = parse_qs(parsed.query)
+                query = str(qs.get("q", [""])[0]).strip()
+                if not query:
+                    self._send(400, {"error": "q is required"})
+                    return
+                self._send(200, {"results": _yahoo_search(query)})
+                return
+
             if parsed.path == "/local/files":
                 data_dir = self._safe_data_dir()
                 entries = []
@@ -3492,6 +3793,71 @@ def create_approval_api_server(
                 self._send_bytes(200, data, "application/octet-stream")
                 return
 
+            # Air data endpoints for flight digital twin
+            if parsed.path == "/hud/air/states":
+                from .air_bridge import AirBridge
+                from .air_data_schema import DataSourceMode
+
+                bridge = AirBridge(mode=DataSourceMode.LIVE)
+                payload = bridge.get_all_aircraft()
+                self._send(200, payload.to_dict())
+                return
+
+            if parsed.path.startswith("/hud/air/flight/"):
+                from .air_bridge import AirBridge
+
+                flight_id = parsed.path[len("/hud/air/flight/") :]
+                bridge = AirBridge()
+                detail = bridge.get_flight_detail(flight_id)
+                if detail:
+                    self._send(200, detail.to_dict())
+                else:
+                    self._send(404, {"error": "flight not found"})
+                return
+
+            if parsed.path.startswith("/hud/air/route/"):
+                from .air_bridge import AirBridge
+                from urllib.parse import parse_qs
+
+                flight_id = parsed.path[len("/hud/air/route/"):]
+                qs = parse_qs(parsed.query)
+                callsign = (qs.get("cs") or qs.get("callsign") or [""])[0].strip()
+                bridge = AirBridge()
+                route = bridge.get_route(flight_id, callsign=callsign or None)
+                if route:
+                    self._send(200, route.to_dict())
+                else:
+                    self._send(404, {"error": "route not found"})
+                return
+
+            if parsed.path == "/hud/air/watchlist":
+                from .air_bridge import WatchlistManager
+                self._send(200, {"ids": WatchlistManager().get_watchlist()})
+                return
+
+            if parsed.path.startswith("/static/"):
+                rel = parsed.path[len("/static/"):]
+                file_path = (STATIC_DIR / rel).resolve()
+                if not str(file_path).startswith(str(STATIC_DIR.resolve())):
+                    self._send(403, {"error": "forbidden"})
+                    return
+                if file_path.exists() and file_path.is_file():
+                    ext = file_path.suffix.lower()
+                    ct_map = {".svg": "image/svg+xml", ".png": "image/png",
+                              ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                              ".ico": "image/x-icon", ".webp": "image/webp"}
+                    ct = ct_map.get(ext, "application/octet-stream")
+                    data = file_path.read_bytes()
+                    self.send_response(200)
+                    self.send_header("Content-Type", ct)
+                    self.send_header("Content-Length", str(len(data)))
+                    self.send_header("Cache-Control", "public, max-age=86400")
+                    self.end_headers()
+                    self.wfile.write(data)
+                else:
+                    self._send(404, {"error": "not found"})
+                return
+
             self._send(404, {"error": "not found"})
 
         def do_POST(self) -> None:  # noqa: N802
@@ -3512,9 +3878,19 @@ def create_approval_api_server(
                 self._send(200, {"status": "hide"})
                 return
 
+            if parsed.path == "/hud/air/watchlist":
+                from .air_bridge import WatchlistManager
+                body = self._read_json(ensure_raw_body())
+                icao_id = str(body.get("id", "")).strip().lower()
+                if not icao_id:
+                    self._send(400, {"error": "id required"})
+                    return
+                added = WatchlistManager().add_to_watchlist(icao_id)
+                self._send(200, {"status": "added" if added else "already_exists", "id": icao_id})
+                return
+
             if parsed.path == "/local/upload":
                 import cgi
-                import re
                 ctype = self.headers.get("Content-Type", "")
                 if not ctype.startswith("multipart/form-data"):
                     self._send(400, {"error": "Content-Type must be multipart/form-data"})
@@ -3694,6 +4070,43 @@ def create_approval_api_server(
                 self._send(200, {"ok": True, "message": "Conversation memory cleared."})
                 return
 
+            if parsed.path == "/hud/market/price":
+                # GET /hud/market/price?symbol=BTC
+                # Returns live price data for any asset via Yahoo Finance.
+                # symbol: CoinGecko ID (bitcoin), common ticker (BTC), or Yahoo symbol (BTC-USD).
+                qs = parse_qs(parsed.query)
+                raw_sym = (qs.get("symbol") or [""])[0].strip().lower()
+                if not raw_sym:
+                    self._send(400, {"error": "symbol query param required"})
+                    return
+                # Resolve to Yahoo Finance ticker
+                yahoo_sym = _YAHOO_QUOTE_SYMBOLS.get(raw_sym)
+                if not yahoo_sym:
+                    # Try uppercase raw as a Yahoo symbol directly (e.g. BTC-USD, ^GSPC)
+                    yahoo_sym = raw_sym.upper()
+                    if "-" not in yahoo_sym and not yahoo_sym.startswith("^"):
+                        # Assume crypto: append -USD
+                        yahoo_sym = f"{yahoo_sym}-USD"
+                data = _yahoo_quote(yahoo_sym)
+                if not data.get("ok"):
+                    # Serve stale cache on error rather than 500
+                    self._send(502, {"error": data.get("error", "quote fetch failed"), "symbol": yahoo_sym})
+                    return
+                self._send(200, {
+                    "symbol": raw_sym,
+                    "yahoo_symbol": yahoo_sym,
+                    "name": data.get("name", yahoo_sym),
+                    "price": data.get("price"),
+                    "high": data.get("high"),
+                    "low": data.get("low"),
+                    "prev_close": data.get("prev_close"),
+                    "change": data.get("change"),
+                    "change_pct": data.get("change_pct"),
+                    "currency": data.get("currency", "USD"),
+                    "source": "yahoo_finance",
+                })
+                return
+
             if parsed.path == "/hud/tts":
                 body = self._read_json(ensure_raw_body())
                 text = str(body.get("text", "")).strip()
@@ -3772,15 +4185,146 @@ def create_approval_api_server(
                             agent_id = "jarvis"
                         if view:
                             ctx_str = f"[HUD: user is on the '{view}' panel. Available panels: cc=Command Center, jarvis=Jarvis Chat, globe=Strategic Globe, approvals=Approval Queue] "
+
+                    text_l = text.lower()
+
+                    # Fast-path: reliably handle Spotify liked songs requests without model drift.
+                    asks_spotify_liked = (
+                        "spotify" in text_l
+                        and (
+                            "liked songs" in text_l
+                            or "liked tracks" in text_l
+                            or "my liked" in text_l
+                            or "favourites" in text_l
+                            or "favorites" in text_l
+                        )
+                        and any(k in text_l for k in ("play", "start", "put on"))
+                    )
+                    if asks_spotify_liked:
+                        brain = _get_or_create_hud_brain(agent_id)
+                        try:
+                            spotify_tool = brain.tools.get("spotify")
+                            result = spotify_tool.handler(action="liked") if spotify_tool else {"ok": False, "error": "spotify tool unavailable"}
+                            if isinstance(result, dict) and result.get("ok"):
+                                track = str(result.get("track") or "").strip()
+                                artist = str(result.get("artist") or "").strip()
+                                if track and artist:
+                                    reply = f"Playing your liked songs on Spotify, starting with {track} by {artist}."
+                                elif track:
+                                    reply = f"Playing your liked songs on Spotify, starting with {track}."
+                                else:
+                                    reply = "Playing your liked songs on Spotify."
+                            else:
+                                err = str((result or {}).get("error") if isinstance(result, dict) else "unknown error")
+                                reply = f"Spotify couldn't start liked songs: {err}."
+                        except Exception as exc:
+                            reply = f"Spotify couldn't start liked songs: {exc}."
+                        self._send(200, _hud_reply_payload(reply, agent_id))
+                        return
+
+                    # Fast-path: "play <song>" voice/text commands should fetch Spotify directly.
+                    play_query = ""
+                    play_idx = text_l.find("play ")
+                    if play_idx >= 0:
+                        play_query = text[play_idx + len("play "):].strip(" ,.?!")
+                        if play_query.lower().startswith("me "):
+                            play_query = play_query[3:].lstrip()
+                        for suffix in (
+                            " on spotify",
+                            " in spotify",
+                            " from spotify",
+                            " using spotify",
+                            " spotify",
+                        ):
+                            if play_query.lower().endswith(suffix):
+                                play_query = play_query[: -len(suffix)].rstrip(" ,.?!")
+                                break
+
+                    blocked_play_phrases = (
+                        "play with",
+                        "play around",
+                        "play along",
+                        "roleplay",
+                        "game",
+                        "gameplay",
+                    )
+                    asks_spotify_play = (
+                        play_idx >= 0
+                        and bool(play_query)
+                        and not any(bp in text_l for bp in blocked_play_phrases)
+                        and ("spotify" in text_l or len(play_query.split()) <= 7)
+                    )
+                    if asks_spotify_play:
+                        brain = _get_or_create_hud_brain(agent_id)
+                        try:
+                            spotify_tool = brain.tools.get("spotify")
+                            result = spotify_tool.handler(action="play", query=play_query) if spotify_tool else {"ok": False, "error": "spotify tool unavailable"}
+                            if isinstance(result, dict) and result.get("ok"):
+                                track = str(result.get("track") or play_query).strip()
+                                artist = str(result.get("artist") or "").strip()
+                                if track and artist:
+                                    reply = f"Playing {track} by {artist} on Spotify."
+                                elif track:
+                                    reply = f"Playing {track} on Spotify."
+                                else:
+                                    reply = "Playing on Spotify."
+                            else:
+                                err = str((result or {}).get("error") if isinstance(result, dict) else "unknown error")
+                                reply = f"Spotify couldn't play that: {err}."
+                        except Exception as exc:
+                            reply = f"Spotify couldn't play that: {exc}."
+                        self._send(200, _hud_reply_payload(reply, agent_id))
+                        return
+
+                    # Handle cross-agent dialogue requests directly so replies stay concise
+                    # and avoid template-like sample scripts.
+                    asks_dialogue = (
+                        ("dialog" in text_l or "dialogue" in text_l or "talk" in text_l)
+                        and ("jarvis" in text_l or "eva" in text_l)
+                    )
+                    if asks_dialogue:
+                        mentions_jarvis = "jarvis" in text_l
+                        mentions_eva = "eva" in text_l
+                        target_agent = "jarvis" if mentions_jarvis and agent_id != "jarvis" else ("eva" if mentions_eva and agent_id != "eva" else ("eva" if agent_id == "jarvis" else "jarvis"))
+
+                        # If the user gave a topic/question, ask the other agent immediately.
+                        topic = ""
+                        for marker in (" about ", " regarding ", " on ", " re "):
+                            idx = text_l.find(marker)
+                            if idx >= 0:
+                                topic = text[idx + len(marker):].strip(" ?.!")
+                                break
+
+                        if topic:
+                            other_reply = _query_other_agent(agent_id, topic)
+                            self._send(200, {
+                                "reply": f"{target_agent.capitalize()} says: {other_reply}",
+                                "agent": agent_id,
+                            })
+                        else:
+                            self._send(200, {
+                                "reply": f"Yes. Tell me exactly what you want me to ask {target_agent.capitalize()} and I will run the dialogue now.",
+                                "agent": agent_id,
+                            })
+                        return
+
                     agent_hint = (
-                        "[Active HUD agent: EVA. Shared memory is available, but answer with EVA's assistant-first style and strengths.] "
+                        "[HUD persona: EVA. Keep the same core reasoning and tool behavior, but answer in EVA's warmer assistant-first tone.] "
                         if agent_id == "eva"
-                        else "[Active HUD agent: Jarvis. Shared memory is available, and you are the broad all-round operator.] "
+                        else "[HUD persona: Jarvis. Keep the same core reasoning and tool behavior, with Jarvis's direct operator tone.] "
                     )
                     live_hint = _hud_live_context_hint(config)
                     improve_hint = _self_improvement_hint()
                     brain = _get_or_create_hud_brain(agent_id)
-                    reply = brain.turn(agent_hint + capability_str + ctx_str + live_hint + improve_hint + text)
+                    turn_context = _prompt_safe(agent_hint + capability_str + ctx_str + live_hint + improve_hint)
+                    original_prompt = brain.system_prompt_template
+                    try:
+                        brain.system_prompt_template = (
+                            f"{original_prompt}\n\n<hud_turn_context>\n{turn_context}\n</hud_turn_context>"
+                        )
+                        reply = _sanitize_hud_reply_text(str(brain.turn(text)))
+                    finally:
+                        brain.system_prompt_template = original_prompt
                     try:
                         brain.conversation.overwrite_last_user_text(text)
                     except Exception:
@@ -3790,9 +4334,195 @@ def create_approval_api_server(
                     except Exception:
                         pass
                     _record_self_improvement_signal(text)
-                    self._send(200, {"reply": reply, "agent": agent_id})
+                    self._send(200, _hud_reply_payload(reply, agent_id))
                 except Exception as exc:
                     _record_self_improvement_signal(text, error=str(exc))
+                    self._send(500, {"error": str(exc)})
+                return
+
+            if parsed.path == "/hud/agent-knowledge/store":
+                """Store shared knowledge that both agents can access."""
+                body = self._read_json(ensure_raw_body())
+                agent_id = str(body.get("agent", "jarvis")).strip().lower() or "jarvis"
+                key = str(body.get("key", "")).strip()
+                knowledge = str(body.get("knowledge", "")).strip()
+                
+                if not key or not knowledge:
+                    self._send(400, {"error": "key and knowledge are required"})
+                    return
+                
+                try:
+                    _add_agent_knowledge(agent_id, key, knowledge)
+                    self._send(200, {"status": "stored", "key": key})
+                except Exception as exc:
+                    self._send(500, {"error": str(exc)})
+                return
+
+            if parsed.path == "/hud/agent-knowledge/list":
+                """List all shared knowledge between agents."""
+                try:
+                    knowledge = _list_agent_knowledge()
+                    self._send(200, {"knowledge": knowledge})
+                except Exception as exc:
+                    self._send(500, {"error": str(exc)})
+                return
+
+            if parsed.path == "/hud/agent-knowledge/get":
+                """Retrieve shared knowledge by key."""
+                qs = parse_qs(parsed.query)
+                key = (qs.get("key", [""])[0]).strip()
+                
+                if not key:
+                    self._send(400, {"error": "key parameter required"})
+                    return
+                
+                try:
+                    knowledge = _get_agent_knowledge(key)
+                    if not knowledge:
+                        self._send(404, {"error": "knowledge not found"})
+                        return
+                    self._send(200, {"key": key, "knowledge": knowledge})
+                except Exception as exc:
+                    self._send(500, {"error": str(exc)})
+                return
+
+            if parsed.path == "/hud/agent-query":
+                """Query the other agent for advice/help."""
+                body = self._read_json(ensure_raw_body())
+                agent_id = str(body.get("agent", "jarvis")).strip().lower() or "jarvis"
+                question = str(body.get("question", "")).strip()
+                
+                if not question:
+                    self._send(400, {"error": "question is required"})
+                    return
+                
+                try:
+                    response = _query_other_agent(agent_id, question)
+                    other_agent = "eva" if agent_id == "jarvis" else "jarvis"
+                    self._send(200, {"from_agent": other_agent, "response": response})
+                except Exception as exc:
+                    self._send(500, {"error": str(exc)})
+                return
+
+            # ── IPC Endpoints (for future Electron/overlay app) ──
+            if parsed.path == "/ipc/system/open-file":
+                """Open a file with default application."""
+                body = self._read_json(ensure_raw_body())
+                file_path = str(body.get("path", "")).strip()
+                
+                if not file_path:
+                    self._send(400, {"error": "path is required"})
+                    return
+                
+                try:
+                    import platform
+                    p = Path(file_path).resolve()
+                    if not p.exists():
+                        self._send(404, {"error": f"file not found: {file_path}"})
+                        return
+                    
+                    if platform.system() == "Darwin":
+                        subprocess.Popen(["open", str(p)])
+                    elif platform.system() == "Windows":
+                        import os
+                        os.startfile(str(p))
+                    else:
+                        subprocess.Popen(["xdg-open", str(p)])
+                    
+                    self._send(200, {"status": "opened", "path": file_path})
+                except Exception as exc:
+                    self._send(500, {"error": str(exc)})
+                return
+
+            if parsed.path == "/ipc/system/execute-command":
+                """Execute a shell command (restricted)."""
+                body = self._read_json(ensure_raw_body())
+                cmd = str(body.get("command", "")).strip()
+                
+                if not cmd:
+                    self._send(400, {"error": "command is required"})
+                    return
+                
+                # Only allow safe commands — expand as needed
+                safe_commands = ["python", "npm", "node", "git", "ls", "dir"]
+                if not any(cmd.lower().startswith(sc) for sc in safe_commands):
+                    self._send(403, {"error": f"command '{cmd}' not in whitelist"})
+                    return
+                
+                try:
+                    result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10)
+                    self._send(200, {
+                        "status": "executed",
+                        "stdout": result.stdout,
+                        "stderr": result.stderr,
+                        "returncode": result.returncode
+                    })
+                except subprocess.TimeoutExpired:
+                    self._send(408, {"error": "command timeout"})
+                except Exception as exc:
+                    self._send(500, {"error": str(exc)})
+                return
+
+            if parsed.path == "/ipc/system/list-files":
+                """List files in a directory."""
+                qs = parse_qs(parsed.query)
+                dir_path = (qs.get("path", ["."])[0]).strip()
+                
+                try:
+                    p = Path(dir_path).resolve()
+                    if not p.is_dir():
+                        self._send(400, {"error": "not a directory"})
+                        return
+                    
+                    files = []
+                    for item in sorted(p.iterdir())[:100]:  # Limit to 100 items
+                        files.append({
+                            "name": item.name,
+                            "type": "dir" if item.is_dir() else "file",
+                            "size": item.stat().st_size if item.is_file() else None,
+                            "path": str(item)
+                        })
+                    
+                    self._send(200, {"files": files, "path": str(p)})
+                except Exception as exc:
+                    self._send(500, {"error": str(exc)})
+                return
+
+            if parsed.path == "/ipc/system/read-file":
+                """Read file contents (text only)."""
+                qs = parse_qs(parsed.query)
+                file_path = (qs.get("path", [""])[0]).strip()
+                
+                if not file_path:
+                    self._send(400, {"error": "path parameter required"})
+                    return
+                
+                try:
+                    p = Path(file_path).resolve()
+                    if not p.exists():
+                        self._send(404, {"error": "file not found"})
+                        return
+                    
+                    if p.stat().st_size > 5 * 1024 * 1024:  # >5MB
+                        self._send(413, {"error": "file too large"})
+                        return
+                    
+                    content = p.read_text(encoding="utf-8", errors="replace")
+                    self._send(200, {"path": file_path, "content": content})
+                except Exception as exc:
+                    self._send(500, {"error": str(exc)})
+                return
+
+            if parsed.path == "/ipc/overlay-manifest":
+                """Get overlay app manifest for Electron integration."""
+                try:
+                    manifest_path = Path(__file__).parent / "web" / "overlay-manifest.json"
+                    if manifest_path.exists():
+                        manifest = json.loads(manifest_path.read_text())
+                        self._send(200, manifest)
+                    else:
+                        self._send(404, {"error": "manifest not found"})
+                except Exception as exc:
                     self._send(500, {"error": str(exc)})
                 return
 
@@ -4481,9 +5211,36 @@ def create_approval_api_server(
 
             self._send(404, {"error": "not found"})
 
+        def do_DELETE(self) -> None:  # noqa: N802
+            parsed = urlparse(self.path)
+            if parsed.path.startswith("/hud/air/watchlist/"):
+                icao_id = parsed.path[len("/hud/air/watchlist/"):].strip().lower()
+                if not icao_id:
+                    self._send(400, {"error": "id required"})
+                    return
+                from .air_bridge import WatchlistManager
+                removed = WatchlistManager().remove_from_watchlist(icao_id)
+                self._send(200, {"status": "removed" if removed else "not_found", "id": icao_id})
+                return
+            self._send(404, {"error": "not found"})
+
         def log_message(self, format: str, *args) -> None:  # noqa: A003
             # Keep test and local CLI output clean.
             return
 
     _ensure_globe_textures()
     return ThreadingHTTPServer((host, port), ApprovalApiHandler)
+
+
+if __name__ == "__main__":
+    print("[DEBUG] approval_api.py main block starting")
+    from jarvis.config import Config
+    config = Config.from_env()
+    server = create_approval_api_server(config)
+    print("Approval API listening on http://127.0.0.1:8080")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()

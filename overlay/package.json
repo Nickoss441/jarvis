@@ -1,20 +1,47 @@
 {
-  "name": "jarvis-overlay",
+  "name": "jarvis-hud-overlay",
   "version": "1.0.0",
-  "description": "Transparent always-on-top HUD overlay for Jarvis",
-  "main": "main.js",
+  "description": "AI-powered desktop overlay for command and control (Electron wrapper)",
+  "main": "electron-main.js",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder --win portable"
+    "dev": "electron . --remote-debugging-port=9222",
+    "build": "electron-builder --win portable",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux"
   },
   "build": {
-    "appId": "com.jarvis.overlay",
-    "productName": "Jarvis HUD",
+    "appId": "com.jarvis.hud",
+    "productName": "Jarvis HUD Overlay",
+    "files": [
+      "electron-main.js",
+      "electron-preload.js",
+      "main.js",
+      "build/**"
+    ],
     "win": {
-      "target": "portable",
+      "target": [
+        "nsis",
+        "portable"
+      ],
       "icon": "build/tray.ico"
     },
-    "files": ["main.js", "build/**"]
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": "build/tray.icns"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "icon": "build/tray.png"
+    }
+  },
+  "dependencies": {
+    "node-fetch": "^2.6.11"
   },
   "devDependencies": {
     "electron": "^29.0.0",

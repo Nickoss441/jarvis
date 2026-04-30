@@ -92,6 +92,7 @@ export JARVIS_TRADES_MODE=dry_run
     - `docs/runbooks/wake-word-integration-evaluation.md`
     - `docs/runbooks/paper-trading-review.md`
     - `docs/runbooks/app-lifecycle-smoke-test.md`
+    - `docs/runbooks/voice-output.md` — Vocal reply triggers, TTS configuration, and disable mechanism
 - Review artifact templates:
     - `docs/reviews/paper-performance-review-template.md`
 - Voice recording templates:

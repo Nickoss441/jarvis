@@ -43,6 +43,7 @@ from .tools.weather_now import make_weather_now_tool
 from .tools.weather_here import make_weather_here_tool
 from .tools.route_eta import make_route_eta_tool
 from .tools.eta_to import make_eta_to_tool
+from .tools.spotify import make_spotify_tool
 
 
 SYSTEM_CONTROL_PROMPT = """You are Jarvis System Control, a local system-control agent for {user_name}.
@@ -91,6 +92,7 @@ def build_brain_from_config(config: Config, system_prompt_template: str | None =
             manifest_secret=(config.get_secret("JARVIS_USER_MANIFEST_SECRET") or ""),
         )
     )
+    tools.register(make_spotify_tool())
     tools.register(make_weather_now_tool(mode=config.location_tools_mode))
     tools.register(make_route_eta_tool(mode=config.location_tools_mode))
     tools.register(make_weather_here_tool(EventBus(config.event_bus_db), mode=config.location_tools_mode))

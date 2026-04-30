@@ -1,6 +1,6 @@
 ﻿"""Conversation memory.
 
-Phase 1: in-process only â€” wiped on restart. Phase 2 adds a lightweight
+Phase 1: in-process only — wiped on restart. Phase 2 adds a lightweight
 file-backed store for long-term recall across restarts.
 """
 import json

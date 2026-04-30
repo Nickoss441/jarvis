@@ -1,7 +1,10 @@
 """Outbound messaging tool with approval queue + dry-run dispatcher."""
 import json
+import os
+import smtplib
 import time
 import uuid
+from email.mime.text import MIMEText
 from pathlib import Path
 from typing import Any, Callable
 
@@ -40,6 +43,28 @@ def dispatch_message_send(
 
     if not recipient.strip() or not body.strip():
         return {"error": "recipient and body are required"}
+
+    if mode == "live" and channel_normalized == "email":
+        smtp_host = os.environ.get("JARVIS_SMTP_HOST", "smtp.gmail.com")
+        smtp_port = int(os.environ.get("JARVIS_SMTP_PORT", "587"))
+        smtp_user = os.environ.get("JARVIS_SMTP_USER", "")
+        smtp_pass = os.environ.get("JARVIS_SMTP_PASS", "")
+        smtp_from = os.environ.get("JARVIS_SMTP_FROM", smtp_user)
+        if not smtp_user or not smtp_pass:
+            return {"error": "JARVIS_SMTP_USER and JARVIS_SMTP_PASS must be set to send email in live mode"}
+        try:
+            msg = MIMEText(body, "plain")
+            msg["Subject"] = subject or "(no subject)"
+            msg["From"] = smtp_from
+            msg["To"] = recipient
+            with smtplib.SMTP(smtp_host, smtp_port, timeout=20) as server:
+                server.ehlo()
+                server.starttls()
+                server.login(smtp_user, smtp_pass)
+                server.sendmail(smtp_from, [recipient], msg.as_string())
+            return {"status": "sent", "channel": "email", "recipient": recipient}
+        except Exception as exc:  # noqa: BLE001
+            return {"error": f"SMTP send failed: {exc}"}
 
     if mode != "dry_run":
         return {

@@ -10,10 +10,15 @@ If Ollama is unreachable or returns an error the router returns None and
 Brain falls back to Claude transparently.
 """
 import logging
-import requests
+import os
+import subprocess
 import time as _time
 
+import requests
+
 logger = logging.getLogger(__name__)
+
+_AUTOSTART_ATTEMPTED = False
 
 _TRADING_KEYWORDS = {
     "trade", "buy", "sell", "stock", "crypto", "bitcoin", "btc", "eth",
@@ -128,20 +133,68 @@ class OllamaModelRouter:
         self.num_predict = max(32, int(num_predict))
         self.keep_alive = keep_alive or "30m"
 
-    def available(self) -> bool:
-        now = _time.monotonic()
-        if OllamaModelRouter._avail_cache is not None and (now - OllamaModelRouter._avail_checked_at) < OllamaModelRouter._AVAIL_TTL:
-            return OllamaModelRouter._avail_cache
+    def _start_service(self) -> bool:
+        global _AUTOSTART_ATTEMPTED
+
+        if _AUTOSTART_ATTEMPTED:
+            return False
+        _AUTOSTART_ATTEMPTED = True
+
+        command = (os.environ.get("JARVIS_OLLAMA_AUTOSTART_CMD", "ollama serve")).strip()
+        if not command:
+            return False
+
+        try:
+            kwargs: dict[str, object] = {
+                "shell": True,
+                "stdout": subprocess.DEVNULL,
+                "stderr": subprocess.DEVNULL,
+            }
+            if os.name == "nt":
+                kwargs["creationflags"] = (
+                    subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+                )
+            else:
+                kwargs["start_new_session"] = True
+            subprocess.Popen(command, **kwargs)
+            logger.info("Attempted to auto-start Ollama with command: %s", command)
+            return True
+        except Exception as exc:
+            logger.warning("Failed to auto-start Ollama: %s", exc)
+            return False
+
+    def _ensure_available(self) -> bool:
         try:
             r = requests.get(f"{self.base_url}/api/tags", timeout=3)
             if r.status_code == 200:
                 models = r.json().get("models", [])
                 OllamaModelRouter._loaded_models = {m["name"] for m in models if "name" in m}
-                OllamaModelRouter._avail_cache = bool(OllamaModelRouter._loaded_models)
-            else:
-                OllamaModelRouter._avail_cache = False
+                return bool(OllamaModelRouter._loaded_models)
         except Exception:
-            OllamaModelRouter._avail_cache = False
+            pass
+
+        if not self._start_service():
+            return False
+
+        for _ in range(8):
+            try:
+                r = requests.get(f"{self.base_url}/api/tags", timeout=3)
+                if r.status_code == 200:
+                    models = r.json().get("models", [])
+                    OllamaModelRouter._loaded_models = {m["name"] for m in models if "name" in m}
+                    if OllamaModelRouter._loaded_models:
+                        logger.info("Ollama became available after auto-start")
+                        return True
+            except Exception:
+                pass
+            _time.sleep(1.0)
+        return False
+
+    def available(self) -> bool:
+        now = _time.monotonic()
+        if OllamaModelRouter._avail_cache is not None and (now - OllamaModelRouter._avail_checked_at) < OllamaModelRouter._AVAIL_TTL:
+            return OllamaModelRouter._avail_cache
+        OllamaModelRouter._avail_cache = self._ensure_available()
         OllamaModelRouter._avail_checked_at = now
         return bool(OllamaModelRouter._avail_cache)
 

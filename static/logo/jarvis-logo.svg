@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" width="80" height="80">
+  <defs>
+    <radialGradient id="eyeGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#22d3ee" stop-opacity="1"/>
+      <stop offset="60%" stop-color="#0891b2" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#0e7490" stop-opacity="0.2"/>
+    </radialGradient>
+    <radialGradient id="irisGrad" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.9"/>
+      <stop offset="40%" stop-color="#22d3ee" stop-opacity="1"/>
+      <stop offset="100%" stop-color="#0891b2" stop-opacity="1"/>
+    </radialGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2.5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="softGlow">
+      <feGaussianBlur stdDeviation="1.5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Outer hexagon frame -->
+  <polygon points="40,4 70,21 70,59 40,76 10,59 10,21"
+    fill="none" stroke="#22d3ee" stroke-width="1.5" stroke-opacity="0.5" filter="url(#softGlow)"/>
+
+  <!-- Inner hexagon -->
+  <polygon points="40,12 63,25 63,55 40,68 17,55 17,25"
+    fill="#050a0e" stroke="#22d3ee" stroke-width="0.75" stroke-opacity="0.25"/>
+
+  <!-- Corner tick marks on hex -->
+  <line x1="40" y1="4"  x2="40" y2="9"  stroke="#22d3ee" stroke-width="2" stroke-linecap="round" filter="url(#glow)"/>
+  <line x1="70" y1="21" x2="66" y2="23" stroke="#22d3ee" stroke-width="2" stroke-linecap="round" filter="url(#glow)"/>
+  <line x1="70" y1="59" x2="66" y2="57" stroke="#22d3ee" stroke-width="2" stroke-linecap="round" filter="url(#glow)"/>
+  <line x1="40" y1="76" x2="40" y2="71" stroke="#22d3ee" stroke-width="2" stroke-linecap="round" filter="url(#glow)"/>
+  <line x1="10" y1="59" x2="14" y2="57" stroke="#22d3ee" stroke-width="2" stroke-linecap="round" filter="url(#glow)"/>
+  <line x1="10" y1="21" x2="14" y2="23" stroke="#22d3ee" stroke-width="2" stroke-linecap="round" filter="url(#glow)"/>
+
+  <!-- Eyelid arcs — almond eye shape -->
+  <path d="M18,40 Q40,18 62,40" fill="none" stroke="#22d3ee" stroke-width="1.5" filter="url(#softGlow)"/>
+  <path d="M18,40 Q40,58 62,40" fill="none" stroke="#22d3ee" stroke-width="1.5" filter="url(#softGlow)"/>
+
+  <!-- Eye fill glow -->
+  <ellipse cx="40" cy="40" rx="17" ry="13" fill="url(#eyeGlow)" opacity="0.25"/>
+
+  <!-- Iris ring -->
+  <circle cx="40" cy="40" r="10" fill="none" stroke="#22d3ee" stroke-width="1.5" filter="url(#softGlow)"/>
+
+  <!-- Iris fill -->
+  <circle cx="40" cy="40" r="9" fill="url(#irisGrad)" opacity="0.15"/>
+
+  <!-- Pupil -->
+  <circle cx="40" cy="40" r="4.5" fill="#22d3ee" opacity="0.9" filter="url(#glow)"/>
+
+  <!-- Pupil inner dark -->
+  <circle cx="40" cy="40" r="2.5" fill="#030a0f"/>
+
+  <!-- Pupil dot -->
+  <circle cx="40" cy="40" r="1" fill="#ffffff" opacity="0.9"/>
+
+  <!-- Iris detail lines -->
+  <line x1="40" y1="30" x2="40" y2="31.5" stroke="#22d3ee" stroke-width="1" opacity="0.6"/>
+  <line x1="40" y1="48.5" x2="40" y2="50" stroke="#22d3ee" stroke-width="1" opacity="0.6"/>
+  <line x1="30" y1="40" x2="31.5" y2="40" stroke="#22d3ee" stroke-width="1" opacity="0.6"/>
+  <line x1="48.5" y1="40" x2="50" y2="40" stroke="#22d3ee" stroke-width="1" opacity="0.6"/>
+
+  <!-- Scan line across eye -->
+  <line x1="22" y1="40" x2="58" y2="40" stroke="#22d3ee" stroke-width="0.5" stroke-opacity="0.3"/>
+</svg>

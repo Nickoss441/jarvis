@@ -37,23 +37,6 @@ class DryRunTTSAdapter(TTSAdapter):
 
 
 @dataclass
-class UnsupportedTTSAdapter(TTSAdapter):
-    """Placeholder adapter for providers not implemented yet."""
-
-    provider: str
-
-    def synthesize(self, text: str, voice: str = "default") -> dict[str, Any]:
-        return {
-            "provider": self.provider,
-            "voice": voice,
-            "audio": b"",
-            "sample_rate_hz": 0,
-            "format": "unknown",
-            "error": f"tts provider '{self.provider}' not implemented",
-        }
-
-
-@dataclass
 class PiperLocalTTSAdapter(TTSAdapter):
     """Local Piper adapter backed by ONNX voice files."""
 
@@ -321,7 +304,6 @@ def build_tts_adapter(
                 primary=primary,
                 fallback=PiperLocalTTSAdapter(
                     provider=fallback_normalized,
-                    voice_ids=voice_ids,
                     default_voice=default_voice,
                 ),
             )
@@ -331,4 +313,4 @@ def build_tts_adapter(
                 fallback=DryRunTTSAdapter(provider=fallback_normalized),
             )
         return primary
-    return UnsupportedTTSAdapter(provider=normalized)
+    raise ValueError(f"unsupported TTS provider: '{normalized}'")

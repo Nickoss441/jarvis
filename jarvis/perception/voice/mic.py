@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -14,6 +15,130 @@ _WAKE_WORD_DEFAULT = "jarvis"
 _PHRASE_TIME_LIMIT = int(os.getenv("JARVIS_MIC_PHRASE_LIMIT_SECS", "10"))
 _ENERGY_THRESHOLD = int(os.getenv("JARVIS_MIC_ENERGY_THRESHOLD", "300"))
 _PAUSE_THRESHOLD = float(os.getenv("JARVIS_MIC_PAUSE_THRESHOLD", "0.8"))
+
+
+def extract_voice_command(transcript: str, wake_word: str) -> str:
+    """Extract the user command from transcript text containing the wake word."""
+    text = (transcript or "").strip().lower()
+    wake = (wake_word or "").strip().lower()
+    if not text or not wake:
+        return ""
+
+    idx = text.find(wake)
+    if idx < 0:
+        return ""
+
+    # Remove wake-word occurrence while keeping surrounding phrase text.
+    command = f"{text[:idx]} {text[idx + len(wake):]}".strip(" ,.!?\t\n")
+
+    # Trim common preamble fillers left by natural speech.
+    for prefix in ("hey ", "ok ", "okay "):
+        if command.startswith(prefix):
+            command = command[len(prefix):].lstrip()
+            break
+
+    return " ".join(command.split())
+
+
+def parse_spotify_voice_command(command: str) -> dict[str, Any] | None:
+    """Parse natural voice phrases into spotify tool arguments when obvious."""
+    raw = " ".join((command or "").strip().lower().split())
+    if not raw or "spotify" not in raw:
+        return None
+
+    normalized = re.sub(
+        r"^(hey|ok|okay|please|can you|could you|would you|will you)\s+",
+        "",
+        raw,
+    )
+
+    action = ""
+    query = ""
+
+    if (
+        "liked songs" in normalized
+        or "my liked" in normalized
+        or "liked tracks" in normalized
+        or "favorites" in normalized
+        or "favourites" in normalized
+    ):
+        action = "liked"
+
+    if not action and (" play " in f" {normalized} " or normalized.startswith("play ")):
+        action = "play"
+        play_idx = normalized.find("play")
+        query = normalized[play_idx + len("play"):].strip(" ,.!?")
+        if query.startswith("me "):
+            query = query[3:].lstrip()
+        for suffix in (
+            " on spotify",
+            " in spotify",
+            " at spotify",
+            " from spotify",
+            " and spotify",
+            " spotify",
+        ):
+            if query.endswith(suffix):
+                query = query[: -len(suffix)].rstrip(" ,.!?")
+                break
+    elif "pause" in normalized:
+        action = "pause"
+    elif "skip" in normalized or "next track" in normalized or "next song" in normalized:
+        action = "skip"
+    elif "previous" in normalized or "back" in normalized:
+        action = "previous"
+    elif "what is playing" in normalized or "what's playing" in normalized or "currently playing" in normalized:
+        action = "current"
+
+    if not action:
+        return None
+
+    if action == "play" and query:
+        return {"action": "play", "query": query}
+    return {"action": action}
+
+
+def spotify_voice_reply(result: dict[str, Any], args: dict[str, Any]) -> str:
+    """Build a concise spoken response from spotify tool output."""
+    if not isinstance(result, dict):
+        return "Spotify command returned an invalid response."
+    if not result.get("ok"):
+        return f"Spotify failed: {result.get('error', 'unknown error')}"
+
+    action = str(result.get("action") or args.get("action") or "").lower()
+    if action == "play":
+        track = str(result.get("track") or "").strip()
+        artist = str(result.get("artist") or "").strip()
+        if track and artist:
+            return f"Playing {track} by {artist} on Spotify."
+        if track:
+            return f"Playing {track} on Spotify."
+        return "Resumed Spotify playback."
+    if action == "pause":
+        return "Paused Spotify."
+    if action == "skip":
+        return "Skipped to the next track."
+    if action == "previous":
+        return "Went back to the previous track."
+    if action == "current":
+        if result.get("playing") and result.get("track"):
+            artist = str(result.get("artist") or "").strip()
+            if artist:
+                return f"Now playing {result['track']} by {artist}."
+            return f"Now playing {result['track']}."
+        return "Nothing is currently playing on Spotify."
+    if action == "liked":
+        count = int(result.get("count") or 0)
+        track = str(result.get("track") or "").strip()
+        artist = str(result.get("artist") or "").strip()
+        if track and artist:
+            return f"Playing your liked songs on Spotify, starting with {track} by {artist}."
+        if track:
+            return f"Playing your liked songs on Spotify, starting with {track}."
+        if count > 0:
+            return f"Playing your liked songs on Spotify. Queued {count} tracks."
+        return "Playing your liked songs on Spotify."
+    return "Spotify command completed."
 
 
 class MicVoiceLoop:
@@ -142,15 +267,19 @@ class MicVoiceLoop:
                     if self.wake_word not in text.lower():
                         continue
 
-                    # Strip the wake word to extract the actual command
-                    command = text.lower().replace(self.wake_word, "").strip(" ,.")
+                    command = extract_voice_command(text, self.wake_word)
                     if not command:
                         command = "yes?"
 
                     print(f"[voice] you  > {command}")
 
                     try:
-                        reply = self.brain.turn(command)
+                        spotify_args = parse_spotify_voice_command(command)
+                        if spotify_args:
+                            result = self.brain._dispatch("spotify", spotify_args)
+                            reply = spotify_voice_reply(result, spotify_args)
+                        else:
+                            reply = self.brain.turn(command)
                         print(f"[voice] jarvis > {reply}")
                         self._speak(reply)
                     except Exception as exc:

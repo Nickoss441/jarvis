@@ -1,4 +1,35 @@
-// ── Datasets Panel ──────────────────────────────────────────────────────────
+﻿function fmtUTC(date) {
+    if (!date) return "--:--";
+    const d = new Date(date);
+    return d.toISOString().slice(11, 16); // HH:MM in UTC
+}
+function fmtDate(date) {
+    if (!date) return "--";
+    const d = new Date(date);
+    return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: '2-digit' });
+}
+// --- GLOBAL HELPERS (fixes for missing functions) ---
+function fmtTime(date) {
+    if (!date) return "--:--";
+    const d = new Date(date);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: undefined, hour12: false });
+}
+
+function fmtPrice(price) {
+    if (price == null || isNaN(price)) return "--";
+    return price.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
+}
+
+function localTZName() {
+    try {
+        return Intl.DateTimeFormat(undefined, { timeZoneName: 'short' }).formatToParts(new Date()).find(x => x.type === 'timeZoneName')?.value || 'UTC';
+    } catch {
+        return 'UTC';
+    }
+}
+import React from "https://esm.sh/react@18.3.1";
+import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
+// —— Datasets Panel ——————————————————————————————————————————————————————————
 function fmtSize(bytes) {
     if (bytes < 1024) return bytes + " B";
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
@@ -112,8 +143,8 @@ function DatasetsCard() {
                     display: "flex", alignItems: "center", gap: 6, padding: "2px 0", userSelect: "none"
                 }
             },
-                React.createElement("span", null, isOpen ? "▾" : "▸"),
-                React.createElement("span", null, "📁 " + label),
+                React.createElement("span", null, isOpen ? "▼" : "▼"),
+                React.createElement("span", null, "🤖 " + label),
                 React.createElement("span", { style: { color: "var(--text3)", marginLeft: 4 } },
                     "(" + grouped[folderKey].length + " file" + (grouped[folderKey].length !== 1 ? "s" : "") + ")")
             ),
@@ -178,10 +209,8 @@ function DatasetsCard() {
         )
     );
 }
-import React from "https://esm.sh/react@18.3.1";
-import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
 
-// ── market data ───────────────────────────────────────────────────────────────
+// —— market data ———————————————————————————————————————————————————————————————
 const MARKETS = [
     { id: "nyse", name: "NYSE", city: "New York", tz: "America/New_York", openH: 9, openM: 30, closeH: 16, closeM: 0, days: [1, 2, 3, 4, 5] },
     { id: "nasdaq", name: "NASDAQ", city: "New York", tz: "America/New_York", openH: 9, openM: 30, closeH: 16, closeM: 0, days: [1, 2, 3, 4, 5] },
@@ -215,11 +244,11 @@ const MARKETS = [
     { id: "asx", name: "ASX", city: "Sydney", tz: "Australia/Sydney", openH: 10, openM: 0, closeH: 16, closeM: 0, days: [1, 2, 3, 4, 5] },
 ];
 
-// ── helpers ───────────────────────────────────────────────────────────────────
+// —— helpers ———————————————————————————————————————————————————————————————————
 
 // Randomize color palette for this session (once per page load)
 function initSessionColorPalette() {
-    // Base colors + randomization hue shift (±15%)
+    // Base colors + randomization hue shift (-15%)
     const colorPalettes = [
         // Warm session (more gold/orange)
         { cyan: "#26d3ee", green: "#24c65e", purple: "#a955f7", orange: "#f5a60b", teal: "#2dd4bf" },
@@ -315,65 +344,14 @@ function fmtCountdown(ms) {
     return `${m}m`;
 }
 
-function fmtTime(d) {
-    return d.toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
-}
-
-function fmtUTC(d) {
-    const p = n => String(n).padStart(2, "0");
-    return `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
-}
-
-function fmtDate(d) {
-    return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
-}
-
-function localTZName() {
-    try {
-        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-        // get short abbreviation e.g. "EDT", "PST"
-        const abbr = new Intl.DateTimeFormat("en-US", { timeZoneName: "short", timeZone: tz })
-            .formatToParts(new Date())
-            .find(p => p.type === "timeZoneName")?.value ?? tz;
-        return abbr;
-    } catch (_) { return ""; }
-}
-
-function fmtPrice(n) {
-    if (n >= 1000) return "$" + Math.round(n).toLocaleString("en-US");
-    if (n >= 1) return "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    return "$" + n.toLocaleString("en-US", { minimumFractionDigits: 4, maximumFractionDigits: 6 });
-}
-
-const TABLER_SKIN_KEY = "cc:tablerSkin";
-const TABLER_SKIN_CLASS = "tabler-skin";
-const TABLER_STYLESHEET_ID = "cc-tabler-css";
-const TABLER_CSS_URL = "https://cdn.jsdelivr.net/npm/@tabler/core@1.0.0-beta20/dist/css/tabler.min.css";
-
-function applyTablerSkin(enabled) {
-    const on = !!enabled;
-    document.body.classList.toggle(TABLER_SKIN_CLASS, on);
-    const existing = document.getElementById(TABLER_STYLESHEET_ID);
-    if (on) {
-        if (!existing) {
-            const link = document.createElement("link");
-            link.id = TABLER_STYLESHEET_ID;
-            link.rel = "stylesheet";
-            link.href = TABLER_CSS_URL;
-            document.head.appendChild(link);
-        }
-    } else if (existing) {
-        existing.remove();
-    }
-}
-
 function detectCardNetwork(cardNumberDigits) {
-    if (/^4\d{12}(\d{3})?(\d{3})?$/.test(cardNumberDigits)) return "visa";
-    if (/^(5[1-5]\d{14}|2(2[2-9]\d{12}|[3-7]\d{13}))$/.test(cardNumberDigits)) return "mastercard";
+    if (/^4\d{12}(\d{3})?$/.test(cardNumberDigits)) return "visa";
+    if (/^5[1-5]\d{14}$/.test(cardNumberDigits)) return "mastercard";
     if (/^3[47]\d{13}$/.test(cardNumberDigits)) return "amex";
     if (/^(6011\d{12}|65\d{14}|64[4-9]\d{13})$/.test(cardNumberDigits)) return "discover";
     return "unknown";
 }
+
 
 const FETCH_ERROR_TYPES = {
     TIMEOUT: "timeout",
@@ -473,7 +451,7 @@ function isStaleByAge(lastOkMs, thresholdMs) {
     return Number.isFinite(lastOkMs) && lastOkMs > 0 && (Date.now() - lastOkMs) > thresholdMs;
 }
 
-// ── hooks ─────────────────────────────────────────────────────────────────────
+// —— hooks —————————————————————————————————————————————————————————————————————
 
 function useBrainStream() {
     const [events, setEvents] = React.useState([]);
@@ -485,6 +463,7 @@ function useBrainStream() {
         let es = null;
         let reconnectTimer = null;
         let nextRetryMs = 1200;
+        let lastErrorAt = 0;
 
         const scheduleReconnect = () => {
             if (closed || reconnectTimer) return;
@@ -494,7 +473,8 @@ function useBrainStream() {
                 reconnectTimer = null;
                 connect();
             }, nextRetryMs);
-            nextRetryMs = Math.min(12000, Math.floor(nextRetryMs * 1.7));
+            // Exponential backoff with jitter (1.2s -> 2s -> 3.4s -> ... max 12s)
+            nextRetryMs = Math.min(12000, Math.floor(nextRetryMs * 1.7 + Math.random() * 200));
         };
 
         const connect = () => {
@@ -502,22 +482,35 @@ function useBrainStream() {
             setStatus("connecting");
             try {
                 es = new EventSource("/hud/stream");
-            } catch (_) {
+            } catch (err) {
+                // Early-stage connection failure (network offline, CORS, etc.)
                 scheduleReconnect();
                 return;
             }
             es.onmessage = e => {
-                nextRetryMs = 1200;
+                nextRetryMs = 1200;  // Reset backoff on successful message
                 setRetryMs(1200);
                 setStatus("live");
                 try {
                     const row = JSON.parse(e.data);
                     setLastEventAt(Date.now());
+                    lastErrorAt = 0;  // Clear error state on success
                     setEvents(prev => [...prev.slice(-7), row]);
-                } catch (_) { }
+                } catch (parseErr) {
+                    // Silently ignore malformed JSON
+                }
             };
-            es.onerror = () => {
+            es.onerror = (err) => {
                 if (closed) return;
+
+                // Suppress error spam: only log if last error was >5s ago
+                const now = Date.now();
+                if (now - lastErrorAt > 5000) {
+                    const errorType = err?.type || "unknown";
+                    console.warn(`[useBrainStream] connection error (${errorType}), reconnecting...`);
+                    lastErrorAt = now;
+                }
+
                 try { es?.close(); } catch (_) { }
                 es = null;
                 scheduleReconnect();
@@ -537,8 +530,8 @@ function useBrainStream() {
 function brainEventLabel(row) {
     const k = row.kind;
     const p = row.payload || {};
-    if (k === "tool_call") return `→ ${p.name || "tool"}`;
-    if (k === "tool_result") return `← ${p.name || "tool"}`;
+    if (k === "tool_call") return `— ${p.name || "tool"}`;
+    if (k === "tool_result") return `— ${p.name || "tool"}`;
     if (k === "user_input") return `INPUT: ${(p.text || "").slice(0, 60)}`;
     if (k === "llm_response") {
         const blocks = p.content || [];
@@ -643,7 +636,7 @@ function usePending() {
     return state;
 }
 
-// ── market data sources ───────────────────────────────────────────────────────
+// —— market data sources ———————————————————————————————————————————————————————
 const CG = "https://api.coingecko.com/api/v3";
 const BINANCE = "https://api.binance.com/api/v3";
 const METALS = "/hud/metals";
@@ -690,7 +683,7 @@ const WINDOWS = [
     { label: "1D", mode: "binance", interval: "1d", limit: 90 },
 ];
 
-// derive Binance symbol from CoinGecko coin symbol, e.g. btc → BTCUSDT
+// derive Binance symbol from CoinGecko coin symbol, e.g. btc — BTCUSDT
 function binanceSymbol(symbol) {
     return symbol.toUpperCase() + "USDT";
 }
@@ -728,7 +721,7 @@ function smoothPath(values, W, H) {
     return { line: d, fill: `${d} L${W},${H} L0,${H} Z` };
 }
 
-// live tick buffer: coinId → [price, ...]
+// live tick buffer: coinId — [price, ...]
 const _liveTicks = new Map();
 
 // shared metals cache so multiple components don't hammer the API
@@ -821,7 +814,21 @@ function fetchMetals() {
     return _metalsPromise;
 }
 
-// price hook — branches on commodity vs crypto
+// Key for persisting the selected asset across page reloads
+const SELECTED_ASSET_KEY = "cc:selectedAsset";
+
+// Try the backend price proxy first; fall back to the direct exchange API.
+// This makes the data source swappable on the server side without touching
+// this file — just update _YAHOO_QUOTE_SYMBOLS in approval_api.py.
+async function fetchAssetPriceFromBackend(coinId) {
+    const r = await fetch(`/hud/market/price?symbol=${encodeURIComponent(coinId)}`, { signal: AbortSignal.timeout(3000) });
+    if (!r.ok) throw new Error(`backend ${r.status}`);
+    const j = await r.json();
+    if (!j.price) throw new Error("no price in response");
+    return { price: parseFloat(j.price), delta: parseFloat(j.change_pct ?? 0) };
+}
+
+// price hook — branches on commodity vs crypto; tries backend proxy first
 function useAssetPrice(coinId, coinSymbol) {
     const [price, setPrice] = React.useState(null);
     const [delta, setDelta] = React.useState(0);
@@ -857,15 +864,13 @@ function useAssetPrice(coinId, coinSymbol) {
             return () => { active = false; stop(); };
         }
 
-        // crypto via Binance
+        // crypto: try backend proxy first, fall back to Binance direct
         const sym = binanceSymbol(coinSymbol);
         const poll = async () => {
             try {
-                const r = await fetch(`${BINANCE}/ticker/24hr?symbol=${sym}`);
-                if (!r.ok || !active) return;
-                const j = await r.json();
-                const p = parseFloat(j.lastPrice);
-                const d = parseFloat(j.priceChangePercent);
+                // Prefer server-side proxy (swappable data source, no CORS/rate-limit concerns)
+                const { price: p, delta: d } = await fetchAssetPriceFromBackend(coinId);
+                if (!active) return;
                 if (prevRef.current !== null && p !== prevRef.current) {
                     setFlash(p > prevRef.current ? "up" : "down");
                     setTimeout(() => setFlash(null), 800);
@@ -874,8 +879,26 @@ function useAssetPrice(coinId, coinSymbol) {
                 const ticks = _liveTicks.get(coinId) ?? [];
                 ticks.push(p); if (ticks.length > 300) ticks.shift();
                 _liveTicks.set(coinId, ticks);
-                if (active) { setPrice(p); setDelta(d); setLoading(false); }
-            } catch (_) { if (active) setLoading(false); }
+                setPrice(p); setDelta(d); setLoading(false);
+            } catch (_backendErr) {
+                // Fallback: fetch directly from Binance
+                try {
+                    const r = await fetch(`${BINANCE}/ticker/24hr?symbol=${sym}`);
+                    if (!r.ok || !active) return;
+                    const j = await r.json();
+                    const p = parseFloat(j.lastPrice);
+                    const d = parseFloat(j.priceChangePercent);
+                    if (prevRef.current !== null && p !== prevRef.current) {
+                        setFlash(p > prevRef.current ? "up" : "down");
+                        setTimeout(() => setFlash(null), 800);
+                    }
+                    prevRef.current = p;
+                    const ticks = _liveTicks.get(coinId) ?? [];
+                    ticks.push(p); if (ticks.length > 300) ticks.shift();
+                    _liveTicks.set(coinId, ticks);
+                    if (active) { setPrice(p); setDelta(d); setLoading(false); }
+                } catch (_) { if (active) setLoading(false); }
+            }
         };
         poll();
         const stop = scheduleCadencedPoll(poll, ASSET_PRICE_POLL_MS);
@@ -935,7 +958,7 @@ function useAssetChart(coinId, coinSymbol, win) {
     return sparkline;
 }
 
-// ── news hook ─────────────────────────────────────────────────────────────────
+// —— news hook —————————————————————————————————————————————————————————————————
 const NEWS_SOURCES = [
     { label: "Markets", sub: "investing" },
     { label: "World", sub: "worldnews" },
@@ -1086,7 +1109,7 @@ function NewsCard() {
                                     "div", { className: "cc-news-meta" },
                                     React.createElement("span", { className: "cc-news-domain" }, item.domain),
                                     React.createElement("span", null, timeAgo(item.created_utc)),
-                                    React.createElement("span", { className: "cc-news-score" }, `▲ ${(item.score ?? 0).toLocaleString()}`)
+                                    React.createElement("span", { className: "cc-news-score" }, `— ${(item.score ?? 0).toLocaleString()}`)
                                 )
                             )
                         )
@@ -1098,7 +1121,7 @@ function NewsCard() {
     );
 }
 
-// keyword aliases: common terms → coin symbols / commodity ids to boost in results
+// keyword aliases: common terms — coin symbols / commodity ids to boost in results
 const KEYWORD_ALIASES = {
     gold: ["commodity-gold", "paxg", "xaut"],
     silver: ["commodity-silver"],
@@ -1264,7 +1287,7 @@ function useAssetSearch(query) {
     return { results, searching };
 }
 
-// ── watchlist ─────────────────────────────────────────────────────────────────
+// —— watchlist —————————————————————————————————————————————————————————————————
 const WATCHLIST_KEY = "cc-watchlist-v1";
 const DEFAULT_WATCHLIST = [
     { id: "bitcoin", name: "Bitcoin", symbol: "btc" },
@@ -1318,7 +1341,7 @@ const WatchTile = React.memo(function WatchTile({ coin, onRemove, onSelect }) {
             style: { position: "static", marginLeft: "auto" },
             onClick: e => { e.stopPropagation(); onRemove(coin.id); },
             title: "Remove",
-        }, "×")
+        }, "+…")
     );
 });
 
@@ -1447,6 +1470,7 @@ function useBars(init, ms = 2000) {
 const HUD_VIEWS = [
     { id: "jarvis", label: "Jarvis" },
     { id: "cc", label: "Command Center" },
+    { id: "planes", label: "Planes" },
     { id: "globe", label: "Strategic Globe" },
     { id: "approvals", label: "Approvals" },
 ];
@@ -1635,9 +1659,9 @@ function cleanForSpeech(text) {
         .replace(/`([^`]+)`/g, '$1')               // inline code
         .replace(/^#{1,6}\s+/gm, '')               // headers
         .replace(/\*{1,3}([^*\n]+)\*{1,3}/g, '$1') // bold / italic
-        .replace(/^[\s]*[-*•]\s+/gm, ', ')         // bullet lists → natural pause
+        .replace(/^[\s]*[-*—]\s+/gm, ', ')         // bullet lists — natural pause
         .replace(/^\d+\.\s+/gm, '')               // numbered lists
-        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')  // [text](url) → text
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')  // [text](url) — text
         .replace(/[()"'\[\]{}\\|<>@#$%^&*+=]/g, ' ')
         .replace(/\s{2,}/g, ' ')
         .trim();
@@ -1687,7 +1711,7 @@ function pickAgentVoice(voices, preferredName = "", agentId = getCurrentAgentId(
     return scored[0]?.v || voices[0] || null;
 }
 
-function useVoice(device = "desktop") {
+function useVoice(device = "desktop", { onAgentSwitch } = {}) {
     const isMobileDevice = device === "phone" || device === "tablet";
     const sessionStartTs = React.useRef(Date.now());
     const [state, setState] = React.useState("idle");
@@ -1942,6 +1966,7 @@ function useVoice(device = "desktop") {
         if (switchAgent) {
             try { localStorage.setItem(AGENT_STORAGE_KEY, switchAgent); } catch (_) { }
             setCurrentAgentId(switchAgent);
+            if (onAgentSwitch) onAgentSwitch(switchAgent);
             const agent = AGENTS.find(a => a.id === switchAgent);
             const msg = `Switched to ${agent?.label || switchAgent}. Standing by.`;
             pushHistory("user", text);
@@ -2092,7 +2117,7 @@ function useVoice(device = "desktop") {
                     setTimeout(startWake, 300);
                 }
             };
-            r.onerror = (e) => { setLastWakeHeard(`⚠ ${e.error}`); if (!wakeDeadRef.current) setTimeout(startWake, 2000); };
+            r.onerror = (e) => { setLastWakeHeard(`— ${e.error}`); if (!wakeDeadRef.current) setTimeout(startWake, 2000); };
             r.onend = () => { if (!wakeDeadRef.current) setTimeout(startWake, 400); };
             try { r.start(); } catch (_) { setTimeout(startWake, 2000); }
         };
@@ -2152,7 +2177,7 @@ function JarvisEyeSVG({ state, clipSuffix = "", tired = false, isBg = false, lid
         return [nx, ny];
     }
 
-    // 16 rays at 22.5° intervals — longer and more aggressive
+    // 16 rays at 22.5- intervals — longer and more aggressive
     const rays = Array.from({ length: 16 }, (_, i) => {
         const angle = (i * 22.5 * Math.PI) / 180;
         const inner = i % 2 === 0 ? 46 : 50;
@@ -2237,10 +2262,10 @@ function JarvisEyeSVG({ state, clipSuffix = "", tired = false, isBg = false, lid
             const stoneLeft = [], stoneRight = [];
             for (let i = 1; i < numCourses; i++) {
                 const t = i / numCourses;
-                // Left face: lerp apex→BL (left edge) and apex→FT (right edge)
+                // Left face: lerp apex—BL (left edge) and apex—FT (right edge)
                 const lx1 = APX + (BL.x - APX) * t, ly = APY + (BL.y - APY) * t;
                 const lx2 = APX + (FT.x - APX) * t;
-                // Right face: lerp apex→FT (left edge) and apex→BR (right edge)
+                // Right face: lerp apex—FT (left edge) and apex—BR (right edge)
                 const rx1 = APX + (FT.x - APX) * t, ry = APY + (BR.y - APY) * t;
                 const rx2 = APX + (BR.x - APX) * t;
                 stoneLeft.push(React.createElement("line", { key: `sl${i}`, className: "eye-tri-stone", x1: lx1, y1: ly, x2: lx2, y2: ly }));
@@ -2289,9 +2314,6 @@ function JarvisEyeSVG({ state, clipSuffix = "", tired = false, isBg = false, lid
         })(),
         React.createElement("circle", { className: "eye-orbit-ring", cx: 50, cy: 50, r: 44 }),
 
-        // Static lid mask — only on small button eye, not the large bg eye
-        !isBg && React.createElement("path", { fill: lidColor, d: `M 30,49 C 38,34 58,36 70,49 L 100,0 L 0,0 Z` }),
-
         // Sclera — 3D gradient
         React.createElement("path", {
             className: "eye-white",
@@ -2322,9 +2344,9 @@ function JarvisEyeSVG({ state, clipSuffix = "", tired = false, isBg = false, lid
             React.createElement("path", { d: `${upperLid} ${lowerLid.replace("M 30,49", "L 30,49")} Z`, fill: `url(#cornea-grad${clipSuffix})` }),
         ),
 
-        // Blink — separate elements, each with its own transform-origin so no gap
-        !isBg && React.createElement("path", { className: "eye-lid-upper-blink", fill: lidColor, d: `M 0,0 L 100,0 L 100,49 C 70,36 30,36 0,49 Z` }),
-        !isBg && React.createElement("path", { className: "eye-lid-lower-blink", fill: lidColor, d: `M 0,100 L 100,100 L 100,49 C 70,62 30,62 0,49 Z` }),
+        // Blink — upper closes from top (origin top-center), lower from bottom
+        !isBg && React.createElement("path", { className: "eye-lid-upper-blink", fill: lidColor, style: { transformOrigin: "50px 0px" }, d: `M 0,0 L 100,0 L 100,49 C 70,36 30,36 0,49 Z` }),
+        !isBg && React.createElement("path", { className: "eye-lid-lower-blink", fill: lidColor, style: { transformOrigin: "50px 100px" }, d: `M 0,100 L 100,100 L 100,49 C 70,62 30,62 0,49 Z` }),
 
         // Lid edge strokes — subtle crease lines on top
         React.createElement("g", { className: "eye-lid-stroke-group" },
@@ -2498,7 +2520,6 @@ function CameraTab({ onSendToJarvis }) {
                                 width: `${w}%`,
                                 height: `${h}%`,
                                 borderColor: color,
-                                boxShadow: `0 0 0 1px ${color}4d, 0 0 14px ${color}26`,
                             },
                         },
                             React.createElement("span", { className: "cc-camera-focus-label" }, region?.label || `Target ${idx + 1}`)
@@ -2508,12 +2529,11 @@ function CameraTab({ onSendToJarvis }) {
                 React.createElement("canvas", { ref: canvasRef, style: { display: "none" } }),
             ),
 
-            // Description panel
             React.createElement("div", { className: "cc-camera-insights" },
-                React.createElement("div", { className: "cc-camera-insights-title" }, "What Jarvis sees:"),
+                React.createElement("div", { className: "cc-camera-insights-title" }, "Scene Description"),
                 React.createElement("div", {
                     className: `cc-camera-description${description ? " has-content" : ""}`,
-                }, description || (loading ? "Analyzing…" : "Press Analyze or set auto-interval to start.")),
+                }, description || "Analyze a frame to get scene understanding and face estimates."),
 
                 React.createElement("div", { className: "cc-camera-face-list" },
                     React.createElement("div", { className: "cc-camera-face-title" }, "Face Insights (perceived estimate):"),
@@ -2529,13 +2549,12 @@ function CameraTab({ onSendToJarvis }) {
                         )),
                 ),
 
-                // Question input
                 React.createElement("div", { className: "cc-camera-controls" },
                     React.createElement("input", {
                         value: question,
                         onChange: e => setQuestion(e.target.value),
                         onKeyDown: e => { if (e.key === "Enter") analyze(question); },
-                        placeholder: "Ask about what you see…",
+                        placeholder: "Ask about what you see...",
                         className: "cc-camera-question",
                     }),
                     React.createElement(
@@ -2544,7 +2563,7 @@ function CameraTab({ onSendToJarvis }) {
                             onClick: () => analyze(question, { auto: false }),
                             disabled: loading || !stream,
                             className: "cc-camera-btn cc-camera-btn-primary",
-                        }, loading ? "Analyzing…" : "Analyze Now"),
+                        }, loading ? "Analyzing..." : "Analyze Now"),
                         React.createElement("button", {
                             onClick: () => {
                                 if (!description || typeof onSendToJarvis !== "function") return;
@@ -2840,7 +2859,7 @@ function JarvisTab({ voice, onOpenCamera }) {
     return React.createElement(
         "div", { className: "jarvis-tab" },
 
-        // ── Hero (visible when no conversation) ──
+        // —— Hero (visible when no conversation) ——
         React.createElement(
             "div", { className: `jarvis-hero${hasMessages ? " jarvis-hero--hidden" : ""}`, "aria-hidden": hasMessages },
             React.createElement(
@@ -2859,29 +2878,29 @@ function JarvisTab({ voice, onOpenCamera }) {
             )
         ),
 
-        // ── Background watermark eye when chatting ──
+        // —— Background watermark eye when chatting ——
         hasMessages && React.createElement(
             "div", { className: `jarvis-eye-bg jarvis-eye ${state}${isTired ? " tired" : ""}`, "aria-hidden": "true" },
             React.createElement(JarvisEyeSVG, { state, clipSuffix: "bg", tired: isTired, isBg: true })
         ),
 
-        // ── Status badge shown while chatting ──
+        // —— Status badge shown while chatting ——
         hasMessages && React.createElement(
             "div", { className: "jarvis-status-badge" },
             React.createElement("span", { className: `jarvis-wake-dot${wakeActive ? " on" : ""}` }),
             React.createElement("span", { className: "jarvis-badge-state" }, stateLabel),
             React.createElement("span", { className: "jarvis-badge-persona" }, getCurrentAgentDisplay()),
             lastWakeHeard ? React.createElement("span", {
-                style: { marginLeft: 8, fontSize: 10, color: lastWakeHeard.startsWith("⚠") ? "#f87171" : "#22d3ee", opacity: 0.7 }
+                style: { marginLeft: 8, fontSize: 10, color: lastWakeHeard.startsWith("—") ? "#f87171" : "#22d3ee", opacity: 0.7 }
             }, `"${lastWakeHeard}"`) : null
         ),
 
-        // ── Conversation log ──
+        // —— Conversation log ——
         hasMessages && React.createElement(
             "div", { className: "jarvis-log", ref: logRef },
             pastMsgs.length > 0 && React.createElement(
                 "div", { className: "jarvis-history-divider", onClick: () => setShowPast(v => !v) },
-                React.createElement("span", { className: "jarvis-history-toggle" }, showPast ? "▲" : "▼"),
+                React.createElement("span", { className: "jarvis-history-toggle" }, showPast ? "—" : "▼"),
                 React.createElement("span", null, `${pastMsgs.length} previous message${pastMsgs.length === 1 ? "" : "s"}`),
                 !showPast && React.createElement("span", { className: "jarvis-history-hint" }, "tap to expand")
             ),
@@ -2899,7 +2918,7 @@ function JarvisTab({ voice, onOpenCamera }) {
             )
         ),
 
-        // ── Mic banners ──
+        // —— Mic banners ——
         micError && React.createElement("div", { className: "jarvis-mic-banner jarvis-mic-denied" }, micError),
         (micPermission === "prompt" || micPermission === "denied") && React.createElement(
             "div", { className: "jarvis-mic-banner jarvis-mic-prompt" },
@@ -2912,7 +2931,7 @@ function JarvisTab({ voice, onOpenCamera }) {
             )
         ),
 
-        // ── Floating pill input ──
+        // —— Floating pill input ——
         React.createElement(
             "div", { className: "jarvis-compose-stack" },
             pendingAttachments.length > 0 && React.createElement(
@@ -2925,14 +2944,14 @@ function JarvisTab({ voice, onOpenCamera }) {
                     React.createElement(
                         "div", { className: "jarvis-attachment-meta" },
                         React.createElement("span", { className: "jarvis-attachment-name" }, attachment.name),
-                        React.createElement("span", { className: "jarvis-attachment-detail" }, `${attachment.kind === "image" ? "Image" : "File"} • ${fmtSize(attachment.size || 0)}`)
+                        React.createElement("span", { className: "jarvis-attachment-detail" }, `${attachment.kind === "image" ? "Image" : "File"} — ${fmtSize(attachment.size || 0)}`)
                     ),
                     React.createElement("button", {
                         type: "button",
                         className: "jarvis-attachment-remove",
                         onClick: () => removePendingAttachment(attachment.id),
                         title: `Remove ${attachment.name}`,
-                    }, "×")
+                    }, "+…")
                 ))
             ),
             React.createElement(
@@ -3044,11 +3063,12 @@ const NAV_ICONS = {
     cc: React.createElement("svg", { viewBox: "0 0 20 20", fill: "none", stroke: "currentColor", strokeWidth: 1.5 }, React.createElement("rect", { x: 2, y: 2, width: 7, height: 7, rx: 1 }), React.createElement("rect", { x: 11, y: 2, width: 7, height: 7, rx: 1 }), React.createElement("rect", { x: 2, y: 11, width: 7, height: 7, rx: 1 }), React.createElement("rect", { x: 11, y: 11, width: 7, height: 7, rx: 1 })),
     jarvis: React.createElement("svg", { viewBox: "0 0 20 20", fill: "none", stroke: "currentColor", strokeWidth: 1.4 }, React.createElement("polygon", { points: "10,2 1,18 19,18" }), React.createElement("ellipse", { cx: 10, cy: 11, rx: 4, ry: 2.5 }), React.createElement("circle", { cx: 10, cy: 11, r: 1.4, fill: "currentColor" })),
     camera: React.createElement("svg", { viewBox: "0 0 20 20", fill: "none", stroke: "currentColor", strokeWidth: 1.5 }, React.createElement("rect", { x: 1, y: 5, width: 18, height: 13, rx: 2 }), React.createElement("circle", { cx: 10, cy: 11.5, r: 3.5 }), React.createElement("path", { d: "M6 5l1.5-3h5L14 5" })),
+    planes: React.createElement("svg", { viewBox: "0 0 20 20", fill: "none", stroke: "currentColor", strokeWidth: 1.5 }, React.createElement("path", { d: "M2 10l16-4-4 4 4 4-16-4z" }), React.createElement("path", { d: "M8 9l2-5" }), React.createElement("path", { d: "M8 11l2 5" })),
     globe: React.createElement("svg", { viewBox: "0 0 20 20", fill: "none", stroke: "currentColor", strokeWidth: 1.5 }, React.createElement("circle", { cx: 10, cy: 10, r: 8 }), React.createElement("ellipse", { cx: 10, cy: 10, rx: 4, ry: 8 }), React.createElement("line", { x1: 2, y1: 10, x2: 18, y2: 10 })),
     approvals: React.createElement("svg", { viewBox: "0 0 20 20", fill: "none", stroke: "currentColor", strokeWidth: 1.5 }, React.createElement("rect", { x: 3, y: 3, width: 14, height: 14, rx: 2 }), React.createElement("polyline", { points: "6,10 9,13 14,7" })),
 };
 
-// ── components ────────────────────────────────────────────────────────────────
+// —— components ————————————————————————————————————————————————————————————————
 function Sidebar({ view, onView, voice, collapsed, onOpenSettings, isPhone, phoneOpen, onTogglePhone }) {
     // Sidebar eye: inline SVG emblem, styled for glow and background
     // Sidebar animated eye: use EyeOfJarvis SVG, but with overlay/voice/chatbox logic disabled
@@ -3081,7 +3101,7 @@ function Sidebar({ view, onView, voice, collapsed, onOpenSettings, isPhone, phon
                     "li", { key: v.id, style: { "--i": i } },
                     React.createElement(
                         "button", {
-                        className: `cc-sidebar-item${view === v.id ? " active" : ""}`,
+                        className: `cc-sidebar-item${v.id === "planes" ? " is-planes" : ""}${view === v.id ? " active" : ""}`,
                         onClick: () => {
                             onView(v.id);
                             if (isPhone) onTogglePhone(false);
@@ -3110,7 +3130,7 @@ function Sidebar({ view, onView, voice, collapsed, onOpenSettings, isPhone, phon
         )
     );
 }
-// ── Settings Modal ──────────────────────────────────────────────────────────
+// —— Settings Modal ——————————————————————————————————————————————————————————
 function SettingsModal({ open, onClose }) {
     const [rendered, setRendered] = React.useState(open);
     const [closing, setClosing] = React.useState(false);
@@ -3223,7 +3243,277 @@ function ThemeToggle() {
             cursor: "pointer", color: "var(--cyan)", fontSize: 12, fontFamily: "var(--mono)",
             minWidth: 80, textAlign: "center",
         },
-    }, light ? "☀ Light" : "☾ Dark");
+    }, light ? "— Light" : "▼ Dark");
+}
+
+// ── Tab splash ────────────────────────────────────────────────────────────────
+
+const SPLASH_CONFIGS = {
+    jarvis: {
+        iconUrl: "/static/logo/jarvis-logo.svg",
+        animation: "scan",
+        accentColor: "#22d3ee",
+        title: "Jarvis",
+        steps: [
+            { label: "Core reactor online",   ms: 1500 },
+            { label: "Voice systems armed",    ms: 1500 },
+            { label: "Arsenal loaded",         ms: 1500 },
+        ],
+    },
+    eva: {
+        iconUrl: "/static/logo/eva-logo.svg",
+        animation: "pulse",
+        accentColor: "#c084fc",
+        title: "EVA",
+        steps: [
+            { label: "Neural mesh online",     ms: 1500 },
+            { label: "Empathy core active",    ms: 1500 },
+            { label: "Advisory mode ready",    ms: 1500 },
+        ],
+    },
+    cc: {
+        icon: "⚡",
+        animation: "none",
+        accentColor: "#22d3ee",
+        title: "Command Center",
+        steps: [
+            { label: "Market feeds spliced",   ms: 1500 },
+            { label: "Brain stream active",    ms: 1500 },
+            { label: "Dashboard hot",          ms: 1500 },
+        ],
+    },
+    planes: {
+        icon: "✈",
+        animation: "none",
+        accentColor: "#22d3ee",
+        title: "Flight Intelligence",
+        steps: [
+            { label: "Navigation matrix online",  ms: 2000 },
+            { label: "Radar systems armed",        ms: 2000 },
+            { label: "Live aircraft data",         waitIframe: true },
+        ],
+    },
+    globe: {
+        icon: "🌍",
+        animation: "none",
+        accentColor: "#22d3ee",
+        title: "Strategic Globe",
+        steps: [
+            { label: "Orbital rendering armed",   ms: 2000 },
+            { label: "Terrain feeds locked",       waitIframe: true },
+        ],
+    },
+    approvals: {
+        icon: "✓",
+        animation: "none",
+        accentColor: "#22d3ee",
+        title: "Approvals",
+        steps: [
+            { label: "Command channel open",      ms: 2000 },
+            { label: "Approval engine hot",        waitIframe: true },
+        ],
+    },
+};
+
+function TabSplash({ tabId, iframeReadyRef, onDone }) {
+    const cfg = SPLASH_CONFIGS[tabId];
+    const [doneCount, setDoneCount] = React.useState(0);
+    const [fading, setFading] = React.useState(false);
+    const stepIdxRef = React.useRef(0);
+    const mountedRef = React.useRef(true);
+    const accent = cfg?.accentColor || "#22d3ee";
+
+    // Inject keyframe CSS once
+    React.useEffect(() => {
+        if (document.getElementById("splash-anim-styles")) return;
+        const s = document.createElement("style");
+        s.id = "splash-anim-styles";
+        s.textContent = `
+@keyframes splashScan {
+  0%   { transform: translateY(-28px); opacity: 0.7; }
+  50%  { opacity: 1; }
+  100% { transform: translateY(28px);  opacity: 0; }
+}
+@keyframes splashPulse {
+  0%   { transform: scale(0.85); opacity: 0.9; }
+  50%  { transform: scale(1.12); opacity: 0.6; }
+  100% { transform: scale(0.85); opacity: 0.9; }
+}
+@keyframes splashOrbit {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}`;
+        document.head.appendChild(s);
+    }, []);
+
+    React.useEffect(() => { return () => { mountedRef.current = false; }; }, []);
+
+    React.useEffect(() => {
+        if (!cfg) { onDone(); return; }
+        stepIdxRef.current = 0;
+        setDoneCount(0);
+        setFading(false);
+
+        function advance() {
+            if (!mountedRef.current) return;
+            const idx = stepIdxRef.current;
+            const steps = cfg.steps;
+            if (idx >= steps.length) {
+                setFading(true);
+                setTimeout(() => { if (mountedRef.current) onDone(); }, 480);
+                return;
+            }
+            const step = steps[idx];
+            if (step.waitIframe) {
+                const poll = setInterval(() => {
+                    if (!mountedRef.current) { clearInterval(poll); return; }
+                    if (iframeReadyRef.current[tabId]) {
+                        clearInterval(poll);
+                        stepIdxRef.current++;
+                        setDoneCount(c => c + 1);
+                        setTimeout(advance, 120);
+                    }
+                }, 80);
+            } else {
+                setTimeout(() => {
+                    if (!mountedRef.current) return;
+                    stepIdxRef.current++;
+                    setDoneCount(c => c + 1);
+                    advance();
+                }, step.ms || 250);
+            }
+        }
+        setTimeout(advance, 60);
+    }, [tabId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    if (!cfg) return null;
+    const steps = cfg.steps;
+    const pct = Math.round((doneCount / steps.length) * 100);
+
+    // Logo element
+    const logoEl = cfg.iconUrl
+        ? React.createElement("div", {
+            style: { position: "relative", width: 80, height: 80, margin: "0 auto 4px" }
+          },
+            // Animated ring behind logo (scan = sweep overlay, pulse = scale)
+            cfg.animation === "scan" && React.createElement("div", {
+                style: {
+                    position: "absolute", left: 0, right: 0,
+                    height: 3, borderRadius: 2,
+                    background: `linear-gradient(90deg, transparent, ${accent}, transparent)`,
+                    animation: "splashScan 1.8s ease-in-out infinite",
+                    top: "50%", marginTop: -1.5, zIndex: 2,
+                    boxShadow: `0 0 8px ${accent}`,
+                }
+            }),
+            cfg.animation === "pulse" && React.createElement("div", {
+                style: {
+                    position: "absolute", inset: 0,
+                    borderRadius: "50%",
+                    border: `1.5px solid ${accent}`,
+                    animation: "splashPulse 2s ease-in-out infinite",
+                    boxShadow: `0 0 12px ${accent}44`,
+                }
+            }),
+            React.createElement("img", {
+                src: cfg.iconUrl, width: 80, height: 80,
+                style: { display: "block", position: "relative", zIndex: 1 },
+            })
+          )
+        : React.createElement("div", { style: { fontSize: 34, marginBottom: 8 } }, cfg.icon);
+
+    return React.createElement(
+        "div",
+        {
+            style: {
+                position: "fixed", inset: 0, zIndex: 2000,
+                background: "#030303",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                opacity: fading ? 0 : 1,
+                transition: "opacity 0.48s ease",
+                pointerEvents: fading ? "none" : "auto",
+            },
+        },
+        React.createElement(
+            "div",
+            {
+                style: {
+                    width: 360,
+                    background: "#0a0a0c",
+                    border: `1px solid ${accent}22`,
+                    borderRadius: 16,
+                    padding: "36px 32px",
+                    fontFamily: "'Segoe UI', Tahoma, sans-serif",
+                    boxShadow: `0 0 40px ${accent}11`,
+                },
+            },
+            React.createElement(
+                "div",
+                { style: { textAlign: "center", marginBottom: 24 } },
+                logoEl,
+                React.createElement("div", {
+                    style: {
+                        fontSize: 12, fontWeight: 700, letterSpacing: "0.15em",
+                        color: "#fff", fontFamily: "JetBrains Mono, Consolas, monospace",
+                        textTransform: "uppercase", marginTop: 10,
+                    },
+                }, cfg.title),
+                React.createElement("div", {
+                    style: { fontSize: 10, color: "#4b5563", marginTop: 4, fontFamily: "JetBrains Mono, monospace" },
+                }, "Starting engines\u2026")
+            ),
+            React.createElement(
+                "div",
+                { style: { borderTop: "1px solid #1a1a1e", paddingTop: 14 } },
+                ...steps.map((step, i) => {
+                    const isDone   = i < doneCount;
+                    const isActive = i === doneCount;
+                    return React.createElement(
+                        "div",
+                        {
+                            key: i,
+                            style: {
+                                display: "flex", alignItems: "center", gap: 12,
+                                padding: "8px 0",
+                                borderBottom: i < steps.length - 1 ? "1px solid rgba(255,255,255,0.04)" : "none",
+                                fontFamily: "JetBrains Mono, Consolas, monospace",
+                                fontSize: 11,
+                                color: isDone ? "#d1d5db" : isActive ? "#9ca3af" : "#374151",
+                            },
+                        },
+                        React.createElement("span", {
+                            style: {
+                                width: 18, height: 18, flexShrink: 0,
+                                display: "flex", alignItems: "center", justifyContent: "center",
+                                fontSize: 12,
+                                color: isDone ? "#10b981" : isActive ? accent : "#374151",
+                            },
+                        }, isDone ? "✓" : isActive ? "⟳" : "○"),
+                        step.label
+                    );
+                })
+            ),
+            React.createElement(
+                "div",
+                { style: { height: 2, background: "#1a1a1e", borderRadius: 2, marginTop: 20, overflow: "hidden" } },
+                React.createElement("div", {
+                    style: {
+                        height: "100%", width: pct + "%",
+                        background: accent,
+                        boxShadow: `0 0 8px ${accent}88`,
+                        borderRadius: 2,
+                        transition: "width 0.4s ease",
+                    },
+                })
+            )
+        )
+    );
+}
+
+const TABLER_SKIN_CLASS = "tabler-skin";
+const TABLER_SKIN_KEY = "cc:tabler-skin";
+function applyTablerSkin(enabled) {
+    document.body.classList.toggle(TABLER_SKIN_CLASS, enabled);
 }
 
 function TablerSkinToggle() {
@@ -3329,7 +3619,7 @@ function CameraIntervalSetting() {
     );
 }
 
-function TopBar({ now, health, healthState, pending, pendingState, brainStream, onOpenPayment, showSidebarToggle, onToggleSidebar, isSidebarOpen }) {
+function TopBar({ now, health, healthState, pending, pendingState, brainStream, onOpenPayment, showSidebarToggle, onToggleSidebar, isSidebarOpen, currentAgentId = "jarvis" }) {
     const status = health?.status ?? "unknown";
     const monitors = health?.monitors?.configured ?? 0;
     const staleData = Boolean(healthState?.stale || pendingState?.stale);
@@ -3339,6 +3629,10 @@ function TopBar({ now, health, healthState, pending, pendingState, brainStream, 
         : brainStream?.status === "reconnecting"
             ? `Stream retry ${Math.round((brainStream?.retryMs || 0) / 1000)}s`
             : "Stream connecting";
+
+    // Only show Online, Stream, and clock when Jarvis is selected
+    const isJarvis = currentAgentId === "jarvis";
+
     return React.createElement(
         "header", { className: "cc-menubar" },
         showSidebarToggle && React.createElement(
@@ -3363,18 +3657,19 @@ function TopBar({ now, health, healthState, pending, pendingState, brainStream, 
         pending !== null && React.createElement("span", { className: "cc-menubar-item" },
             pending > 0 ? `${pending} pending` : "queue clear"
         ),
-        React.createElement(
+        isJarvis && React.createElement(
             "span", { className: `cc-status-pill ${status}` },
             React.createElement("span", { className: `cc-status-dot ${status}` }),
             status === "ok" ? "Online" : status === "degraded" ? "Degraded" : "Unknown"
         ),
-        React.createElement(
+        isJarvis && React.createElement(
             "span", { className: `cc-stream-pill ${brainStream?.status || "connecting"}` },
             React.createElement("span", { className: `cc-stream-dot ${brainStream?.status || "connecting"}` }),
             streamLabel
         ),
         staleData && React.createElement("span", { className: "cc-stale-pill" }, "stale data"),
-        React.createElement("span", { className: "cc-menubar-clock" }, `${fmtTime(now)} ${localTZName()}`),
+        isJarvis && React.createElement("span", { className: "cc-menubar-clock cc-menubar-clock-jarvis" }, `${fmtTime(now)} ${localTZName()}`),
+        !isJarvis && React.createElement("span", { className: "cc-menubar-clock" }, `${fmtTime(now)} ${localTZName()}`),
         React.createElement("button", { type: "button", className: "cc-menubar-action", onClick: onOpenPayment }, "Payment"),
     );
 }
@@ -3785,7 +4080,7 @@ function RuntimeControlCard({ health }) {
                 setStatusText(stoppedNow ? "Jarvis stopped successfully." : "Jarvis started successfully.");
             }
             setLastActionText(
-                `${action.toUpperCase()} @ ${fmtTime(new Date())}${payload?.sentinel ? ` • ${payload.sentinel}` : ""}`
+                `${action.toUpperCase()} @ ${fmtTime(new Date())}${payload?.sentinel ? ` — ${payload.sentinel}` : ""}`
             );
         } catch (err) {
             const normalized = normalizeFetchError(err, `/runtime/${action}`);
@@ -3922,7 +4217,7 @@ function AssetChartCard({ coinMeta, onSelect, price, delta, loading }) {
             searching
                 ? React.createElement("span", { className: "cc-search-icon loading" },
                     React.createElement("div", { className: "cc-spinner", style: { width: 12, height: 12 } }))
-                : React.createElement("span", { className: "cc-search-icon" }, "⌕")
+                : React.createElement("span", { className: "cc-search-icon" }, "—")
         ),
 
         // dropdown
@@ -4059,7 +4354,7 @@ function HealthCard({ health, healthState, pending, brainStream, brainEvents }) 
         : workloadLevel === "Medium"
             ? "var(--orange)"
             : "var(--green)";
-    const workloadLabel = `${workloadLevel} • Q${pendingCount} U${unproc} E${recentBrainPerMin}/m`;
+    const workloadLabel = `${workloadLevel} — Q${pendingCount} U${unproc} E${recentBrainPerMin}/m`;
     const cpuPct = Number(health?.system?.cpu_percent);
     const cpuKnown = Number.isFinite(cpuPct);
     const cpuColor = !cpuKnown ? "var(--text2)" : cpuPct >= 85 ? "var(--red)" : cpuPct >= 65 ? "var(--orange)" : "var(--green)";
@@ -4126,7 +4421,7 @@ function HealthCard({ health, healthState, pending, brainStream, brainEvents }) 
             row("RAM", memLabel, memColor),
             row("GPU", gpuLabel, gpuColor),
             row("Workload", workloadLabel, workloadColor),
-            row("Monitors", `${monitors} ${stopped === false ? "▶" : stopped === true ? "■" : ""}`,
+            row("Monitors", `${monitors} ${stopped === false ? "—" : stopped === true ? "—" : ""}`,
                 stopped === false ? "var(--green)" : "var(--text2)"),
             row("Feed", healthState?.stale ? "Stale" : (health?.source === "health_cache" ? "Cache" : "Live"),
                 healthState?.stale ? "var(--orange)" : "var(--text2)"),
@@ -4323,18 +4618,18 @@ function RadarCoreCard({ health, pending, streamStatus, events }) {
     );
 }
 
-// ── bottom chrome bar ────────────────────────────────────────────────────────
+// —— bottom chrome bar ————————————————————————————————————————————————————————
 function ChromeBottom({ health, pending, btcPrice, openMarkets, brainEvents }) {
     const monitors = health?.monitors?.configured ?? "—";
     const totalEvents = health?.event_bus?.total_events ?? "—";
     const unproc = health?.event_bus?.unprocessed_events ?? "—";
     const baseInfo =
-        `SYSTEM: ${(health?.status ?? "STANDBY").toUpperCase()}  •  MONITORS: ${monitors}  •  ` +
-        `EVENTS: ${totalEvents}  •  UNPROCESSED: ${unproc}  •  PENDING: ${pending ?? "—"}  •  ` +
-        `MARKETS OPEN: ${openMarkets} / ${MARKETS.length}  •  ASSET: ${fmtPrice(btcPrice)}  •  `;
+        `SYSTEM: ${(health?.status ?? "STANDBY").toUpperCase()}  —  MONITORS: ${monitors}  —  ` +
+        `EVENTS: ${totalEvents}  —  UNPROCESSED: ${unproc}  —  PENDING: ${pending ?? "—"}  —  ` +
+        `MARKETS OPEN: ${openMarkets} / ${MARKETS.length}  —  ASSET: ${fmtPrice(btcPrice)}  —  `;
     const activity = brainEvents.length > 0
-        ? brainEvents.map(brainEventLabel).join("  •  ") + "  •  "
-        : "AWAITING BRAIN ACTIVITY  •  ";
+        ? brainEvents.map(brainEventLabel).join("  —  ") + "  —  "
+        : "AWAITING BRAIN ACTIVITY  —  ";
     const text = `[+]  ${baseInfo}${activity}[+]  ${baseInfo}${activity}`;
     return React.createElement(
         "div", { className: "cc-chrome-bottom" },
@@ -4347,8 +4642,9 @@ function ChromeBottom({ health, pending, btcPrice, openMarkets, brainEvents }) {
     );
 }
 
-// ── root ──────────────────────────────────────────────────────────────────────
+// —— root ——————————————————————————————————————————————————————————————————————
 function App() {
+    console.log("App loaded");
     const now = useClock();
     const device = useDeviceProfile();
     const isPhone = device === "phone";
@@ -4358,7 +4654,8 @@ function App() {
     const pending = pendingState.count;
     const brainStream = useBrainStream();
     const brainEvents = brainStream.events;
-    const voice = useVoice(device);
+    const [splashTab, setSplashTab] = React.useState(null);
+    const voice = useVoice(device, { onAgentSwitch: setSplashTab });
     const [phoneSidebarOpen, setPhoneSidebarOpen] = React.useState(false);
     const [paymentOpen, setPaymentOpen] = React.useState(false);
     const [settingsOpen, setSettingsOpen] = React.useState(false);
@@ -4367,8 +4664,15 @@ function App() {
             const saved = localStorage.getItem("cc:lastView");
             if (saved && HUD_VIEWS.some(v => v.id === saved)) return saved;
         } catch (_) { }
-        return "jarvis";
+        return "cc";
     });
+    const iframeReadyRef = React.useRef({});
+
+    function switchView(id) {
+        iframeReadyRef.current[id] = false;
+        setView(id);
+        setSplashTab(id);
+    }
 
     // Initialize randomized session color palette once on app mount
     React.useEffect(() => {
@@ -4405,7 +4709,23 @@ function App() {
         }
     }, [isPhone]);
 
-    const [coinMeta, setCoinMeta] = React.useState({ id: "bitcoin", name: "Bitcoin", symbol: "btc" });
+    const [coinMeta, setCoinMeta] = React.useState(() => {
+        // Restore the last selected asset from localStorage so the choice persists
+        // across reloads. Falls back to Bitcoin if nothing is saved or the stored
+        // value is malformed.
+        try {
+            const saved = localStorage.getItem(SELECTED_ASSET_KEY);
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                if (parsed && typeof parsed.id === "string" && typeof parsed.symbol === "string") return parsed;
+            }
+        } catch (_) { }
+        return { id: "bitcoin", name: "Bitcoin", symbol: "btc" };
+    });
+    // Persist whenever the selection changes
+    React.useEffect(() => {
+        try { localStorage.setItem(SELECTED_ASSET_KEY, JSON.stringify(coinMeta)); } catch (_) { }
+    }, [coinMeta.id]);
     const { price, delta, loading: assetLoading, flash: assetFlash } = useAssetPrice(coinMeta.id, coinMeta.symbol);
     const displayAsset = price !== null ? { name: coinMeta.name, symbol: coinMeta.symbol, price, delta } : null;
 
@@ -4434,10 +4754,11 @@ function App() {
             showSidebarToggle: isPhone,
             onToggleSidebar: () => setPhoneSidebarOpen(v => !v),
             isSidebarOpen: phoneSidebarOpen,
+            currentAgentId: voice.currentAgentId,
         }),
         React.createElement(Sidebar, {
             view,
-            onView: setView,
+            onView: switchView,
             voice,
             collapsed: isPhone ? !phoneSidebarOpen : (view === "jarvis" && device === "desktop"),
             onOpenSettings: () => setSettingsOpen(true),
@@ -4461,8 +4782,23 @@ function App() {
                 voice.ask(text);
             },
         }),
-        view === "globe" && React.createElement("iframe", { src: "/hud/globe", style: iframeStyle, title: "Strategic Globe" }),
-        view === "approvals" && React.createElement("iframe", { src: "/", style: iframeStyle, title: "Approvals" }),
+        view === "planes" && React.createElement("iframe", {
+            src: "/hud/cc/planes.html",
+            className: "nexus-integration-frame",
+            id: "planes-engine-frame",
+            style: iframeStyle,
+            sandbox: "allow-scripts allow-same-origin",
+            title: "Flight Intelligence",
+            onLoad: () => { iframeReadyRef.current["planes"] = true; },
+        }),
+        view === "globe" && React.createElement("iframe", {
+            src: "/hud/globe", style: iframeStyle, title: "Strategic Globe",
+            onLoad: () => { iframeReadyRef.current["globe"] = true; },
+        }),
+        view === "approvals" && React.createElement("iframe", {
+            src: "/", style: iframeStyle, title: "Approvals",
+            onLoad: () => { iframeReadyRef.current["approvals"] = true; },
+        }),
         view === "cc" && React.createElement(
             "div", { className: `cc-body cc-body-${device}` },
             React.createElement(ClockCard, { now }),
@@ -4483,9 +4819,15 @@ function App() {
             React.createElement(RadarCoreCard, { health, pending, streamStatus: brainStream.status, events: brainEvents }),
             React.createElement(RuntimeControlCard, { health }),
             React.createElement(MonitorsCard, { health })
-        )
+        ),
+        splashTab && React.createElement(TabSplash, {
+            tabId: splashTab,
+            iframeReadyRef,
+            onDone: () => setSplashTab(null),
+        })
     );
 }
 
 const rootEl = document.getElementById("root");
 if (rootEl) createRoot(rootEl).render(React.createElement(App));
+

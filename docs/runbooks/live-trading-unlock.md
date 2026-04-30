@@ -77,7 +77,7 @@ Before enabling live mode, ensure you can quickly stop Jarvis:
 ```bash
 python3 -m jarvis stop
 # Verify kill-switch active
-ls -la ~/.jarvis/stopped
+ls -la D:/jarvis-data/stopped
 
 # Later, resume:
 python3 -m jarvis resume

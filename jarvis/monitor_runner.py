@@ -72,7 +72,7 @@ class MonitorRunner:
         """Check if the stop sentinel file exists.
 
         Returns:
-            True if stopped sentinel exists at ~/.jarvis/stopped
+            True if stopped sentinel exists at D:/jarvis-data/stopped
         """
         sentinel = Path("D:/jarvis-data/stopped")
         return sentinel.exists()

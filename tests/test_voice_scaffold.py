@@ -5,6 +5,11 @@ from jarvis.perception.voice import (
     build_voice_adapter_stack,
     build_wake_word_adapter,
 )
+from jarvis.perception.voice.mic import (
+    extract_voice_command,
+    parse_spotify_voice_command,
+    spotify_voice_reply,
+)
 
 
 class _FakeResponse:
@@ -193,3 +198,31 @@ def test_wake_word_listener_tracks_chunks_and_triggers() -> None:
     assert out2["triggered"] is True
     assert out2["chunks_seen"] == 2
     assert out2["triggers"] == 1
+
+
+def test_extract_voice_command_removes_wake_word_and_prefix() -> None:
+    command = extract_voice_command("hey jarvis play blinding lights on spotify", "jarvis")
+    assert command == "play blinding lights on spotify"
+
+
+def test_parse_spotify_voice_command_maps_play_phrase() -> None:
+    args = parse_spotify_voice_command("can you play blinding lights on spotify")
+    assert args == {"action": "play", "query": "blinding lights"}
+
+
+def test_parse_spotify_voice_command_maps_pause_phrase() -> None:
+    args = parse_spotify_voice_command("pause spotify")
+    assert args == {"action": "pause"}
+
+
+def test_spotify_voice_reply_formats_playback_confirmation() -> None:
+    reply = spotify_voice_reply(
+        {
+            "ok": True,
+            "action": "play",
+            "track": "Blinding Lights",
+            "artist": "The Weeknd",
+        },
+        {"action": "play", "query": "blinding lights"},
+    )
+    assert reply == "Playing Blinding Lights by The Weeknd on Spotify."

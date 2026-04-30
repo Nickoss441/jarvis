@@ -1,0 +1,70 @@
+{
+    "name": "Jarvis HUD Overlay",
+    "version": "1.0.0",
+    "description": "AI-powered desktop overlay for command and control",
+    "type": "overlay-app",
+    "entry_points": {
+        "web": "http://127.0.0.1:8080/hud/cc",
+        "react": "http://127.0.0.1:8080/hud/react"
+    },
+    "overlay": {
+        "default_width": 1280,
+        "default_height": 720,
+        "resizable": true,
+        "frameless": false,
+        "always_on_top": false,
+        "transparency": 0.98,
+        "position": "center"
+    },
+    "ipc_endpoints": {
+        "system": [
+            "open_file",
+            "open_url",
+            "execute_command",
+            "get_clipboard",
+            "set_clipboard",
+            "list_files",
+            "read_file",
+            "write_file"
+        ],
+        "window": [
+            "toggle_always_on_top",
+            "minimize",
+            "maximize",
+            "close",
+            "set_position",
+            "set_size"
+        ],
+        "hotkeys": [
+            "register_global_hotkey",
+            "unregister_hotkey"
+        ]
+    },
+    "agents": {
+        "jarvis": {
+            "role": "operational_assistant",
+            "capabilities": [
+                "task_execution",
+                "automation",
+                "system_control"
+            ]
+        },
+        "eva": {
+            "role": "conversational_assistant",
+            "capabilities": [
+                "user_interaction",
+                "advisory",
+                "knowledge_sharing"
+            ]
+        }
+    },
+    "future_features": {
+        "electron": "Migrate to native Electron app for system overlay",
+        "native_window": "Use native window manager for true always-on-top overlay",
+        "system_tray": "Add system tray integration and quick access",
+        "global_hotkey": "Define global hotkey (e.g., Cmd+Shift+J for Jarvis)",
+        "clipboard_monitoring": "Monitor clipboard for quick processing",
+        "drag_and_drop": "Support file drag-and-drop from desktop",
+        "voice_commands": "Global voice command listening in background"
+    }
+}

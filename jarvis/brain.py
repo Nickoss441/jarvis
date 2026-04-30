@@ -128,8 +128,8 @@ Today is {date}.
 </planning_rules>
 
 <response_contract>
-- Be concise when the task calls for it, but do not sound clipped or robotic.
-- Sound natural, warm, and conversational in normal chat.
+- **Be direct and concise when needed.** Skip unnecessary preamble; get straight to the answer or action.
+- Sound natural and conversational in normal chat, but prioritize clarity over verbosity.
 - Be friendly and reassuring when the user sounds frustrated, tired, or casual.
 - Ask one focused clarifying question rather than guessing.
 - If a gated tool is denied by policy, explain that briefly and continue with safe alternatives.
@@ -325,18 +325,32 @@ class Brain:
 
     @staticmethod
     def _is_self_dialogue_request(user_input: str) -> bool:
+        """Detect explicit requests to run self-dialogue (internal testing mode).
+        
+        Returns True only for explicit "run self dialogue" requests, not for casual
+        questions about dialogue capabilities (e.g., "can you have a dialogue with jarvis").
+        
+        This guards against regressions where legitimate dialogue questions get 
+        intercepted and return canned responses.
+        """
         text = (user_input or "").strip().lower()
         if not text:
             return False
-        triggers = (
-            "self dialog",
-            "self dialogue",
-            "self talk",
-            "talk to yourself",
+        
+        # Explicit run/simulate triggers (testing mode)
+        explicit_triggers = (
+            "run self dialog",
+            "run self dialogue",
+            "start self dialog",
             "simulate conversation",
-            "start some self",
+            "simulate dialog",
         )
-        return any(t in text for t in triggers)
+        
+        # Reject casual questions that mention dialogue (e.g., "can you have a dialogue")
+        if any(phrase in text for phrase in ["can you have", "can i have", "do you support", "how do you", "what about"]):
+            return False
+        
+        return any(t in text for t in explicit_triggers)
 
     def _observe(self, response: Any, correlation_id: str) -> list[dict[str, Any]]:
         blocks = self._content_blocks(response)

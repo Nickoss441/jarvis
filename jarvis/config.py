@@ -150,18 +150,18 @@ class Config:
     message_send_mode: str = "dry_run"
     messaging_primary_channel: str = "sms"
     messaging_fallback_channels: tuple[str, ...] = ("imessage", "slack", "push", "email")
-    message_outbox: Path = Path(os.path.expanduser("~/.jarvis/message-outbox.jsonl"))
+    message_outbox: Path = Path(os.path.expanduser("D:/jarvis-data/message-outbox.jsonl"))
     call_phone_mode: str = "dry_run"
-    calls_log_path: Path = Path(os.path.expanduser("~/.jarvis/calls-log.jsonl"))
+    calls_log_path: Path = Path(os.path.expanduser("D:/jarvis-data/calls-log.jsonl"))
     payments_mode: str = "dry_run"
-    payments_ledger: Path = Path(os.path.expanduser("~/.jarvis/payments-ledger.jsonl"))
-    payments_budget_db: Path = Path(os.path.expanduser("~/.jarvis/payments-budget.db"))
+    payments_ledger: Path = Path(os.path.expanduser("D:/jarvis-data/payments-ledger.jsonl"))
+    payments_budget_db: Path = Path(os.path.expanduser("D:/jarvis-data/payments-budget.db"))
     payments_monthly_cap: float = 10000.0
     payments_tx_limit: float = 10000.0
     payments_allowed_mccs: tuple[str, ...] = ()
     payments_webhook_secret: str = ""
     trades_mode: str = "dry_run"
-    trades_log: Path = Path(os.path.expanduser("~/.jarvis/trades-log.jsonl"))
+    trades_log: Path = Path(os.path.expanduser("D:/jarvis-data/trades-log.jsonl"))
     trading_account_equity: float = 100000.0
     trading_max_position_pct: float = 2.0
     trading_live_cooldown_seconds: int = 300
@@ -172,14 +172,14 @@ class Config:
     trading_review_min_profit_factor: float = 1.0
     trading_review_min_avg_r_multiple: float = 0.0
     trading_review_max_anomalies: int = 0
-    approval_db: Path = Path(os.path.expanduser("~/.jarvis/approvals.db"))
+    approval_db: Path = Path(os.path.expanduser("D:/jarvis-data/approvals.db"))
     approvals_ttl_seconds: int = 900
     approvals_dispatch_cooldown_seconds: int = 0
     approvals_dispatch_max_per_run: int = 25
     approvals_dispatch_cooldown_by_kind: dict[str, int] = field(default_factory=dict)
-    calendar_ics: Path = Path(os.path.expanduser("~/.jarvis/calendar.ics"))
-    event_bus_db: Path = Path(os.path.expanduser("~/.jarvis/event-bus.db"))
-    dropzone_dir: Path = Path(os.path.expanduser("~/.jarvis/dropzone"))
+    calendar_ics: Path = Path(os.path.expanduser("D:/jarvis-data/calendar.ics"))
+    event_bus_db: Path = Path(os.path.expanduser("D:/jarvis-data/event-bus.db"))
+    dropzone_dir: Path = Path(os.path.expanduser("D:/jarvis-data/dropzone"))
     rss_feed_url: str = ""
     webhook_host: str = "127.0.0.1"
     webhook_port: int = 9010
@@ -197,7 +197,7 @@ class Config:
     event_alert_recipient: str = "#ops"
     event_alerts_max_per_hour_by_kind: dict[str, int] = field(default_factory=dict)
     event_actions_retention_days: int = 30
-    mail_drafts_path: Path = Path(os.path.expanduser("~/.jarvis/mail-drafts.jsonl"))
+    mail_drafts_path: Path = Path(os.path.expanduser("D:/jarvis-data/mail-drafts.jsonl"))
     approvals_api_host: str = "0.0.0.0"
     approvals_api_port: int = 8080
     chat_account_id: str = ""
@@ -248,10 +248,10 @@ class Config:
                 or "local"
             ),
             notes_dir=Path(os.path.expanduser(
-                os.environ.get("JARVIS_NOTES_DIR", "~/jarvis-notes")
+                os.environ.get("JARVIS_NOTES_DIR", "D:/jarvis-data/notes")
             )),
             audit_db=Path(os.path.expanduser(
-                os.environ.get("JARVIS_AUDIT_DB", "~/.jarvis/audit.db")
+                os.environ.get("JARVIS_AUDIT_DB", "D:/jarvis-data/audit.db")
             )),
             conversation_store_path=Path(os.path.expanduser(
                 os.environ.get(
@@ -260,7 +260,7 @@ class Config:
                 )
             )),
             user_preferences_store_path=Path(os.path.expanduser(
-                os.environ.get("JARVIS_USER_PREFERENCES_STORE_PATH", "~/.jarvis/preferences.json")
+                os.environ.get("JARVIS_USER_PREFERENCES_STORE_PATH", "D:/jarvis-data/preferences.json")
             )),
             user_name=os.environ.get("JARVIS_USER_NAME", "User"),
             phase_voice=_env_bool("JARVIS_PHASE_VOICE", default=False),
@@ -271,7 +271,7 @@ class Config:
             phase_trading=_env_bool("JARVIS_PHASE_TRADING", default=False),
             phase_sandbox=_env_bool("JARVIS_PHASE_SANDBOX", default=False),
             sandbox_dir=Path(os.path.expanduser(
-                os.environ.get("JARVIS_SANDBOX_DIR", "~/.jarvis/sandbox")
+                os.environ.get("JARVIS_SANDBOX_DIR", "D:/jarvis-data/sandbox")
             )),
             sandbox_shell_timeout_seconds=max(
                 1,
@@ -378,27 +378,27 @@ class Config:
             message_outbox=Path(os.path.expanduser(
                 os.environ.get(
                     "JARVIS_MESSAGE_OUTBOX",
-                    "~/.jarvis/message-outbox.jsonl",
+                    "D:/jarvis-data/message-outbox.jsonl",
                 )
             )),
             call_phone_mode=os.environ.get("JARVIS_CALL_PHONE_MODE", "dry_run"),
             calls_log_path=Path(os.path.expanduser(
                 os.environ.get(
                     "JARVIS_CALLS_LOG_PATH",
-                    "~/.jarvis/calls-log.jsonl",
+                    "D:/jarvis-data/calls-log.jsonl",
                 )
             )),
             payments_mode=os.environ.get("JARVIS_PAYMENTS_MODE", "dry_run"),
             payments_ledger=Path(os.path.expanduser(
                 os.environ.get(
                     "JARVIS_PAYMENTS_LEDGER",
-                    "~/.jarvis/payments-ledger.jsonl",
+                    "D:/jarvis-data/payments-ledger.jsonl",
                 )
             )),
             payments_budget_db=Path(os.path.expanduser(
                 os.environ.get(
                     "JARVIS_PAYMENTS_BUDGET_DB",
-                    "~/.jarvis/payments-budget.db",
+                    "D:/jarvis-data/payments-budget.db",
                 )
             )),
             payments_monthly_cap=max(
@@ -419,7 +419,7 @@ class Config:
             trades_log=Path(os.path.expanduser(
                 os.environ.get(
                     "JARVIS_TRADES_LOG",
-                    "~/.jarvis/trades-log.jsonl",
+                    "D:/jarvis-data/trades-log.jsonl",
                 )
             )),
             trading_account_equity=max(
@@ -462,7 +462,7 @@ class Config:
                 int(os.environ.get("JARVIS_TRADING_REVIEW_MAX_ANOMALIES", "0")),
             ),
             approval_db=Path(os.path.expanduser(
-                os.environ.get("JARVIS_APPROVAL_DB", "~/.jarvis/approvals.db")
+                os.environ.get("JARVIS_APPROVAL_DB", "D:/jarvis-data/approvals.db")
             )),
             approvals_ttl_seconds=int(
                 os.environ.get("JARVIS_APPROVALS_TTL_SECONDS", "900")
@@ -477,13 +477,13 @@ class Config:
                 "JARVIS_APPROVALS_DISPATCH_COOLDOWN_BY_KIND"
             ),
             calendar_ics=Path(os.path.expanduser(
-                os.environ.get("JARVIS_CALENDAR_ICS", "~/.jarvis/calendar.ics")
+                os.environ.get("JARVIS_CALENDAR_ICS", "D:/jarvis-data/calendar.ics")
             )),
             event_bus_db=Path(os.path.expanduser(
-                os.environ.get("JARVIS_EVENT_BUS_DB", "~/.jarvis/event-bus.db")
+                os.environ.get("JARVIS_EVENT_BUS_DB", "D:/jarvis-data/event-bus.db")
             )),
             dropzone_dir=Path(os.path.expanduser(
-                os.environ.get("JARVIS_DROPZONE_DIR", "~/.jarvis/dropzone")
+                os.environ.get("JARVIS_DROPZONE_DIR", "D:/jarvis-data/dropzone")
             )),
             rss_feed_url=os.environ.get("JARVIS_RSS_FEED_URL", "").strip(),
             webhook_host=os.environ.get("JARVIS_WEBHOOK_HOST", "127.0.0.1").strip(),
@@ -528,7 +528,7 @@ class Config:
             mail_drafts_path=Path(os.path.expanduser(
                 os.environ.get(
                     "JARVIS_MAIL_DRAFTS_PATH",
-                    "~/.jarvis/mail-drafts.jsonl",
+                    "D:/jarvis-data/mail-drafts.jsonl",
                 )
             )),
             approvals_api_host=os.environ.get("JARVIS_APPROVALS_API_HOST", "0.0.0.0"),

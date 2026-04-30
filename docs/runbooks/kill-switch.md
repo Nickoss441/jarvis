@@ -6,10 +6,10 @@ Stop all automation and gated execution quickly.
 ## Trigger stop
 - `python3 -m jarvis stop`
 
-This creates `~/.jarvis/stopped` and signals the runtime to pause monitors and gated operations.
+This creates `D:/jarvis-data/stopped` and signals the runtime to pause monitors and gated operations.
 
 ## Verify stopped state
-- `ls ~/.jarvis/stopped`
+- `ls D:/jarvis-data/stopped`
 - `python3 -m jarvis approvals-dispatch`
   - Expect no active dispatch behavior while operational controls are paused.
 

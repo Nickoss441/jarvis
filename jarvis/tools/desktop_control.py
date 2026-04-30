@@ -174,14 +174,11 @@ def make_desktop_control_tool(mode: str = "live") -> Tool:
                 return {"ok": False, "error": "app is required for open_app"}
             if os_name == "Windows":
                 try:
-                    subprocess.Popen([app_name])  # noqa: S603
+                    # Use `start` so named apps like "spotify" resolve via shell associations
+                    subprocess.Popen(["cmd", "/c", "start", "", app_name], shell=False)  # noqa: S603
                     return {"ok": True, "action": act, "detail": "launched", "app": app_name}
-                except Exception:
-                    try:
-                        os.startfile(app_name)  # type: ignore[attr-defined]
-                        return {"ok": True, "action": act, "detail": "launched", "app": app_name}
-                    except Exception as exc:  # noqa: BLE001
-                        return {"ok": False, "action": act, "error": f"failed to open app: {exc}", "app": app_name}
+                except Exception as exc:  # noqa: BLE001
+                    return {"ok": False, "action": act, "error": f"failed to open app: {exc}", "app": app_name}
             ok, detail = _run_command(["open", "-a", app_name])
             return {"ok": ok, "action": act, "detail": detail, "app": app_name}
 

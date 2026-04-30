@@ -1,4 +1,59 @@
-﻿import React from "https://esm.sh/react@18.3.1";
+﻿// --- Render live aircraft as 3D markers ---
+React.useEffect(() => {
+    if (!rendererRef.current) return;
+    const scene = rendererRef.current.scene || rendererRef.current.__scene || null;
+    if (!scene) return;
+    // Remove previous aircraft markers
+    scene.traverse(function (obj) {
+        if (obj.userData && obj.userData.type === "aircraft-marker") {
+            scene.remove(obj);
+        }
+    });
+    // Add new aircraft markers
+    if (Array.isArray(aircraft)) {
+        aircraft.forEach((ac) => {
+            if (!Number.isFinite(ac.lat) || !Number.isFinite(ac.lon)) return;
+            const marker = new THREE.Mesh(
+                new THREE.SphereGeometry(0.55, 10, 10),
+                new THREE.MeshBasicMaterial({ color: 0xffe066 })
+            );
+            // Place slightly above globe surface (radius ~120)
+            const r = 120.8;
+            const lat = (ac.lat * Math.PI) / 180;
+            const lon = (ac.lon * Math.PI) / 180;
+            marker.position.set(
+                r * Math.cos(lat) * Math.cos(lon),
+                r * Math.sin(lat),
+                -r * Math.cos(lat) * Math.sin(lon)
+            );
+            marker.userData = { type: "aircraft-marker", id: ac.id };
+            scene.add(marker);
+        });
+    }
+}, [aircraft]);
+// --- LIVE AIRCRAFT DATA HOOK ---
+function useLiveAircraftData(pollMs = 10000) {
+    const [aircraft, setAircraft] = React.useState([]);
+    React.useEffect(() => {
+        let cancelled = false;
+        let timer = null;
+        async function fetchAircraft() {
+            try {
+                const res = await fetch("/hud/air", { cache: "no-store" });
+                if (!res.ok) throw new Error("aircraft status " + res.status);
+                const data = await res.json();
+                if (!cancelled) setAircraft(Array.isArray(data.aircraft) ? data.aircraft : []);
+            } catch (e) {
+                if (!cancelled) setAircraft([]);
+            }
+        }
+        fetchAircraft();
+        timer = setInterval(fetchAircraft, pollMs);
+        return () => { cancelled = true; if (timer) clearInterval(timer); };
+    }, [pollMs]);
+    return aircraft;
+}
+import React from "https://esm.sh/react@18.3.1";
 import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
 import * as THREE from "https://esm.sh/three@0.167.1";
 import ThreeGlobe from "https://esm.sh/three-globe@2.31.0?deps=three@0.167.1";
@@ -1335,6 +1390,19 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, selectedMarker, liveLoca
 }
 
 function SlidePanel({ marker }) {
+    const [webcam, setWebcam] = React.useState(null);
+    const [webcamLoading, setWebcamLoading] = React.useState(false);
+    React.useEffect(() => {
+        if (!marker || !marker.lat || !marker.lon) { setWebcam(null); return; }
+        setWebcamLoading(true);
+        fetch(`/hud/webcam?lat=${marker.lat}&lon=${marker.lon}`)
+            .then(res => res.ok ? res.json() : { webcams: [] })
+            .then(data => {
+                setWebcam((data.webcams && data.webcams.length) ? data.webcams[0] : null);
+                setWebcamLoading(false);
+            })
+            .catch(() => { setWebcam(null); setWebcamLoading(false); });
+    }, [marker]);
     return React.createElement(
         "aside",
         { className: `hud-slide-panel ${marker ? "is-open" : ""}`, "aria-live": "polite" },
@@ -1362,6 +1430,17 @@ function SlidePanel({ marker }) {
             { className: "hud-protocol-list" },
             ...(marker?.protocols || ["Awaiting command"]).map((item) => React.createElement("div", { key: item, className: "hud-protocol-item" }, item))
         ),
+        React.createElement("div", { className: "hud-panel-section-title" }, "Live Webcam"),
+        webcamLoading ? React.createElement("div", { className: "hud-webcam-loading" }, "Loading webcam...") :
+            webcam ? React.createElement("iframe", {
+                src: webcam.embedUrl,
+                title: webcam.title,
+                width: "100%",
+                height: "220",
+                style: { border: 0, borderRadius: "8px", background: "#111" },
+                allow: "autoplay; encrypted-media"
+            }) :
+                React.createElement("div", { className: "hud-webcam-unavailable" }, "No live webcam available for this region."),
         React.createElement(
             "div",
             { className: "hud-slide-id" },
@@ -1382,9 +1461,9 @@ function CommandDeck({ marker }) {
 }
 
 const REGION_KEYWORDS = {
-    hormuz:    ["hormuz", "iran", "strait", "persian gulf", "tanker", "oil"],
-    kabul:     ["kabul", "afghanistan", "taliban", "afghan"],
-    djibouti:  ["djibouti", "bab el-mandeb", "red sea", "houthi", "yemen", "somalia"],
+    hormuz: ["hormuz", "iran", "strait", "persian gulf", "tanker", "oil"],
+    kabul: ["kabul", "afghanistan", "taliban", "afghan"],
+    djibouti: ["djibouti", "bab el-mandeb", "red sea", "houthi", "yemen", "somalia"],
     singapore: ["singapore", "malacca", "south china sea", "asean", "taiwan"],
 };
 
@@ -1401,7 +1480,7 @@ function useThreatLevels(markers) {
                 if (!res.ok) return;
                 const data = await res.json();
                 results[m.id] = data;
-            } catch (_) {}
+            } catch (_) { }
         }));
         if (Object.keys(results).length > 0) {
             setThreats(results);
@@ -1419,6 +1498,7 @@ function useThreatLevels(markers) {
 }
 
 function HudViewport() {
+    const aircraft = useLiveAircraftData(10000); // poll every 10s
     const [selectedMarker, setSelectedMarker] = React.useState(GLOBE_MARKERS[0]);
     const [dialogueRows, setDialogueRows] = React.useState([]);
     const [dialogueLoading, setDialogueLoading] = React.useState(true);
@@ -1510,7 +1590,7 @@ function HudViewport() {
             React.createElement(
                 "section",
                 { className: "hud-main-column" },
-                React.createElement(GlobeLayer, { onMarkerSelect: handleMarkerSelect, selectedMarkerId: liveSelected.id, selectedMarker: liveSelected, liveLocation, markers: liveMarkers }),
+                React.createElement(GlobeLayer, { onMarkerSelect: handleMarkerSelect, selectedMarkerId: liveSelected.id, selectedMarker: liveSelected, liveLocation, markers: liveMarkers, aircraft }),
                 React.createElement(MarkerRibbon, {
                     markers: liveMarkers,
                     selectedId: liveSelected.id,

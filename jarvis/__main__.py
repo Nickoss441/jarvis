@@ -730,7 +730,7 @@ def _gold_trade_execute(
     )
     
     # Execute trade
-    trades_log = Path(os.path.expanduser(os.environ.get("JARVIS_TRADES_LOG", "~/.jarvis/trades-log.jsonl")))
+    trades_log = Path(os.path.expanduser(os.environ.get("JARVIS_TRADES_LOG", "D:/jarvis-data/trades-log.jsonl")))
     
     try:
         execution = execute_gold_trade(
