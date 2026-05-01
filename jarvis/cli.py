@@ -45,6 +45,11 @@ from .tools.route_eta import make_route_eta_tool
 from .tools.eta_to import make_eta_to_tool
 from .tools.spotify import make_spotify_tool
 from .tools.eva_delegate import eva_delegate
+from .tools.github_cli import github_cli
+from .tools.notion import notion
+from .tools.slack import slack
+from .tools.polymarket import polymarket
+from .tools.pdf_reader import pdf_reader
 
 
 SYSTEM_CONTROL_PROMPT = """You are Jarvis System Control, a local system-control agent for {user_name}.
@@ -78,6 +83,11 @@ def build_brain_from_config(config: Config, system_prompt_template: str | None =
 
     tools = ToolRegistry()
     tools.register(eva_delegate)
+    tools.register(github_cli)
+    tools.register(notion)
+    tools.register(slack)
+    tools.register(polymarket)
+    tools.register(pdf_reader)
     tools.register(web_search)
     tools.register(web_fetch)
     for t in make_notes_tools(config.notes_dir):
