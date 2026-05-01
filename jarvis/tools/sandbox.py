@@ -36,6 +36,8 @@ from __future__ import annotations
 import os
 import shlex
 import subprocess
+import tempfile
+import time
 import uuid
 from pathlib import Path
 from typing import Any, Callable
@@ -54,7 +56,7 @@ _MAX_TIMEOUT_SECONDS = 60
 # Minimal safe environment for subprocesses.
 _SAFE_ENV = {
     "PATH": "/usr/local/bin:/usr/bin:/bin",
-    "HOME": "/tmp",
+    "HOME": tempfile.gettempdir(),
     "LANG": "en_US.UTF-8",
     "LC_ALL": "en_US.UTF-8",
 }
@@ -148,7 +150,8 @@ def make_shell_run_tool(
                 )
                 break
             except BlockingIOError:
-                # Transient OS resource pressure (fork/posix_spawn) can occur in CI.
+                # Transient OS resource pressure — brief back-off before retry.
+                time.sleep(0.1)
                 continue
             except subprocess.TimeoutExpired:
                 return {

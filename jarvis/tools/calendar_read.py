@@ -5,6 +5,7 @@ Phase-safe implementation:
 - Parsing is intentionally minimal (VEVENT + DTSTART/DTEND/SUMMARY/LOCATION).
  - On macOS, when no ICS file is present, falls back to Apple Calendar via osascript.
 """
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 import platform
@@ -12,6 +13,8 @@ import subprocess
 from typing import Any
 
 from . import Tool
+
+_log = logging.getLogger(__name__)
 
 
 def _read_apple_calendar_events(max_events: int) -> tuple[list[dict[str, Any]], str]:
@@ -127,6 +130,8 @@ def make_calendar_read_tool(calendar_ics_path: Path | None = None) -> Tool:
                 current = None
                 continue
             if current is None or ":" not in line:
+                if current is not None:
+                    _log.debug("calendar_read: skipping malformed ICS line: %r", line)
                 continue
             key, value = line.split(":", 1)
             key = key.split(";", 1)[0]

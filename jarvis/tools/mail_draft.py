@@ -19,8 +19,11 @@ def make_mail_draft_tool(drafts_path: Path) -> Tool:
         subject: str,
         body: str,
     ) -> dict[str, Any]:
-        if not to.strip() or not subject.strip() or not body.strip():
+        to = (to or "").strip()
+        if not to or not subject.strip() or not body.strip():
             return {"error": "to, subject, and body are required"}
+        if "@" not in to or "." not in to.split("@")[-1]:
+            return {"error": f"'{to}' does not look like a valid email address"}
 
         draft = {
             "id": str(uuid.uuid4()),

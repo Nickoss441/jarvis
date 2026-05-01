@@ -337,11 +337,12 @@ class AirBridge:
             )
 
     def _get_mock_aircraft(self) -> AirStatesPayload:
-        """Return mock aircraft for testing/demo."""
+        """Return mock aircraft for testing/demo (explicitly labelled MOCK)."""
         return AirStatesPayload(
             aircraft=self._mock_data,
-            state=DataState.LIVE,
+            state=DataState.ERROR,
             timestamp=time.time(),
+            message="MOCK mode — no live data source.",
         )
 
     def _generate_mock_data(self) -> List[AircraftDTO]:

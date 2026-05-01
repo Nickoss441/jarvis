@@ -36,7 +36,7 @@ function fmtSize(bytes) {
     return (bytes / (1024 * 1024)).toFixed(1) + " MB";
 }
 
-function DatasetsCard() {
+function DatasetsCard(props) {
     const [files, setFiles] = React.useState([]);
     const [loading, setLoading] = React.useState(false);
     const [error, setError] = React.useState("");
@@ -60,7 +60,10 @@ function DatasetsCard() {
         }
     };
 
-    React.useEffect(() => { fetchFiles(); }, []);
+    React.useEffect(() => {
+        if (props.sleepMode) return; // Pause polling in sleep mode
+        fetchFiles();
+    }, [props.sleepMode]);
 
     const handleUpload = async (e) => {
         const file = e.target.files?.[0];
@@ -143,7 +146,7 @@ function DatasetsCard() {
                     display: "flex", alignItems: "center", gap: 6, padding: "2px 0", userSelect: "none"
                 }
             },
-                React.createElement("span", null, isOpen ? "▼" : "▼"),
+                React.createElement("span", null, isOpen ? "▼" : "▶"),
                 React.createElement("span", null, "🤖 " + label),
                 React.createElement("span", { style: { color: "var(--text3)", marginLeft: 4 } },
                     "(" + grouped[folderKey].length + " file" + (grouped[folderKey].length !== 1 ? "s" : "") + ")")
@@ -823,15 +826,24 @@ function fetchMetals() {
 // Key for persisting the selected asset across page reloads
 const SELECTED_ASSET_KEY = "cc:selectedAsset";
 
-// Try the backend price proxy first; fall back to the direct exchange API.
-// This makes the data source swappable on the server side without touching
-// this file — just update _YAHOO_QUOTE_SYMBOLS in approval_api.py.
+// Use backend market proxy endpoints to avoid browser CORS/rate-limit issues.
 async function fetchAssetPriceFromBackend(coinId) {
     const r = await fetch(`/hud/market/price?symbol=${encodeURIComponent(coinId)}`, { signal: AbortSignal.timeout(3000) });
     if (!r.ok) throw new Error(`backend ${r.status}`);
     const j = await r.json();
     if (!j.price) throw new Error("no price in response");
     return { price: parseFloat(j.price), delta: parseFloat(j.change_pct ?? 0) };
+}
+
+async function fetchAssetChartFromBackend(coinId, interval, limit) {
+    const r = await fetch(
+        `/hud/market/chart?symbol=${encodeURIComponent(coinId)}&interval=${encodeURIComponent(interval)}&limit=${encodeURIComponent(limit)}`,
+        { signal: AbortSignal.timeout(3500) }
+    );
+    if (!r.ok) throw new Error(`backend ${r.status}`);
+    const j = await r.json();
+    const points = Array.isArray(j.points) ? j.points.map(v => parseFloat(v)).filter(v => Number.isFinite(v)) : [];
+    return points;
 }
 
 // price hook — branches on commodity vs crypto; tries backend proxy first
@@ -870,11 +882,9 @@ function useAssetPrice(coinId, coinSymbol) {
             return () => { active = false; stop(); };
         }
 
-        // crypto: try backend proxy first, fall back to Binance direct
-        const sym = binanceSymbol(coinSymbol);
+        // crypto: use backend proxy only to keep requests same-origin.
         const poll = async () => {
             try {
-                // Prefer server-side proxy (swappable data source, no CORS/rate-limit concerns)
                 const { price: p, delta: d } = await fetchAssetPriceFromBackend(coinId);
                 if (!active) return;
                 if (prevRef.current !== null && p !== prevRef.current) {
@@ -886,25 +896,7 @@ function useAssetPrice(coinId, coinSymbol) {
                 ticks.push(p); if (ticks.length > 300) ticks.shift();
                 _liveTicksSet(coinId, ticks);
                 setPrice(p); setDelta(d); setLoading(false);
-            } catch (_backendErr) {
-                // Fallback: fetch directly from Binance
-                try {
-                    const r = await fetch(`${BINANCE}/ticker/24hr?symbol=${sym}`);
-                    if (!r.ok || !active) return;
-                    const j = await r.json();
-                    const p = parseFloat(j.lastPrice);
-                    const d = parseFloat(j.priceChangePercent);
-                    if (prevRef.current !== null && p !== prevRef.current) {
-                        setFlash(p > prevRef.current ? "up" : "down");
-                        setTimeout(() => setFlash(null), 800);
-                    }
-                    prevRef.current = p;
-                    const ticks = _liveTicks.get(coinId) ?? [];
-                    ticks.push(p); if (ticks.length > 300) ticks.shift();
-                    _liveTicksSet(coinId, ticks);
-                    if (active) { setPrice(p); setDelta(d); setLoading(false); }
-                } catch (_) { if (active) setLoading(false); }
-            }
+            } catch (_) { if (active) setLoading(false); }
         };
         poll();
         const stop = scheduleCadencedPoll(poll, ASSET_PRICE_POLL_MS);
@@ -914,7 +906,7 @@ function useAssetPrice(coinId, coinSymbol) {
     return { price, delta, loading, flash };
 }
 
-// chart-only hook — Binance klines or live buffer
+// chart-only hook — backend klines or live buffer
 function useAssetChart(coinId, coinSymbol, win) {
     const [sparkline, setSparkline] = React.useState([]);
 
@@ -922,8 +914,6 @@ function useAssetChart(coinId, coinSymbol, win) {
         if (!coinId || !coinSymbol) return;
         setSparkline([]);
         let dead = false;
-        const sym = binanceSymbol(coinSymbol);
-
         const load = async () => {
             try {
                 if (COMMODITY_IDS.has(coinId)) {
@@ -936,20 +926,15 @@ function useAssetChart(coinId, coinSymbol, win) {
                         if (!dead) setSparkline([...ticks]);
                         return;
                     }
-                    // seed LIVE with recent 1m klines until ticks accumulate
-                    const r = await fetch(`${BINANCE}/klines?symbol=${sym}&interval=1m&limit=60`);
-                    if (!r.ok || dead) return;
-                    const j = await r.json();
-                    const seeded = j.map(k => parseFloat(k[4]));
+                    // seed LIVE with recent backend chart points until ticks accumulate
+                    const seeded = await fetchAssetChartFromBackend(coinId, "1m", 60);
                     // merge: seed + any live ticks collected so far
                     const merged = [...seeded, ...(_liveTicks.get(coinId) ?? [])];
                     if (!dead) setSparkline(merged);
                     return;
                 }
-                const r = await fetch(`${BINANCE}/klines?symbol=${sym}&interval=${win.interval}&limit=${win.limit}`);
-                if (!r.ok) throw new Error(r.status);
-                const j = await r.json();
-                if (!dead) setSparkline(j.map(k => parseFloat(k[4])));
+                const points = await fetchAssetChartFromBackend(coinId, win.interval, win.limit);
+                if (!dead) setSparkline(points);
             } catch (_) { }
         };
 
@@ -966,13 +951,13 @@ function useAssetChart(coinId, coinSymbol, win) {
 
 // —— news hook —————————————————————————————————————————————————————————————————
 const NEWS_SOURCES = [
-    { label: "Markets", sub: "investing" },
-    { label: "World", sub: "worldnews" },
-    { label: "Crypto", sub: "CryptoCurrency" },
-    { label: "Tech", sub: "technology" },
+    { label: "Markets", source: "markets" },
+    { label: "World", source: "world" },
+    { label: "Crypto", source: "crypto" },
+    { label: "Tech", source: "tech" },
 ];
 
-function useNews(subreddit) {
+function useNews(sourceKey) {
     const [items, setItems] = React.useState([]);
     const [newIds, setNewIds] = React.useState(new Set());
     const [loading, setLoading] = React.useState(true);
@@ -988,17 +973,31 @@ function useNews(subreddit) {
 
         const load = async () => {
             try {
-                const r = await fetch(
-                    `https://www.reddit.com/r/${subreddit}/new.json?limit=25`,
-                    { headers: { Accept: "application/json" } }
-                );
-                if (!r.ok) throw new Error("reddit");
+                const r = await fetch(`/hud/news?source=${encodeURIComponent(sourceKey)}&limit=20`, {
+                    headers: { Accept: "application/json" },
+                });
+                if (!r.ok) throw new Error("news");
                 const j = await r.json();
                 if (!dead) {
-                    const posts = (j.data?.children ?? [])
-                        .map(c => c.data)
-                        .filter(d => !d.stickied)
-                        .slice(0, 20);
+                    const posts = (Array.isArray(j.items) ? j.items : [])
+                        .slice(0, 20)
+                        .map((d, idx) => {
+                            const url = typeof d.url === "string" ? d.url : "";
+                            let domain = "feed";
+                            try {
+                                domain = url ? new URL(url).hostname.replace(/^www\./, "") : "feed";
+                            } catch (_) { }
+                            return {
+                                id: url || `${sourceKey}-${idx}`,
+                                title: d.title || "Untitled",
+                                url: url || "#",
+                                domain,
+                                created_utc: Number(d.published_unix || Math.floor(Date.now() / 1000)),
+                                score: 0,
+                                preview: null,
+                                thumbnail: null,
+                            };
+                        });
 
                     const fresh = new Set(
                         posts.filter(p => !seenRef.current.has(p.id)).map(p => p.id)
@@ -1026,7 +1025,7 @@ function useNews(subreddit) {
         load();
         const t = setInterval(load, 90 * 1000);
         return () => { dead = true; clearInterval(t); };
-    }, [subreddit]);
+    }, [sourceKey]);
 
     return { items, newIds, loading, lastAt, stale };
 }
@@ -1058,7 +1057,7 @@ function newsThumb(item) {
 
 function NewsCard() {
     const [srcIdx, setSrcIdx] = React.useState(0);
-    const { items, newIds, loading, stale } = useNews(NEWS_SOURCES[srcIdx].sub);
+    const { items, newIds, loading, stale } = useNews(NEWS_SOURCES[srcIdx].source);
 
     return React.createElement(
         "div", { className: "cc-card cc-card-news", "data-accent": "purple" },
@@ -1075,7 +1074,7 @@ function NewsCard() {
                 "div", { className: "cc-news-sources" },
                 ...NEWS_SOURCES.map((s, i) =>
                     React.createElement("button", {
-                        key: s.sub,
+                        key: s.source,
                         className: `cc-news-src${srcIdx === i ? " active" : ""}`,
                         onClick: () => setSrcIdx(i),
                     }, s.label)
@@ -1310,7 +1309,7 @@ function useWatchlist() {
         try { return JSON.parse(localStorage.getItem(WATCHLIST_KEY)) || DEFAULT_WATCHLIST; }
         catch (_) { return DEFAULT_WATCHLIST; }
     });
-    const save = items => { setList(items); localStorage.setItem(WATCHLIST_KEY, JSON.stringify(items)); };
+    const save = items => { setList(items); try { localStorage.setItem(WATCHLIST_KEY, JSON.stringify(items)); } catch (_) { } };
     const add = coin => { if (!list.find(c => c.id === coin.id)) save([...list, { id: coin.id, name: coin.name, symbol: coin.symbol }]); };
     const remove = id => save(list.filter(c => c.id !== id));
     return { list, add, remove };
@@ -1547,6 +1546,15 @@ function getCurrentAgentId() {
     }
 }
 
+function persistCurrentAgentId(agentId) {
+    const safeAgentId = AGENTS.some(agent => agent.id === agentId) ? agentId : "jarvis";
+    try { localStorage.setItem(AGENT_STORAGE_KEY, safeAgentId); } catch (_) { }
+    try {
+        window.dispatchEvent(new CustomEvent("cc:agent-changed", { detail: { agentId: safeAgentId } }));
+    } catch (_) { }
+    return safeAgentId;
+}
+
 function getPreferredVoiceSex(agentId = getCurrentAgentId()) {
     return agentId === "eva" ? "female" : "male";
 }
@@ -1662,6 +1670,54 @@ function detectAgentSwitch(text) {
     return null;
 }
 
+function detectCollaborationIntent(text) {
+    const lower = String(text || "").toLowerCase();
+    const patterns = [
+        "work together",
+        "collaborate",
+        "collaboration",
+        "both of you",
+        "both ai",
+        "both agents",
+        "eva and jarvis",
+        "jarvis and eva",
+        "team up",
+        "split screen",
+        "handoff",
+        "hand-off",
+    ];
+    return patterns.some((pattern) => lower.includes(pattern));
+}
+
+function detectCollaborationEndIntent(text) {
+    const lower = String(text || "").toLowerCase();
+    const patterns = [
+        "end collaboration",
+        "stop collaboration",
+        "exit collaboration",
+        "disable collaboration",
+        "work alone",
+        "solo mode",
+        "just jarvis",
+        "just eva",
+    ];
+    return patterns.some((pattern) => lower.includes(pattern));
+}
+
+function collaborationShowLines(taskText, leadAgentId) {
+    const lead = leadAgentId === "eva" ? "eva" : "jarvis";
+    const peer = lead === "eva" ? "jarvis" : "eva";
+    const leadName = lead === "eva" ? "Eva" : "Jarvis";
+    const peerName = peer === "eva" ? "Eva" : "Jarvis";
+    const cleanTask = String(taskText || "").trim().replace(/\s+/g, " ").slice(0, 180);
+    return {
+        lead,
+        peer,
+        leadLine: `${peerName}, can you analyze this${cleanTask ? `: ${cleanTask}` : ""}`,
+        peerLine: `Sure thing ${leadName}, I will get right on it.`,
+    };
+}
+
 // Strip markdown formatting so TTS reads cleanly
 function cleanForSpeech(text) {
     return text
@@ -1721,7 +1777,7 @@ function pickAgentVoice(voices, preferredName = "", agentId = getCurrentAgentId(
     return scored[0]?.v || voices[0] || null;
 }
 
-function useVoice(device = "desktop", { onAgentSwitch } = {}) {
+function useVoice(device = "desktop", { onAgentSwitch, onThinkingChange, onCollaborationChange } = {}) {
     const isMobileDevice = device === "phone" || device === "tablet";
     const sessionStartTs = React.useRef(Date.now());
     const [state, setState] = React.useState("idle");
@@ -1760,9 +1816,26 @@ function useVoice(device = "desktop", { onAgentSwitch } = {}) {
             const newAgent = getCurrentAgentId();
             setCurrentAgentId(newAgent);
         };
+        const handleAgentChange = (event) => {
+            const next = event && event.detail && event.detail.agentId ? String(event.detail.agentId) : getCurrentAgentId();
+            setCurrentAgentId(AGENTS.some(agent => agent.id === next) ? next : "jarvis");
+        };
         window.addEventListener("storage", handleStorageChange);
-        return () => window.removeEventListener("storage", handleStorageChange);
+        window.addEventListener("cc:agent-changed", handleAgentChange);
+        return () => {
+            window.removeEventListener("storage", handleStorageChange);
+            window.removeEventListener("cc:agent-changed", handleAgentChange);
+        };
     }, []);
+
+    const onAgentSwitchRef = React.useRef(onAgentSwitch);
+    React.useEffect(() => {
+        onAgentSwitchRef.current = onAgentSwitch;
+    }, [onAgentSwitch]);
+
+    React.useEffect(() => {
+        if (onAgentSwitchRef.current) onAgentSwitchRef.current(currentAgentId);
+    }, [currentAgentId]);
 
     // Resolve and remember the best available TTS voice for this browser.
     React.useEffect(() => {
@@ -1928,6 +2001,7 @@ function useVoice(device = "desktop", { onAgentSwitch } = {}) {
             body: JSON.stringify({ text: cleaned, agent: currentAgentId, voice: currentAgentId }),
         })
             .then(res => {
+                if (res.status === 204) throw new Error("tts_unavailable");
                 if (!res.ok) throw new Error("tts_failed");
                 return res.arrayBuffer();
             })
@@ -1971,12 +2045,22 @@ function useVoice(device = "desktop", { onAgentSwitch } = {}) {
     const ask = React.useCallback(async (text) => {
         if (!text.trim()) return;
 
+        const requestedCollaboration = detectCollaborationIntent(text);
+        const activeAgentId = getCurrentAgentId();
+
+        if (onCollaborationChange) {
+            if (requestedCollaboration) {
+                onCollaborationChange(true);
+            } else if (detectCollaborationEndIntent(text)) {
+                onCollaborationChange(false);
+            }
+        }
+
         // Check for agent switching commands first
         const switchAgent = detectAgentSwitch(text);
         if (switchAgent) {
-            try { localStorage.setItem(AGENT_STORAGE_KEY, switchAgent); } catch (_) { }
-            setCurrentAgentId(switchAgent);
-            if (onAgentSwitch) onAgentSwitch(switchAgent);
+            const nextAgent = persistCurrentAgentId(switchAgent);
+            setCurrentAgentId(nextAgent);
             const agent = AGENTS.find(a => a.id === switchAgent);
             const msg = `Switched to ${agent?.label || switchAgent}. Standing by.`;
             pushHistory("user", text);
@@ -1992,13 +2076,23 @@ function useVoice(device = "desktop", { onAgentSwitch } = {}) {
         const ctrl = new AbortController();
         abortRef.current = ctrl;
         setState("thinking");
+        if (onThinkingChange) onThinkingChange(true);
         setTranscript(text);
         setReply("");
         pushHistory("user", text);
+        if (requestedCollaboration) {
+            const convo = collaborationShowLines(text, activeAgentId);
+            pushHistory(convo.lead, convo.leadLine);
+            pushHistory(convo.peer, convo.peerLine);
+            if (convo.lead === "eva") {
+                pushHistory("eva", "Thank you Jarvis, I will take it from here.");
+            } else {
+                pushHistory("jarvis", "Thank you Eva, I will take it from here.");
+            }
+        }
         // Only send the last MODEL_CONTEXT_LIMIT messages to the model
         const contextHistory = history.slice(-MODEL_CONTEXT_LIMIT);
         try {
-            const activeAgentId = getCurrentAgentId();
             const res = await fetch("/hud/ask", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -2007,6 +2101,7 @@ function useVoice(device = "desktop", { onAgentSwitch } = {}) {
                     context: {
                         agent: activeAgentId,
                         view: "jarvis",
+                        collaboration_mode: requestedCollaboration,
                         wake_enabled: wakeEnabled,
                         chat_history: contextHistory,
                     },
@@ -2015,19 +2110,21 @@ function useVoice(device = "desktop", { onAgentSwitch } = {}) {
             });
             const j = (await res.json()) ?? {};
             abortRef.current = null;
+            if (onThinkingChange) onThinkingChange(false);
             const r = j?.reply || j?.error || "No response";
             const replyAgentId = typeof j.agent === "string" ? j.agent : activeAgentId;
             setReply(r);
             pushHistory(replyAgentId, r);
             if (!voiceMuted) speak(r); else setState("idle");
         } catch (err) {
+            if (onThinkingChange) onThinkingChange(false);
             if (err.name === "AbortError") return; // superseded by newer message
             const msg = "Connection error — is the server running?";
             setReply(msg);
             pushHistory(getCurrentAgentId(), msg);
             setState("idle");
         }
-    }, [speak, pushHistory, voiceMuted, wakeEnabled, history]);
+    }, [speak, pushHistory, voiceMuted, wakeEnabled, history, onCollaborationChange]);
 
     const startListening = React.useCallback(async () => {
         if (!supported) {
@@ -3079,7 +3176,7 @@ const NAV_ICONS = {
 };
 
 // —— components ————————————————————————————————————————————————————————————————
-function Sidebar({ view, onView, voice, collapsed, onOpenSettings, isPhone, phoneOpen, onTogglePhone }) {
+function Sidebar({ view, onView, voice, collapsed, onOpenSettings, isPhone, phoneOpen, onTogglePhone, sleepMode }) {
     // Sidebar eye: inline SVG emblem, styled for glow and background
     // Sidebar animated eye: use EyeOfJarvis SVG, but with overlay/voice/chatbox logic disabled
     function SidebarAnimatedEye() {
@@ -3200,7 +3297,8 @@ function SettingsModal({ open, onClose }) {
             React.createElement("div", { className: "cc-settings-content", style: { padding: "16px 20px", display: "flex", flexDirection: "column", gap: 24 } },
                 React.createElement(SettingsSection, { title: "Appearance" },
                     React.createElement(SettingsRow, { label: "Theme" }, React.createElement(ThemeToggle, null)),
-                    React.createElement(SettingsRow, { label: "Tabler skin (beta)" }, React.createElement(TablerSkinToggle, null))
+                    React.createElement(SettingsRow, { label: "Tabler skin (beta)" }, React.createElement(TablerSkinToggle, null)),
+                    React.createElement(SettingsRow, { label: "Splash popups" }, React.createElement(SplashPopupToggle, null))
                 ),
                 React.createElement(SettingsSection, { title: "Voice" },
                     React.createElement(SettingsRow, { label: "Wake phrase" },
@@ -3237,12 +3335,12 @@ function SettingsRow({ label, children }) {
 }
 
 function ThemeToggle() {
-    const [light, setLight] = React.useState(() => document.body.classList.contains("light"));
+    const [light, setLight] = React.useState(() => isLightThemeEnabled());
     const toggle = () => {
         const next = !light;
         setLight(next);
-        document.body.classList.toggle("light", next);
-        try { localStorage.setItem("cc:theme", next ? "light" : "dark"); } catch (_) { }
+        applyTheme(next);
+        try { localStorage.setItem(THEME_KEY, next ? "light" : "dark"); } catch (_) { }
     };
     return React.createElement("button", {
         className: "btn btn-outline-info btn-sm cc-theme-toggle",
@@ -3265,9 +3363,9 @@ const SPLASH_CONFIGS = {
         accentColor: "#22d3ee",
         title: "Jarvis",
         steps: [
-            { label: "Core reactor online",   ms: 1500 },
-            { label: "Voice systems armed",    ms: 1500 },
-            { label: "Arsenal loaded",         ms: 1500 },
+            { label: "Core reactor online", ms: 1500 },
+            { label: "Voice systems armed", ms: 1500 },
+            { label: "Arsenal loaded", ms: 1500 },
         ],
     },
     eva: {
@@ -3276,9 +3374,9 @@ const SPLASH_CONFIGS = {
         accentColor: "#c084fc",
         title: "EVA",
         steps: [
-            { label: "Neural mesh online",     ms: 1500 },
-            { label: "Empathy core active",    ms: 1500 },
-            { label: "Advisory mode ready",    ms: 1500 },
+            { label: "Neural mesh online", ms: 1500 },
+            { label: "Empathy core active", ms: 1500 },
+            { label: "Advisory mode ready", ms: 1500 },
         ],
     },
     cc: {
@@ -3287,9 +3385,9 @@ const SPLASH_CONFIGS = {
         accentColor: "#22d3ee",
         title: "Command Center",
         steps: [
-            { label: "Market feeds spliced",   ms: 1500 },
-            { label: "Brain stream active",    ms: 1500 },
-            { label: "Dashboard hot",          ms: 1500 },
+            { label: "Market feeds spliced", ms: 1500 },
+            { label: "Brain stream active", ms: 1500 },
+            { label: "Dashboard hot", ms: 1500 },
         ],
     },
     planes: {
@@ -3298,9 +3396,9 @@ const SPLASH_CONFIGS = {
         accentColor: "#22d3ee",
         title: "Flight Intelligence",
         steps: [
-            { label: "Navigation matrix online",  ms: 2000 },
-            { label: "Radar systems armed",        ms: 2000 },
-            { label: "Live aircraft data",         waitIframe: true },
+            { label: "Navigation matrix online", ms: 2000 },
+            { label: "Radar systems armed", ms: 2000 },
+            { label: "Live aircraft data", waitIframe: true },
         ],
     },
     globe: {
@@ -3309,8 +3407,8 @@ const SPLASH_CONFIGS = {
         accentColor: "#22d3ee",
         title: "Strategic Globe",
         steps: [
-            { label: "Orbital rendering armed",   ms: 2000 },
-            { label: "Terrain feeds locked",       waitIframe: true },
+            { label: "Orbital rendering armed", ms: 2000 },
+            { label: "Terrain feeds locked", waitIframe: true },
         ],
     },
     approvals: {
@@ -3319,8 +3417,8 @@ const SPLASH_CONFIGS = {
         accentColor: "#22d3ee",
         title: "Approvals",
         steps: [
-            { label: "Command channel open",      ms: 2000 },
-            { label: "Approval engine hot",        waitIframe: true },
+            { label: "Command channel open", ms: 2000 },
+            { label: "Approval engine hot", waitIframe: true },
         ],
     },
 };
@@ -3332,6 +3430,7 @@ function TabSplash({ tabId, iframeReadyRef, onDone }) {
     const stepIdxRef = React.useRef(0);
     const mountedRef = React.useRef(true);
     const accent = cfg?.accentColor || "#22d3ee";
+    const WAIT_IFRAME_TIMEOUT_MS = 9000;
 
     // Inject keyframe CSS once
     React.useEffect(() => {
@@ -3375,9 +3474,10 @@ function TabSplash({ tabId, iframeReadyRef, onDone }) {
             }
             const step = steps[idx];
             if (step.waitIframe) {
+                const startedAt = Date.now();
                 const poll = setInterval(() => {
                     if (!mountedRef.current) { clearInterval(poll); return; }
-                    if (iframeReadyRef.current[tabId]) {
+                    if (iframeReadyRef.current[tabId] || (Date.now() - startedAt) >= WAIT_IFRAME_TIMEOUT_MS) {
                         clearInterval(poll);
                         stepIdxRef.current++;
                         setDoneCount(c => c + 1);
@@ -3404,7 +3504,7 @@ function TabSplash({ tabId, iframeReadyRef, onDone }) {
     const logoEl = cfg.iconUrl
         ? React.createElement("div", {
             style: { position: "relative", width: 80, height: 80, margin: "0 auto 4px" }
-          },
+        },
             // Animated ring behind logo (scan = sweep overlay, pulse = scale)
             cfg.animation === "scan" && React.createElement("div", {
                 style: {
@@ -3429,7 +3529,7 @@ function TabSplash({ tabId, iframeReadyRef, onDone }) {
                 src: cfg.iconUrl, width: 80, height: 80,
                 style: { display: "block", position: "relative", zIndex: 1 },
             })
-          )
+        )
         : React.createElement("div", { style: { fontSize: 34, marginBottom: 8 } }, cfg.icon);
 
     return React.createElement(
@@ -3476,7 +3576,7 @@ function TabSplash({ tabId, iframeReadyRef, onDone }) {
                 "div",
                 { style: { borderTop: "1px solid #1a1a1e", paddingTop: 14 } },
                 ...steps.map((step, i) => {
-                    const isDone   = i < doneCount;
+                    const isDone = i < doneCount;
                     const isActive = i === doneCount;
                     return React.createElement(
                         "div",
@@ -3521,7 +3621,31 @@ function TabSplash({ tabId, iframeReadyRef, onDone }) {
 }
 
 const TABLER_SKIN_CLASS = "tabler-skin";
+const THEME_KEY = "cc:theme";
 const TABLER_SKIN_KEY = "cc:tabler-skin";
+const SPLASH_POPUPS_KEY = "cc:splash-popups";
+
+function isLightThemeEnabled() {
+    try {
+        const saved = localStorage.getItem(THEME_KEY);
+        if (saved === "light") return true;
+        if (saved === "dark") return false;
+    } catch (_) { }
+    return document.body.classList.contains("light");
+}
+
+function applyTheme(enabled) {
+    document.body.classList.toggle("light", Boolean(enabled));
+}
+
+function splashPopupsEnabled() {
+    try {
+        return localStorage.getItem(SPLASH_POPUPS_KEY) === "1";
+    } catch (_) {
+        return false;
+    }
+}
+
 function applyTablerSkin(enabled) {
     document.body.classList.toggle(TABLER_SKIN_CLASS, enabled);
 }
@@ -3533,6 +3657,24 @@ function TablerSkinToggle() {
         setEnabled(next);
         applyTablerSkin(next);
         try { localStorage.setItem(TABLER_SKIN_KEY, next ? "1" : "0"); } catch (_) { }
+    };
+    return React.createElement("button", {
+        className: `btn btn-sm ${enabled ? "btn-info" : "btn-outline-info"}`,
+        onClick: toggle,
+        style: {
+            minWidth: 110,
+            fontFamily: "var(--mono)",
+            fontSize: 12,
+        },
+    }, enabled ? "Enabled" : "Disabled");
+}
+
+function SplashPopupToggle() {
+    const [enabled, setEnabled] = React.useState(() => splashPopupsEnabled());
+    const toggle = () => {
+        const next = !enabled;
+        setEnabled(next);
+        try { localStorage.setItem(SPLASH_POPUPS_KEY, next ? "1" : "0"); } catch (_) { }
     };
     return React.createElement("button", {
         className: `btn btn-sm ${enabled ? "btn-info" : "btn-outline-info"}`,
@@ -3599,9 +3741,24 @@ function AgentSelector() {
             return AGENTS[0].id;
         }
     });
+
+    React.useEffect(() => {
+        const sync = () => setSelected(getCurrentAgentId());
+        const syncFromEvent = (event) => {
+            const next = event && event.detail && event.detail.agentId ? String(event.detail.agentId) : getCurrentAgentId();
+            setSelected(AGENTS.some(agent => agent.id === next) ? next : AGENTS[0].id);
+        };
+        window.addEventListener("storage", sync);
+        window.addEventListener("cc:agent-changed", syncFromEvent);
+        return () => {
+            window.removeEventListener("storage", sync);
+            window.removeEventListener("cc:agent-changed", syncFromEvent);
+        };
+    }, []);
+
     const onChange = e => {
         setSelected(e.target.value);
-        try { localStorage.setItem(AGENT_STORAGE_KEY, e.target.value); } catch (_) { }
+        persistCurrentAgentId(e.target.value);
     };
     return React.createElement("select", {
         className: "form-select form-select-sm",
@@ -3693,12 +3850,10 @@ function PaymentRequestModal({ open, onClose, onQueued }) {
     const [merchant, setMerchant] = React.useState("");
     const [reason, setReason] = React.useState("");
     const [cardholder, setCardholder] = React.useState("");
-    const [cardNumber, setCardNumber] = React.useState("");
+    const [cardLast4, setCardLast4] = React.useState("");
+    const [cardNetwork, setCardNetwork] = React.useState("visa");
     const [expMonth, setExpMonth] = React.useState("");
     const [expYear, setExpYear] = React.useState("");
-    const [billingZip, setBillingZip] = React.useState("");
-    const [temporaryCard, setTemporaryCard] = React.useState(false);
-    const [cvv, setCvv] = React.useState("");
     const [busy, setBusy] = React.useState(false);
     const [statusText, setStatusText] = React.useState("");
 
@@ -3709,11 +3864,10 @@ function PaymentRequestModal({ open, onClose, onQueued }) {
         setMerchant("");
         setReason("");
         setCardholder("");
-        setCardNumber("");
+        setCardLast4("");
+        setCardNetwork("visa");
         setExpMonth("");
         setExpYear("");
-        setBillingZip("");
-        setTemporaryCard(false);
         setCvv("");
     }, []);
 
@@ -3755,11 +3909,9 @@ function PaymentRequestModal({ open, onClose, onQueued }) {
         const recipientNorm = String(recipient || "").trim();
         const merchantNorm = String(merchant || "").trim();
         const cardholderNorm = String(cardholder || "").trim();
-        const cardDigits = String(cardNumber || "").replace(/\D/g, "");
+        const last4 = String(cardLast4 || "").replace(/\D/g, "");
         const expMonthNum = Number(expMonth);
         const expYearNum = Number(expYear);
-        const billingZipNorm = String(billingZip || "").trim();
-        const cvvDigits = String(cvv || "").replace(/\D/g, "");
 
         if (!Number.isFinite(amountNum) || amountNum <= 0) {
             setStatusText("Amount must be a positive number.");
@@ -3781,8 +3933,8 @@ function PaymentRequestModal({ open, onClose, onQueued }) {
             setStatusText("Cardholder name is required.");
             return;
         }
-        if (cardDigits.length < 12 || cardDigits.length > 19) {
-            setStatusText("Card number must be between 12 and 19 digits.");
+        if (!/^\d{4}$/.test(last4)) {
+            setStatusText("Card last 4 digits must be exactly 4 digits.");
             return;
         }
         if (!Number.isInteger(expMonthNum) || expMonthNum < 1 || expMonthNum > 12) {
@@ -3791,18 +3943,6 @@ function PaymentRequestModal({ open, onClose, onQueued }) {
         }
         if (!Number.isInteger(expYearNum) || expYearNum < 2024 || expYearNum > 2099) {
             setStatusText("Expiration year is invalid.");
-            return;
-        }
-        if (!billingZipNorm) {
-            setStatusText("Billing ZIP is required.");
-            return;
-        }
-        if (!temporaryCard && !cvvDigits) {
-            setStatusText("CVV is required unless Temporary card is enabled.");
-            return;
-        }
-        if (cvvDigits && !/^\d{3,4}$/.test(cvvDigits)) {
-            setStatusText("CVV must be 3 or 4 digits when provided.");
             return;
         }
 
@@ -3824,13 +3964,10 @@ function PaymentRequestModal({ open, onClose, onQueued }) {
                 payment_method: {
                     type: "card",
                     cardholder_name: cardholderNorm,
-                    card_last4: cardDigits.slice(-4),
-                    card_network: detectCardNetwork(cardDigits),
+                    card_last4: last4,
+                    card_network: cardNetwork,
                     exp_month: expMonthNum,
                     exp_year: expYearNum,
-                    billing_zip: billingZipNorm,
-                    temporary_card: temporaryCard,
-                    cvv_provided: !!cvvDigits,
                 },
             },
         };
@@ -3907,27 +4044,23 @@ function PaymentRequestModal({ open, onClose, onQueued }) {
                 React.createElement("label", { className: "cc-pay-label" }, "Cardholder Name"),
                 React.createElement("input", { className: "cc-pay-input cc-pay-wide form-control", value: cardholder, onChange: e => setCardholder(e.target.value), placeholder: "Nickos" }),
 
-                React.createElement("label", { className: "cc-pay-label" }, "Card Number"),
-                React.createElement("input", { className: "cc-pay-input cc-pay-wide form-control", value: cardNumber, onChange: e => setCardNumber(e.target.value), placeholder: "4242 4242 4242 4242", inputMode: "numeric", autoComplete: "cc-number" }),
+                React.createElement("label", { className: "cc-pay-label" }, "Card Last 4"),
+                React.createElement("input", { className: "cc-pay-input form-control", value: cardLast4, onChange: e => setCardLast4(e.target.value), placeholder: "4242", inputMode: "numeric", maxLength: 4 }),
+
+                React.createElement("label", { className: "cc-pay-label" }, "Network"),
+                React.createElement(
+                    "select",
+                    { className: "cc-pay-input form-control", value: cardNetwork, onChange: e => setCardNetwork(e.target.value) },
+                    React.createElement("option", { value: "visa" }, "Visa"),
+                    React.createElement("option", { value: "mastercard" }, "Mastercard"),
+                    React.createElement("option", { value: "amex" }, "Amex"),
+                    React.createElement("option", { value: "discover" }, "Discover")
+                ),
 
                 React.createElement("label", { className: "cc-pay-label" }, "Exp Month"),
                 React.createElement("input", { className: "cc-pay-input form-control", value: expMonth, onChange: e => setExpMonth(e.target.value), placeholder: "12", inputMode: "numeric" }),
                 React.createElement("label", { className: "cc-pay-label" }, "Exp Year"),
-                React.createElement("input", { className: "cc-pay-input form-control", value: expYear, onChange: e => setExpYear(e.target.value), placeholder: "2028", inputMode: "numeric" }),
-
-                React.createElement("label", { className: "cc-pay-label" }, "Billing ZIP"),
-                React.createElement("input", { className: "cc-pay-input form-control", value: billingZip, onChange: e => setBillingZip(e.target.value), placeholder: "10001" }),
-
-                React.createElement("label", { className: "cc-pay-label" }, "Temporary Card"),
-                React.createElement(
-                    "label",
-                    { className: "cc-pay-checkbox" },
-                    React.createElement("input", { type: "checkbox", checked: temporaryCard, onChange: e => setTemporaryCard(e.target.checked) }),
-                    React.createElement("span", null, temporaryCard ? "Yes" : "No")
-                ),
-
-                React.createElement("label", { className: "cc-pay-label" }, temporaryCard ? "CVV (optional)" : "CVV (required)"),
-                React.createElement("input", { className: "cc-pay-input form-control", value: cvv, onChange: e => setCvv(e.target.value), placeholder: "123", inputMode: "numeric", autoComplete: "cc-csc" })
+                React.createElement("input", { className: "cc-pay-input form-control", value: expYear, onChange: e => setExpYear(e.target.value), placeholder: "2028", inputMode: "numeric" })
             ),
 
             statusText && React.createElement("div", { className: "cc-pay-status" }, statusText),
@@ -4654,7 +4787,10 @@ function ChromeBottom({ health, pending, btcPrice, openMarkets, brainEvents }) {
 
 // —— root ——————————————————————————————————————————————————————————————————————
 function App() {
-    console.log("App loaded");
+    // ...existing code...
+    // ...existing code...
+    // ...existing code...
+    // ...existing code...
     const now = useClock();
     const device = useDeviceProfile();
     const isPhone = device === "phone";
@@ -4665,7 +4801,26 @@ function App() {
     const brainStream = useBrainStream();
     const brainEvents = brainStream.events;
     const [splashTab, setSplashTab] = React.useState(null);
-    const voice = useVoice(device, { onAgentSwitch: setSplashTab });
+    const [evaActive, setEvaActive] = React.useState(false);
+    const [evaThinking, setEvaThinking] = React.useState(false);
+    const [collaborationMode, setCollaborationMode] = React.useState(false);
+    const hasProcessedInitialAgentSwitchRef = React.useRef(false);
+
+    const handleAgentSwitch = React.useCallback((agentId) => {
+        // Ignore the first callback emission on page load so the splash popup
+        // does not auto-open by default.
+        if (hasProcessedInitialAgentSwitchRef.current) {
+            if (splashPopupsEnabled()) setSplashTab(agentId);
+        } else {
+            hasProcessedInitialAgentSwitchRef.current = true;
+        }
+        setEvaActive(agentId === "eva");
+    }, []);
+    const voice = useVoice(device, {
+        onAgentSwitch: handleAgentSwitch,
+        onThinkingChange: (thinking) => { if (evaActive) setEvaThinking(thinking); },
+        onCollaborationChange: setCollaborationMode,
+    });
     const [phoneSidebarOpen, setPhoneSidebarOpen] = React.useState(false);
     const [paymentOpen, setPaymentOpen] = React.useState(false);
     const [settingsOpen, setSettingsOpen] = React.useState(false);
@@ -4676,12 +4831,14 @@ function App() {
         } catch (_) { }
         return "cc";
     });
+    // Sleep mode: true when an agent view is active and sidebar widgets should idle.
+    const sleepMode = view === "jarvis" || view === "eva";
     const iframeReadyRef = React.useRef({});
 
     function switchView(id) {
         iframeReadyRef.current[id] = false;
         setView(id);
-        setSplashTab(id);
+        if (splashPopupsEnabled()) setSplashTab(id);
     }
 
     // Initialize randomized session color palette once on app mount
@@ -4690,6 +4847,8 @@ function App() {
     }, []);
 
     React.useEffect(() => {
+        applyTheme(isLightThemeEnabled());
+
         let enabled = false;
         try {
             enabled = localStorage.getItem(TABLER_SKIN_KEY) === "1";
@@ -4756,6 +4915,28 @@ function App() {
             border: "none", zIndex: 1,
         };
 
+    const getOverlayStyle = React.useCallback((agentId, thinking = false) => {
+        const isEva = agentId === "eva";
+        const phone = device === "phone";
+        const size = isEva
+            ? (phone ? "clamp(180px, 54vw, 260px)" : "clamp(220px, 28vw, 320px)")
+            : (phone ? "clamp(120px, 38vw, 180px)" : "clamp(140px, 18vw, 210px)");
+
+        return {
+            position: "fixed",
+            right: phone ? 10 : 24,
+            bottom: phone ? 10 : 24,
+            width: size,
+            height: size,
+            zIndex: isEva ? 9999 : 9998,
+            borderRadius: 0,
+            overflow: "hidden",
+            border: "none",
+            boxShadow: "none",
+            background: "transparent",
+        };
+    }, [device]);
+
     return React.createElement(
         React.Fragment, null,
         React.createElement(TopBar, {
@@ -4775,6 +4956,7 @@ function App() {
             isPhone,
             phoneOpen: phoneSidebarOpen,
             onTogglePhone: setPhoneSidebarOpen,
+            sleepMode,
         }),
         React.createElement(ChromeBottom, { health, pending, btcPrice: price ?? 0, openMarkets, brainEvents }),
         React.createElement(PaymentRequestModal, {
@@ -4785,7 +4967,7 @@ function App() {
             },
         }),
         React.createElement(SettingsModal, { open: settingsOpen, onClose: () => setSettingsOpen(false) }),
-        view === "jarvis" && React.createElement(JarvisTab, { voice, onOpenCamera: () => setView("camera") }),
+        view === "jarvis" && !evaActive && !collaborationMode && React.createElement(JarvisTab, { voice, onOpenCamera: () => setView("camera") }),
         view === "camera" && React.createElement(CameraTab, {
             onSendToJarvis: (text) => {
                 setView("jarvis");
@@ -4797,7 +4979,6 @@ function App() {
             className: "nexus-integration-frame",
             id: "planes-engine-frame",
             style: iframeStyle,
-            sandbox: "allow-scripts allow-same-origin",
             title: "Flight Intelligence",
             onLoad: () => { iframeReadyRef.current["planes"] = true; },
         }),
@@ -4811,30 +4992,136 @@ function App() {
         }),
         view === "cc" && React.createElement(
             "div", { className: `cc-body cc-body-${device}` },
-            React.createElement(ClockCard, { now }),
-            React.createElement(AssetStatCard, { asset: displayAsset, loading: assetLoading, flash: assetFlash }),
-            React.createElement(PendingCard, { pending }),
-            React.createElement(WatchlistCard, { health, pending, pendingState, openMarkets, onSelectAsset: setCoinMeta }),
-            React.createElement(NewsCard),
-            React.createElement(DatasetsCard),
-            React.createElement(AssetChartCard, { coinMeta, onSelect: setCoinMeta, price, delta, loading: assetLoading }),
-            React.createElement(BrainActivityCard, { events: brainEvents, streamStatus: brainStream.status }),
+            React.createElement(ClockCard, { now, sleepMode }),
+            React.createElement(AssetStatCard, { asset: displayAsset, loading: assetLoading, flash: assetFlash, sleepMode }),
+            React.createElement(PendingCard, { pending, sleepMode }),
+            React.createElement(WatchlistCard, { health, pending, pendingState, openMarkets, onSelectAsset: setCoinMeta, sleepMode }),
+            React.createElement(NewsCard, { sleepMode }),
+            React.createElement(DatasetsCard, { sleepMode }),
+            React.createElement(AssetChartCard, { coinMeta, onSelect: setCoinMeta, price, delta, loading: assetLoading, sleepMode }),
+            React.createElement(BrainActivityCard, { events: brainEvents, streamStatus: brainStream.status, sleepMode }),
             React.createElement(HealthCard, {
                 health,
                 healthState,
                 pending,
                 brainStream,
                 brainEvents,
+                sleepMode,
             }),
-            React.createElement(RadarCoreCard, { health, pending, streamStatus: brainStream.status, events: brainEvents }),
-            React.createElement(RuntimeControlCard, { health }),
-            React.createElement(MonitorsCard, { health })
+            React.createElement(RadarCoreCard, { health, pending, streamStatus: brainStream.status, events: brainEvents, sleepMode }),
+            React.createElement(RuntimeControlCard, { health, sleepMode }),
+            React.createElement(MonitorsCard, { health, sleepMode })
         ),
         splashTab && React.createElement(TabSplash, {
             tabId: splashTab,
             iframeReadyRef,
             onDone: () => setSplashTab(null),
-        })
+        }),
+        // Debug badge for collaboration mode
+        collaborationMode && React.createElement("div", {
+            style: {
+                position: "fixed", top: 10, right: 10, zIndex: 99999,
+                background: "#f59e0b", color: "#222", padding: "2px 10px", borderRadius: 6,
+                fontWeight: 600, fontSize: 13, fontFamily: "monospace", boxShadow: "0 2px 8px #0006"
+            }
+        }, "COLLABORATION MODE"),
+        view === "jarvis" && collaborationMode && React.createElement("div", {
+            key: "collab-split-screen",
+            style: {
+                position: "fixed",
+                top: 40,
+                left: device === "phone" ? 72 : 168,
+                right: 0,
+                bottom: 24,
+                width: device === "phone" ? "calc(100% - 72px)" : "calc(100% - 168px)",
+                height: "calc(100vh - 64px)",
+                zIndex: 5,
+                display: "flex",
+                flexDirection: device === "phone" ? "column" : "row",
+                background: "#02050d",
+            }
+        },
+            React.createElement("section", {
+                style: {
+                    flex: 1,
+                    minWidth: 0,
+                    minHeight: 0,
+                    position: "relative",
+                    borderRight: device === "phone" ? "none" : "1px solid rgba(245,158,11,0.28)",
+                    borderBottom: device === "phone" ? "1px solid rgba(245,158,11,0.28)" : "none",
+                }
+            },
+                React.createElement("iframe", {
+                    src: "/static/jarvis.html",
+                    style: { width: "100%", height: "100%", border: "none" },
+                    title: "Jarvis",
+                    sandbox: "allow-scripts",
+                })
+            ),
+            React.createElement("section", {
+                style: {
+                    flex: 1,
+                    minWidth: 0,
+                    minHeight: 0,
+                    position: "relative",
+                }
+            },
+                React.createElement("iframe", {
+                    src: "/static/eva.html",
+                    style: { width: "100%", height: "100%", border: "none" },
+                    title: "Eva",
+                    sandbox: "allow-scripts",
+                })
+            ),
+            React.createElement("button", {
+                onClick: () => setCollaborationMode(false),
+                style: {
+                    position: "absolute", top: 8, right: 10,
+                    background: "rgba(0,0,0,0.35)",
+                    border: "1px solid rgba(255,255,255,0.22)",
+                    color: "#e5e7eb",
+                    borderRadius: 6,
+                    fontSize: 14,
+                    padding: "2px 8px",
+                    cursor: "pointer",
+                    lineHeight: 1.1,
+                    zIndex: 2,
+                }
+            }, "End Collaboration")
+        ),
+        view === "jarvis" && !evaActive && !collaborationMode && React.createElement("div", {
+            key: "jarvis-overlay",
+            style: getOverlayStyle("jarvis", false)
+        },
+            React.createElement("iframe", {
+                src: "/static/jarvis.html",
+                style: { width: "100%", height: "100%", border: "none" },
+                title: "Jarvis",
+                sandbox: "allow-scripts",
+            })
+        ),
+        evaActive && !collaborationMode && React.createElement("div", {
+            key: "eva-overlay",
+            style: getOverlayStyle("eva", evaThinking)
+        },
+            React.createElement("iframe", {
+                src: "/static/eva.html",
+                style: { width: "100%", height: "100%", border: "none" },
+                title: "Eva",
+                sandbox: "allow-scripts",
+            }),
+            React.createElement("button", {
+                onClick: () => {
+                    persistCurrentAgentId("jarvis");
+                    setEvaActive(false);
+                },
+                style: {
+                    position: "absolute", top: 4, right: 6,
+                    background: "none", border: "none", color: "#6d28d9",
+                    fontSize: 16, cursor: "pointer", lineHeight: 1,
+                }
+            }, "×")
+        )
     );
 }
 

@@ -219,7 +219,7 @@ class Config:
     ollama_base_url: str = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
     ollama_timeout: int = 45
     ollama_local_only: bool = False
-    ollama_warm_model: str = ""
+    ollama_warm_model: str = "dolphin3:8b"
     ollama_fast_mode: bool = True
     ollama_num_ctx: int = 8192
     ollama_num_predict: int = 256
@@ -571,7 +571,10 @@ class Config:
             ollama_base_url=os.environ.get("JARVIS_OLLAMA_BASE_URL", "http://localhost:11434").strip(),
             ollama_timeout=max(10, int(os.environ.get("JARVIS_OLLAMA_TIMEOUT", "45"))),
             ollama_local_only=_env_bool("JARVIS_OLLAMA_LOCAL_ONLY", default=False),
-            ollama_warm_model=os.environ.get("JARVIS_OLLAMA_WARM_MODEL", "").strip(),
+            ollama_warm_model=(
+                os.environ.get("JARVIS_OLLAMA_WARM_MODEL", "dolphin3:8b").strip()
+                or "dolphin3:8b"
+            ),
             ollama_fast_mode=_env_bool("JARVIS_OLLAMA_FAST_MODE", default=True),
             ollama_num_ctx=max(1024, int(os.environ.get("JARVIS_OLLAMA_NUM_CTX", "8192"))),
             ollama_num_predict=max(64, int(os.environ.get("JARVIS_OLLAMA_NUM_PREDICT", "256"))),

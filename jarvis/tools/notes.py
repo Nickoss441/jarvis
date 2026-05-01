@@ -22,6 +22,9 @@ def make_notes_tools(notes_dir: Path) -> list[Tool]:
             full.relative_to(notes_dir)
         except ValueError:
             return None
+        # Block symlinks that could point outside the sandbox
+        if full.exists() and full.is_symlink():
+            return None
         return full
 
     def list_handler() -> dict[str, Any]:

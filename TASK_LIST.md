@@ -1,5 +1,13 @@
 # Task List (2026-04-30)
 
+## 0) Session Carryover (Remaining)
+
+- [ ] Finish mock->live migration validation for dashboard jitter replacement
+- [ ] Fix AirBridge mock state label behavior and verify end-to-end
+- [ ] Pull and configure Ollama `dolphin3:8b` model for runtime
+- [ ] Update `.env.example` with finalized `D:\` path defaults
+- [ ] Run full regression test suite and capture failures/action items
+
 ## 1) Blocker
 
 - [x] Voice trigger pattern recognition ✓ 15/15 tests pass

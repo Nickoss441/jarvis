@@ -852,8 +852,10 @@ def _voice_self_test(
         tts_provider=config.voice_tts_provider,
         tts_api_key=config.voice_tts_api_key,
         tts_voice_ids={
-            "male": config.voice_tts_voice_id_male,
+            "male":   config.voice_tts_voice_id_male,
             "female": config.voice_tts_voice_id_female,
+            "jarvis": config.voice_tts_voice_id_jarvis,
+            "eva":    config.voice_tts_voice_id_eva,
         },
         tts_default_voice=config.voice_tts_default_voice,
         tts_model=config.voice_tts_model,
@@ -988,8 +990,10 @@ def _wake_word_listen_with_confirmation(
         tts_provider=config.voice_tts_provider,
         tts_api_key=config.voice_tts_api_key,
         tts_voice_ids={
-            "male": config.voice_tts_voice_id_male,
+            "male":   config.voice_tts_voice_id_male,
             "female": config.voice_tts_voice_id_female,
+            "jarvis": config.voice_tts_voice_id_jarvis,
+            "eva":    config.voice_tts_voice_id_eva,
         },
         tts_default_voice=config.voice_tts_default_voice,
         tts_model=config.voice_tts_model,
@@ -1068,8 +1072,10 @@ def _voice_listen() -> int:
             config.voice_tts_provider,
             api_key=config.voice_tts_api_key,
             voice_ids={
-                "male": config.voice_tts_voice_id_male,
+                "male":   config.voice_tts_voice_id_male,
                 "female": config.voice_tts_voice_id_female,
+                "jarvis": config.voice_tts_voice_id_jarvis,
+                "eva":    config.voice_tts_voice_id_eva,
             },
             default_voice=config.voice_tts_default_voice,
             model=config.voice_tts_model,
@@ -1082,6 +1088,7 @@ def _voice_listen() -> int:
         wake_word=config.voice_wake_word or "jarvis",
         tts_adapter=tts_adapter,
         whisper_model_size=whisper_model,
+        persona_voice=config.voice_tts_persona or config.voice_tts_default_voice,
     )
     try:
         loop.run()

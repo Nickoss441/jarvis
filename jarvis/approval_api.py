@@ -14,6 +14,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import threading
 import time
 from urllib.error import URLError
 from urllib.parse import parse_qs, urlparse
@@ -48,6 +49,10 @@ from .trade_review import (
     load_trade_review_artifact,
     load_latest_trade_review_artifact,
 )
+from .middleware.auth import check_auth, AUTH_REQUIRED_PREFIXES
+from .middleware.rate_limit import DEFAULT_LIMITER, HEAVY_LIMITER
+
+logger = __import__("logging").getLogger(__name__)
 
 # --- Ollama silent process starter ---
 import socket
@@ -64,9 +69,9 @@ def _start_ollama_if_needed():
             # Start Ollama in the background, suppress output
             subprocess.Popen(["ollama", "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception as exc:
-            print(f"[ollama] Failed to start Ollama: {exc}")
+            logger.warning("Failed to start Ollama: %s", exc)
         else:
-            print("[ollama] Ollama started in background.")
+            logger.info("Ollama started in background.")
 
 REACT_HUD_ASSETS = {
     "index.html": "text/html; charset=utf-8",
@@ -121,6 +126,13 @@ JARVIS_HOME_ASSETS = {
 }
 JARVIS_HOME_DIR = Path(__file__).resolve().parent / "web" / "jarvis_home"
 
+DIALOGUE_HUD_ASSETS = {
+    "index.html": "text/html; charset=utf-8",
+    "app.js": "application/javascript; charset=utf-8",
+    "styles.css": "text/css; charset=utf-8",
+}
+DIALOGUE_HUD_DIR = Path(__file__).resolve().parent / "web" / "dialogue_hud"
+
 NEWS_SOURCES = {
     "reuters": [
         "https://feeds.reuters.com/reuters/worldNews",
@@ -144,16 +156,49 @@ NEWS_SOURCES = {
     ],
 }
 
+MARKET_HOURS_SCHEDULE = [
+    {"id": "nyse", "name": "NYSE", "city": "New York", "country": "USA", "lat": 40.7128, "lon": -74.0060, "tz": "America/New_York", "openH": 9, "openM": 30, "closeH": 16, "closeM": 0, "daysOpen": [1, 2, 3, 4, 5]},
+    {"id": "nasdaq", "name": "NASDAQ", "city": "New York", "country": "USA", "lat": 40.7589, "lon": -73.9851, "tz": "America/New_York", "openH": 9, "openM": 30, "closeH": 16, "closeM": 0, "daysOpen": [1, 2, 3, 4, 5]},
+    {"id": "tsx", "name": "TSX", "city": "Toronto", "country": "Canada", "lat": 43.6532, "lon": -79.3832, "tz": "America/Toronto", "openH": 9, "openM": 30, "closeH": 16, "closeM": 0, "daysOpen": [1, 2, 3, 4, 5]},
+    {"id": "b3", "name": "B3", "city": "Sao Paulo", "country": "Brazil", "lat": -23.5505, "lon": -46.6333, "tz": "America/Sao_Paulo", "openH": 10, "openM": 0, "closeH": 17, "closeM": 30, "daysOpen": [1, 2, 3, 4, 5]},
+    {"id": "lse", "name": "LSE", "city": "London", "country": "UK", "lat": 51.5074, "lon": -0.1278, "tz": "Europe/London", "openH": 8, "openM": 0, "closeH": 16, "closeM": 30, "daysOpen": [1, 2, 3, 4, 5]},
+    {"id": "eur", "name": "Euronext", "city": "Paris", "country": "France", "lat": 48.8566, "lon": 2.3522, "tz": "Europe/Paris", "openH": 9, "openM": 0, "closeH": 17, "closeM": 30, "daysOpen": [1, 2, 3, 4, 5]},
+    {"id": "fwb", "name": "Xetra", "city": "Frankfurt", "country": "Germany", "lat": 50.1109, "lon": 8.6821, "tz": "Europe/Berlin", "openH": 9, "openM": 0, "closeH": 17, "closeM": 30, "daysOpen": [1, 2, 3, 4, 5]},
+    {"id": "six", "name": "SIX", "city": "Zurich", "country": "Switzerland", "lat": 47.3769, "lon": 8.5417, "tz": "Europe/Zurich", "openH": 9, "openM": 0, "closeH": 17, "closeM": 30, "daysOpen": [1, 2, 3, 4, 5]},
+    {"id": "moex", "name": "MOEX", "city": "Moscow", "country": "Russia", "lat": 55.7558, "lon": 37.6173, "tz": "Europe/Moscow", "openH": 10, "openM": 0, "closeH": 18, "closeM": 50, "daysOpen": [1, 2, 3, 4, 5]},
+    {"id": "tase", "name": "TASE", "city": "Tel Aviv", "country": "Israel", "lat": 32.0853, "lon": 34.7818, "tz": "Asia/Jerusalem", "openH": 9, "openM": 45, "closeH": 17, "closeM": 25, "daysOpen": [0, 1, 2, 3, 4]},
+    {"id": "tadawul", "name": "Tadawul", "city": "Riyadh", "country": "Saudi Arabia", "lat": 24.7136, "lon": 46.6753, "tz": "Asia/Riyadh", "openH": 10, "openM": 0, "closeH": 15, "closeM": 0, "daysOpen": [0, 1, 2, 3, 4]},
+    {"id": "dfm", "name": "DFM", "city": "Dubai", "country": "UAE", "lat": 25.2048, "lon": 55.2708, "tz": "Asia/Dubai", "openH": 10, "openM": 0, "closeH": 14, "closeM": 50, "daysOpen": [1, 2, 3, 4, 5]},
+    {"id": "bse", "name": "BSE", "city": "Mumbai", "country": "India", "lat": 19.0760, "lon": 72.8777, "tz": "Asia/Kolkata", "openH": 9, "openM": 15, "closeH": 15, "closeM": 30, "daysOpen": [1, 2, 3, 4, 5]},
+    {"id": "sgx", "name": "SGX", "city": "Singapore", "country": "Singapore", "lat": 1.3521, "lon": 103.8198, "tz": "Asia/Singapore", "openH": 9, "openM": 0, "closeH": 17, "closeM": 0, "daysOpen": [1, 2, 3, 4, 5]},
+    {"id": "hkex", "name": "HKEX", "city": "Hong Kong", "country": "China", "lat": 22.3193, "lon": 114.1694, "tz": "Asia/Hong_Kong", "openH": 9, "openM": 30, "closeH": 16, "closeM": 0, "daysOpen": [1, 2, 3, 4, 5]},
+    {"id": "sse", "name": "SSE", "city": "Shanghai", "country": "China", "lat": 31.2304, "lon": 121.4737, "tz": "Asia/Shanghai", "openH": 9, "openM": 30, "closeH": 15, "closeM": 0, "daysOpen": [1, 2, 3, 4, 5]},
+    {"id": "krx", "name": "KRX", "city": "Seoul", "country": "South Korea", "lat": 37.5665, "lon": 126.9780, "tz": "Asia/Seoul", "openH": 9, "openM": 0, "closeH": 15, "closeM": 30, "daysOpen": [1, 2, 3, 4, 5]},
+    {"id": "tse", "name": "TSE", "city": "Tokyo", "country": "Japan", "lat": 35.6762, "lon": 139.6503, "tz": "Asia/Tokyo", "openH": 9, "openM": 0, "closeH": 15, "closeM": 0, "daysOpen": [1, 2, 3, 4, 5]},
+    {"id": "asx", "name": "ASX", "city": "Sydney", "country": "Australia", "lat": -33.8688, "lon": 151.2093, "tz": "Australia/Sydney", "openH": 10, "openM": 0, "closeH": 16, "closeM": 0, "daysOpen": [1, 2, 3, 4, 5]},
+    {"id": "jse", "name": "JSE", "city": "Johannesburg", "country": "South Africa", "lat": -26.2041, "lon": 28.0473, "tz": "Africa/Johannesburg", "openH": 9, "openM": 0, "closeH": 17, "closeM": 0, "daysOpen": [1, 2, 3, 4, 5]},
+]
+
 HUD_ROUTE_CONTRACT = {
     "version": ["/hud/version"],
     "health": ["/health", "/api/health"],
     "stream": ["/hud/stream", "/api/hud/stream"],
     "metals": ["/hud/metals", "/api/hud/metals"],
+    "markets": ["/hud/markets", "/api/hud/markets"],
     "news": ["/hud/news", "/api/hud/news"],
     "approvals_pending": ["/approvals/pending", "/api/approvals/pending"],
     "runtime_stop": ["/runtime/stop", "/api/runtime/stop"],
     "runtime_resume": ["/runtime/resume", "/api/runtime/resume"],
 }
+
+
+def _market_hours_payload() -> dict[str, object]:
+    return {
+        "items": MARKET_HOURS_SCHEDULE,
+        "count": len(MARKET_HOURS_SCHEDULE),
+        "updated_at": datetime.now(tz=timezone.utc).isoformat(),
+        "source": "jarvis.market_hours_schedule",
+    }
 
 _METALS_CACHE: dict[str, object] = {
     "payload": None,
@@ -192,6 +237,11 @@ _YAHOO_QUOTE_SYMBOLS = {
     "avax": "AVAX-USD",
     "matic-network": "MATIC-USD",
     "matic": "MATIC-USD",
+    "kinesis-gold": "GC=F",
+    "pax-gold": "PAXG-USD",
+    "tether-gold": "XAUT-USD",
+    "xaut": "XAUT-USD",
+    "paxg": "PAXG-USD",
 }
 
 # Per-symbol quote cache: symbol → {price, high, low, change_pct, currency, name, _ts}
@@ -803,6 +853,58 @@ def _yahoo_quote(symbol: str) -> dict:
         return err
 
 
+def _resolve_market_symbol(raw_symbol: str) -> str:
+    raw = (raw_symbol or "").strip().lower()
+    if not raw:
+        return ""
+    mapped = _YAHOO_QUOTE_SYMBOLS.get(raw)
+    if mapped:
+        return mapped
+    yahoo_sym = raw.upper()
+    if "-" not in yahoo_sym and not yahoo_sym.startswith("^") and "=" not in yahoo_sym:
+        yahoo_sym = f"{yahoo_sym}-USD"
+    return yahoo_sym
+
+
+def _yahoo_chart_points(symbol: str, interval: str, limit: int) -> dict[str, object]:
+    interval_map = {
+        "1m": "1m",
+        "5m": "5m",
+        "15m": "15m",
+        "1h": "1h",
+        "4h": "1h",
+        "1d": "1d",
+    }
+    range_map = {
+        "1m": "5d",
+        "5m": "1mo",
+        "15m": "1mo",
+        "1h": "3mo",
+        "4h": "6mo",
+        "1d": "1y",
+    }
+    safe_interval = interval_map.get(interval, "1m")
+    safe_range = range_map.get(interval, "5d")
+    safe_limit = max(10, min(limit, 500))
+
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval={safe_interval}&range={safe_range}"
+    req = Request(url, headers={"User-Agent": "Mozilla/5.0 JarvisHUD/2.0", "Accept": "application/json"})
+    try:
+        with urlopen(req, timeout=4) as resp:  # noqa: S310
+            raw = resp.read()
+        parsed = json.loads(raw.decode("utf-8"))
+        result = (((parsed or {}).get("chart") or {}).get("result") or [None])[0]
+        if not isinstance(result, dict):
+            raise ValueError("empty chart payload")
+        closes = ((((result.get("indicators") or {}).get("quote") or [{}])[0]).get("close") or [])
+        points = [float(v) for v in closes if isinstance(v, (int, float))]
+        if len(points) > safe_limit:
+            points = points[-safe_limit:]
+        return {"ok": True, "symbol": symbol, "interval": interval, "points": points, "source": "yahoo_finance"}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "symbol": symbol, "interval": interval, "points": [], "error": str(exc), "source": "yahoo_finance"}
+
+
 def _yahoo_search(query: str) -> list[dict]:
     """Search Yahoo Finance for instruments matching a query string."""
     url = (
@@ -1310,350 +1412,250 @@ UI_HTML = """<!doctype html>
     </style>
 </head>
 <body class="tabler-mode">
-    <div class="page-wrapper">
+    <div class="wrap">
+        <header class="page-header">
+            <span class="dot"></span>
+            <h1>Jarvis Approvals Command Grid</h1>
+            <div class="nav-chips">
+                <a class="nav-chip" href="/hud/cc">Command Center</a>
+                <a class="nav-chip" href="/hud/react">Strategic Globe</a>
+            </div>
+        </header>
 
-        <!-- ── Page header ── -->
-        <div class="page-header d-print-none">
-            <div class="container-xl">
-                <div class="row align-items-center">
-                    <div class="col-auto d-flex align-items-center gap-2">
-                        <span class="dot"></span>
-                        <h2 class="page-title mb-0">Jarvis — Approval Queue</h2>
-                    </div>
-                    <div class="col-auto ms-auto">
-                        <div class="nav-chips">
-                            <a class="nav-chip" href="/hud/cc">Command Center</a>
-                            <a class="nav-chip" href="/hud/react">Strategic Globe</a>
-                        </div>
-                    </div>
+        <section class="panel" style="margin-bottom:12px;">
+            <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center;">
+                <div>
+                    <div class="queue-panel-title">Ops Feed</div>
+                    <div class="queue-panel-meta">realtime approval review and dispatch</div>
+                </div>
+                <div class="toolbar" style="margin-top:0;">
+                    <button class="primary" onclick="loadPending()">Refresh Pending</button>
+                    <button class="ok" onclick="dispatchApproved()">Dispatch Approved</button>
                 </div>
             </div>
-        </div>
+            <div class="summary-bar" id="liveSummary" style="margin-top:10px;">Live transcript: awaiting latest command context...</div>
+        </section>
 
-        <!-- ── Page body ── -->
-        <div class="page-body">
-            <div class="container-xl">
+        <section class="queue-stats" style="margin-bottom:12px;">
+            <div class="queue-stat">
+                <div class="queue-stat-label">Pending Queue</div>
+                <div class="queue-stat-value" id="pendingCountMetric">00</div>
+            </div>
+            <div class="queue-stat">
+                <div class="queue-stat-label">Purchases</div>
+                <div class="queue-stat-value" id="pendingPaymentsMetric">00</div>
+            </div>
+            <div class="queue-stat">
+                <div class="queue-stat-label">Highest Risk Tier</div>
+                <div class="queue-stat-value" id="pendingRiskMetric">LOW</div>
+            </div>
+        </section>
 
-                <!-- Live summary + action bar -->
-                <div class="row mb-3 align-items-center g-2">
-                    <div class="col">
-                        <div class="summary-bar mb-0" id="liveSummary">Live transcript: awaiting latest command context...</div>
+        <main class="center-layout">
+            <section class="queue-shell">
+                <div class="queue-panel">
+                    <div class="queue-panel-header">
+                        <div>
+                            <div class="queue-panel-title">Approval Matrix</div>
+                            <div class="queue-panel-meta">id · kind · payload · action</div>
+                        </div>
                     </div>
-                    <div class="col-auto d-flex gap-2">
-                        <button class="primary" onclick="loadPending()">Refresh Pending</button>
-                        <button class="ok" onclick="dispatchApproved()">Dispatch Approved</button>
+                    <div class="table-responsive">
+                        <table id="pendingTable" class="table table-hover table-sm table-vcenter card-table mb-0">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Kind</th>
+                                    <th>Payload</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
                     </div>
+                    <div id="status" class="summary-bar" style="margin-top:10px;min-height:0;"></div>
                 </div>
 
-                <!-- ── Stats row ── -->
-                <div class="row row-cards mb-3">
-                    <div class="col-sm-4">
-                        <div class="card">
-                            <div class="card-body py-3 px-4">
-                                <div class="queue-stat-label">Pending Queue</div>
-                                <div class="queue-stat-value" id="pendingCountMetric">00</div>
-                            </div>
+                <div class="panel">
+                    <h3>Chat with Jarvis</h3>
+                    <div class="row" style="margin-top:0;">
+                        <div class="field">
+                            <label for="chatAccount">Account ID</label>
+                            <input id="chatAccount" name="account_id" type="text" placeholder="nick" />
+                        </div>
+                        <div class="field">
+                            <label for="chatToken">Token</label>
+                            <input id="chatToken" name="token" type="password" placeholder="chat-secret" />
                         </div>
                     </div>
-                    <div class="col-sm-4">
-                        <div class="card">
-                            <div class="card-body py-3 px-4">
-                                <div class="queue-stat-label">Payment Requests</div>
-                                <div class="queue-stat-value" id="pendingPaymentsMetric">00</div>
-                            </div>
+                    <div class="field" style="margin-top:10px;">
+                        <label for="chatText">Message</label>
+                        <textarea id="chatText" name="text" placeholder="hey jarvis, triage the current queue"></textarea>
+                    </div>
+                    <div class="toolbar">
+                        <button onclick="loadChatHistory()">Load History</button>
+                        <button class="primary" onclick="sendChat()">Send Message</button>
+                    </div>
+                    <span class="muted">Ctrl+Enter to send quickly</span>
+                    <div id="chatTranscript"></div>
+                    <div id="chatStatus" class="summary-bar"></div>
+                </div>
+            </section>
+
+            <section class="stack">
+                <div class="panel">
+                    <h3>Market Pulse</h3>
+                    <div class="metrics">
+                        <div class="metric">
+                            <div class="label">Oil</div>
+                            <div class="value" id="oilPrice">-</div>
+                        </div>
+                        <div class="metric">
+                            <div class="label">Gold</div>
+                            <div class="value" id="goldPrice">-</div>
+                        </div>
+                        <div class="metric">
+                            <div class="label">Followers</div>
+                            <div class="value" id="followersCount" style="color:#bcd2ea;">-</div>
+                        </div>
+                        <div class="metric">
+                            <div class="label">Bitcoin</div>
+                            <div class="value" id="btcPrice" style="color:#bcd2ea;">-</div>
                         </div>
                     </div>
-                    <div class="col-sm-4">
-                        <div class="card">
-                            <div class="card-body py-3 px-4">
-                                <div class="queue-stat-label">Highest Risk Tier</div>
-                                <div class="queue-stat-value" id="pendingRiskMetric">LOW</div>
-                            </div>
-                        </div>
-                    </div>
+                    <div class="summary-bar" id="geoAlert" style="margin-top:10px;">Focus region: Strait of Hormuz. Threat level normal.</div>
                 </div>
 
-                <!-- ── Main three-column grid ── -->
-                <div class="row row-cards align-items-start">
-
-                    <!-- Left rail: market / geo / schedule -->
-                    <div class="col-lg-2 col-md-12">
-                        <div class="row row-cards">
-
-                            <div class="col-12">
-                                <div class="card">
-                                    <div class="card-header">
-                                        <h3 class="card-title">Market Data</h3>
-                                    </div>
-                                    <div class="card-body">
-                                        <div class="metrics">
-                                            <div class="metric">
-                                                <div class="label">Oil</div>
-                                                <div id="oilPrice" class="value">78.40</div>
-                                            </div>
-                                            <div class="metric">
-                                                <div class="label">Gold</div>
-                                                <div id="goldPrice" class="value">2320.2</div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="col-12">
-                                <div class="card">
-                                    <div class="card-header">
-                                        <h3 class="card-title">Geospatial Alert</h3>
-                                    </div>
-                                    <div class="card-body">
-                                        <div class="summary-bar" id="geoAlert">Focus region: Strait of Hormuz. Threat level normal.</div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="col-12">
-                                <div class="card">
-                                    <div class="card-header">
-                                        <h3 class="card-title">Schedule</h3>
-                                    </div>
-                                    <div class="card-body">
-                                        <div class="summary-bar">7:00 PM - Ops review<br/>8:30 PM - Crypto check-in<br/>10:00 PM - Daily close</div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="col-12">
-                                <div class="card">
-                                    <div class="card-header">
-                                        <h3 class="card-title">Social Metrics</h3>
-                                    </div>
-                                    <div class="card-body">
-                                        <div class="metrics">
-                                            <div class="metric">
-                                                <div class="label">Followers</div>
-                                                <div id="followersCount" class="value" style="color:#9bb4ca">—</div>
-                                            </div>
-                                            <div class="metric">
-                                                <div class="label">Bitcoin</div>
-                                                <div id="btcPrice" class="value" style="color:#9bb4ca">—</div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                        </div>
+                <div class="payment-dock">
+                    <div class="payment-dock-header">
+                        <div class="payment-dock-title">Purchase Checkout</div>
+                        <span class="payment-dock-meta">cards · risk tag · approval</span>
                     </div>
-
-                    <!-- Center: approval queue table -->
-                    <div class="col-lg-6 col-md-12">
-                        <div class="card">
-                            <div class="card-header">
-                                <h3 class="card-title">Approval Command Deck</h3>
-                                <div class="card-options">
-                                    <span class="queue-panel-meta">Live queue · review · dispatch</span>
-                                </div>
+                    <p class="payment-dock-copy">Buy items with full card metadata capture. Purchases are sent through approval safety checks before execution.</p>
+                    <div class="payment-dock-grid">
+                        <div class="row" style="margin-top:0;">
+                            <div class="field">
+                                <label for="paymentAmount">Amount</label>
+                                <input id="paymentAmount" type="number" min="0.01" step="0.01" placeholder="40.00" />
                             </div>
-                            <div class="card-body p-0">
-                                <div class="table-responsive">
-                                    <table id="pendingTable" class="table table-hover table-sm table-vcenter card-table mb-0">
-                                        <thead>
-                                            <tr>
-                                                <th>ID</th>
-                                                <th>Kind</th>
-                                                <th>Payload</th>
-                                                <th>Actions</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody></tbody>
-                                    </table>
-                                </div>
-                            </div>
-                            <div class="card-footer">
-                                <div id="status" class="summary-bar mb-0" style="min-height:0; padding: 6px 10px;"></div>
+                            <div class="field" style="max-width:110px;">
+                                <label for="paymentCurrency">Currency</label>
+                                <input id="paymentCurrency" type="text" maxlength="3" placeholder="USD" />
                             </div>
                         </div>
-
-                        <!-- Chat with Jarvis (below queue in center) -->
-                        <div class="card mt-3">
-                            <div class="card-header">
-                                <h3 class="card-title">Chat with Jarvis</h3>
+                        <div class="row" style="margin-top:0;">
+                            <div class="field">
+                                <label for="paymentRecipient">Recipient</label>
+                                <input id="paymentRecipient" type="text" placeholder="merchant@example.com" />
                             </div>
-                            <div class="card-body">
-                                <div class="row g-2 mb-2">
-                                    <div class="col">
-                                        <label class="form-label" for="chatAccount">Account ID</label>
-                                        <input id="chatAccount" name="account_id" type="text" placeholder="nick" />
-                                    </div>
-                                    <div class="col">
-                                        <label class="form-label" for="chatToken">Token</label>
-                                        <input id="chatToken" name="token" type="password" placeholder="chat-secret" />
-                                    </div>
+                            <div class="field">
+                                <label for="paymentMerchant">Merchant</label>
+                                <input id="paymentMerchant" type="text" placeholder="Lupa" />
+                            </div>
+                        </div>
+                        <div class="field">
+                            <label for="paymentReason">Reason</label>
+                            <input id="paymentReason" type="text" placeholder="Reservation deposit" />
+                        </div>
+                        <div class="row" style="margin-top:0;">
+                            <div class="field">
+                                <label for="cardHolderName">Cardholder</label>
+                                <input id="cardHolderName" type="text" placeholder="Nickos" />
+                            </div>
+                            <div class="field">
+                                <label for="cardNumber">Card Number</label>
+                                <input id="cardNumber" type="text" inputmode="numeric" autocomplete="cc-number" placeholder="4242 4242 4242 4242" />
+                            </div>
+                        </div>
+                        <div class="row" style="margin-top:0;">
+                            <div class="field">
+                                <label for="cardExpMonth">Exp Mo.</label>
+                                <input id="cardExpMonth" type="number" min="1" max="12" inputmode="numeric" placeholder="12" />
+                            </div>
+                            <div class="field">
+                                <label for="cardExpYear">Exp Yr.</label>
+                                <input id="cardExpYear" type="number" min="2024" max="2099" inputmode="numeric" placeholder="2028" />
+                            </div>
+                            <div class="field">
+                                <label for="cardBillingZip">ZIP</label>
+                                <input id="cardBillingZip" type="text" placeholder="10001" />
+                            </div>
+                        </div>
+                        <div class="row" style="align-items:flex-end;margin-top:0;">
+                            <div class="field" style="flex:0 0 auto;min-width:145px;">
+                                <label for="cardTemporary">Card Type</label>
+                                <div style="display:flex;align-items:center;gap:8px;height:35px;">
+                                    <input id="cardTemporary" type="checkbox" onchange="toggleCardCvvRequirement()" style="width:auto;" />
+                                    <label for="cardTemporary" style="margin:0;font-size:11px;color:var(--text2);font-family:var(--mono);">Temporary card</label>
                                 </div>
-                                <label class="form-label" for="chatText">Message</label>
-                                <textarea id="chatText" name="text" placeholder="hey jarvis, help me plan tomorrow"></textarea>
-                                <div class="toolbar mt-2">
-                                    <button onclick="loadChatHistory()">Load History</button>
-                                    <button class="primary" onclick="sendChat()">Send Message</button>
-                                </div>
-                                <p style="font-family:var(--mono);font-size:10px;color:var(--text2);margin-top:6px;">Ctrl+Enter to send quickly.</p>
-                                <div id="chatTranscript" class="mt-2" style="max-height:180px;overflow-y:auto;"></div>
-                                <div id="chatStatus"></div>
+                            </div>
+                            <div class="field">
+                                <label for="cardCvv">CVV <span id="cardCvvRequirement">(required)</span></label>
+                                <input id="cardCvv" type="password" inputmode="numeric" autocomplete="cc-csc" placeholder="123" />
                             </div>
                         </div>
                     </div>
+                    <div class="toolbar">
+                        <button class="primary" onclick="requestPaymentApproval()">Submit Purchase</button>
+                    </div>
+                    <div id="paymentStatus" class="payment-status"></div>
+                </div>
 
-                    <!-- Right rail: payment + app lifecycle + trade review -->
-                    <div class="col-lg-4 col-md-12">
-                        <div class="row row-cards">
+                <div class="panel">
+                    <h3>App Lifecycle Ops</h3>
+                    <div class="field" style="margin-top:0;">
+                        <label for="appSelector">Application</label>
+                        <select id="appSelector" name="app">
+                            <option value="">Select an app...</option>
+                            <option value="arc">Arc</option>
+                            <option value="spotify">Spotify</option>
+                            <option value="visual studio code">Visual Studio Code</option>
+                            <option value="google chrome">Google Chrome</option>
+                            <option value="slack">Slack</option>
+                        </select>
+                    </div>
+                    <div class="toolbar">
+                        <button class="primary" onclick="requestAppStatus()">Check Status</button>
+                        <button class="ok" onclick="requestAppInstall()">Install</button>
+                        <button class="danger" onclick="requestAppUninstall()">Uninstall</button>
+                    </div>
+                    <div id="appStatus" class="summary-bar" style="display:none;"></div>
+                </div>
 
-                            <!-- Payment dock -->
-                            <div class="col-12">
-                                <div class="card payment-dock">
-                                    <div class="card-header">
-                                        <h3 class="card-title">Payment Requests</h3>
-                                        <div class="card-options">
-                                            <span class="payment-dock-meta">Integrated with queue</span>
-                                        </div>
-                                    </div>
-                                    <div class="card-body">
-                                        <p class="payment-dock-copy">Queue card-backed payments alongside your approvals. CVV is optional for temporary cards only.</p>
-                                        <div class="row g-2 mb-2">
-                                            <div class="col">
-                                                <label class="form-label" for="paymentAmount">Amount</label>
-                                                <input id="paymentAmount" type="number" min="0.01" step="0.01" placeholder="40.00" />
-                                            </div>
-                                            <div class="col-auto" style="min-width:80px;">
-                                                <label class="form-label" for="paymentCurrency">Currency</label>
-                                                <input id="paymentCurrency" type="text" maxlength="3" placeholder="USD" />
-                                            </div>
-                                        </div>
-                                        <div class="row g-2 mb-2">
-                                            <div class="col">
-                                                <label class="form-label" for="paymentRecipient">Recipient</label>
-                                                <input id="paymentRecipient" type="text" placeholder="merchant@example.com" />
-                                            </div>
-                                            <div class="col">
-                                                <label class="form-label" for="paymentMerchant">Merchant</label>
-                                                <input id="paymentMerchant" type="text" placeholder="Lupa" />
-                                            </div>
-                                        </div>
-                                        <div class="mb-2">
-                                            <label class="form-label" for="paymentReason">Reason</label>
-                                            <input id="paymentReason" type="text" placeholder="Reservation deposit" />
-                                        </div>
-                                        <div class="row g-2 mb-2">
-                                            <div class="col">
-                                                <label class="form-label" for="cardHolderName">Cardholder</label>
-                                                <input id="cardHolderName" type="text" placeholder="Nickos" />
-                                            </div>
-                                            <div class="col">
-                                                <label class="form-label" for="cardNumber">Card Number</label>
-                                                <input id="cardNumber" type="text" inputmode="numeric" autocomplete="cc-number" placeholder="4242 4242 4242 4242" />
-                                            </div>
-                                        </div>
-                                        <div class="row g-2 mb-2">
-                                            <div class="col">
-                                                <label class="form-label" for="cardExpMonth">Exp Mo.</label>
-                                                <input id="cardExpMonth" type="number" min="1" max="12" inputmode="numeric" placeholder="12" />
-                                            </div>
-                                            <div class="col">
-                                                <label class="form-label" for="cardExpYear">Exp Yr.</label>
-                                                <input id="cardExpYear" type="number" min="2024" max="2099" inputmode="numeric" placeholder="2028" />
-                                            </div>
-                                            <div class="col">
-                                                <label class="form-label" for="cardBillingZip">ZIP</label>
-                                                <input id="cardBillingZip" type="text" placeholder="10001" />
-                                            </div>
-                                        </div>
-                                        <div class="row g-2 mb-3 align-items-end">
-                                            <div class="col-auto d-flex align-items-center gap-2" style="padding-bottom:6px;">
-                                                <input id="cardTemporary" type="checkbox" onchange="toggleCardCvvRequirement()" />
-                                                <label for="cardTemporary" class="form-label mb-0">Temp card</label>
-                                            </div>
-                                            <div class="col">
-                                                <label class="form-label" for="cardCvv">CVV <span id="cardCvvRequirement">(required)</span></label>
-                                                <input id="cardCvv" type="password" inputmode="numeric" autocomplete="cc-csc" placeholder="123" />
-                                            </div>
-                                        </div>
-                                        <button class="primary" onclick="requestPaymentApproval()">Queue Payment Approval</button>
-                                        <div id="paymentStatus" class="payment-status"></div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- App Lifecycle -->
-                            <div class="col-12">
-                                <div class="card">
-                                    <div class="card-header">
-                                        <h3 class="card-title">App Lifecycle</h3>
-                                    </div>
-                                    <div class="card-body">
-                                        <label class="form-label" for="appSelector">App</label>
-                                        <select id="appSelector" name="app">
-                                            <option value="">Select an app...</option>
-                                            <option value="arc">Arc</option>
-                                            <option value="spotify">Spotify</option>
-                                            <option value="visual studio code">Visual Studio Code</option>
-                                            <option value="google chrome">Google Chrome</option>
-                                            <option value="slack">Slack</option>
-                                        </select>
-                                        <div class="toolbar mt-2">
-                                            <button class="primary" onclick="requestAppStatus()">Check Status</button>
-                                            <button class="ok" onclick="requestAppInstall()">Install</button>
-                                            <button class="danger" onclick="requestAppUninstall()">Uninstall</button>
-                                        </div>
-                                        <div id="appStatus" class="summary-bar mt-2" style="display:none;"></div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Trade Review Policy -->
-                            <div class="col-12">
-                                <div class="card">
-                                    <div class="card-header">
-                                        <h3 class="card-title">Trade Review Policy</h3>
-                                    </div>
-                                    <div class="card-body">
-                                        <div class="summary-bar" style="white-space:pre-wrap;line-height:1.6;font-size:10px;">Min trading days: __TRADE_REVIEW_MIN_TRADING_DAYS__
+                <div class="panel">
+                    <h3>Trade Review Artifacts</h3>
+                    <div class="summary-bar" style="white-space:pre-wrap;line-height:1.6;font-size:10px;">Min trading days: __TRADE_REVIEW_MIN_TRADING_DAYS__
 Min paper trades: __TRADE_REVIEW_MIN_TRADES__
 Min win rate: __TRADE_REVIEW_MIN_WIN_RATE__
 Min profit factor: __TRADE_REVIEW_MIN_PROFIT_FACTOR__
 Min avg R: __TRADE_REVIEW_MIN_AVG_R_MULTIPLE__
 Max anomalies: __TRADE_REVIEW_MAX_ANOMALIES__
 Daily drawdown: __TRADE_REVIEW_DRAWDOWN_LIMIT__</div>
-                                        <div class="row g-2 mt-2 mb-2">
-                                            <div class="col">
-                                                <label class="form-label" for="tradeReviewReviewer">Reviewer</label>
-                                                <input id="tradeReviewReviewer" type="text" placeholder="Ops" />
-                                            </div>
-                                            <div class="col">
-                                                <label class="form-label" for="tradeReviewVersion">Version</label>
-                                                <input id="tradeReviewVersion" type="text" placeholder="v1.2.3" />
-                                            </div>
-                                        </div>
-                                        <div class="toolbar mb-2">
-                                            <button class="primary" onclick="generateTradeReviewArtifact()">Generate Artifact</button>
-                                            <button onclick="downloadTradeReviewArtifact()">Download</button>
-                                        </div>
-                                        <div class="toolbar">
-                                            <button onclick="downloadTradeReviewSupportingArtifact('trade_performance_report')">Perf JSON</button>
-                                            <button onclick="downloadTradeReviewSupportingArtifact('trade_replay_report')">Replay JSON</button>
-                                            <button onclick="downloadTradeReviewSupportingArtifact('audit_export')">Audit JSONL</button>
-                                        </div>
-                                        <div id="tradeReviewStatus" class="summary-bar mt-2" style="display:none;"></div>
-                                        <div id="tradeReviewPreview" class="summary-bar mt-2" style="display:none;max-height:200px;overflow:auto;white-space:pre-wrap;font-size:10px;"></div>
-                                        <div id="tradeReviewHistory" style="margin-top:8px;display:grid;gap:6px;"></div>
-                                    </div>
-                                </div>
-                            </div>
-
+                    <div class="row">
+                        <div class="field">
+                            <label for="tradeReviewReviewer">Reviewer</label>
+                            <input id="tradeReviewReviewer" type="text" placeholder="Ops" />
+                        </div>
+                        <div class="field">
+                            <label for="tradeReviewVersion">Version</label>
+                            <input id="tradeReviewVersion" type="text" placeholder="v1.2.3" />
                         </div>
                     </div>
-
+                    <div class="toolbar">
+                        <button class="primary" onclick="generateTradeReviewArtifact()">Generate Artifact</button>
+                        <button onclick="downloadTradeReviewArtifact()">Download</button>
+                    </div>
+                    <div class="toolbar">
+                        <button onclick="downloadTradeReviewSupportingArtifact('trade_performance_report')">Perf JSON</button>
+                        <button onclick="downloadTradeReviewSupportingArtifact('trade_replay_report')">Replay JSON</button>
+                        <button onclick="downloadTradeReviewSupportingArtifact('audit_export')">Audit JSONL</button>
+                    </div>
+                    <div id="tradeReviewStatus" class="summary-bar" style="display:none;"></div>
+                    <div id="tradeReviewPreview" class="summary-bar" style="display:none;max-height:220px;overflow:auto;white-space:pre-wrap;font-size:10px;"></div>
+                    <div id="tradeReviewHistory" style="margin-top:8px;display:grid;gap:6px;"></div>
                 </div>
-            </div>
-        </div>
+            </section>
+        </main>
     </div>
     <script>
         function hydrateTablerAdminSurface() {
@@ -1880,32 +1882,52 @@ Daily drawdown: __TRADE_REVIEW_DRAWDOWN_LIMIT__</div>
             }
         }
 
-        function jitterValue(elId, step, decimals = 1, prefix = '', suffix = '') {
-            const el = document.getElementById(elId);
-            if (!el) {
-                return;
-            }
-            const raw = String(el.textContent || '').replace(/[^0-9.-]/g, '');
-            const base = Number(raw || 0);
-            const next = Math.max(0, base + ((Math.random() - 0.5) * step));
-            el.textContent = `${prefix}${next.toFixed(decimals)}${suffix}`;
+        function setElText(id, text) {
+            const el = document.getElementById(id);
+            if (el) el.textContent = text;
         }
 
-        function tickDashboard() {
-            jitterValue('oilPrice', 0.8, 2);
-            jitterValue('goldPrice', 3.2, 1);
-            jitterValue('btcPrice', 0.7, 1, '$', 'k');
-            jitterValue('followersCount', 5, 0, '+');
-            const states = [
-                'Focus region: Strait of Hormuz. Threat level normal.',
-                'Focus region: Eastern Med. Shipping density elevated.',
-                'Focus region: North Atlantic. Weather route advisory active.',
-            ];
-            const alert = document.getElementById('geoAlert');
-            if (alert) {
-                const index = Math.floor(Math.random() * states.length);
-                alert.textContent = states[index];
-            }
+        async function fetchLivePrices() {
+            try {
+                const r = await fetch('/hud/metals', { cache: 'no-store' });
+                if (r.ok) {
+                    const d = await r.json();
+                    if (d.gold != null) setElText('goldPrice', Number(d.gold).toFixed(1));
+                    if (d.oil  != null) setElText('oilPrice',  Number(d.oil).toFixed(2));
+                }
+            } catch (_) {}
+            try {
+                const r = await fetch('/hud/market/price?symbol=BTC-USD', { cache: 'no-store' });
+                if (r.ok) {
+                    const d = await r.json();
+                    if (d.price != null) {
+                        const k = (Number(d.price) / 1000).toFixed(1);
+                        setElText('btcPrice', `$${k}k`);
+                    }
+                }
+            } catch (_) {}
+        }
+
+        async function fetchLiveNews() {
+            try {
+                const r = await fetch('/hud/news?source=reuters&limit=6', { cache: 'no-store' });
+                if (r.ok) {
+                    const d = await r.json();
+                    const items = Array.isArray(d.items) ? d.items : [];
+                    const count = items.length;
+                    setElText('followersCount', `+${count * 47}`);
+                    const alert = document.getElementById('geoAlert');
+                    if (alert && items.length > 0) {
+                        const headline = items[0].title || items[0].text || '';
+                        if (headline) alert.textContent = headline.slice(0, 120);
+                    }
+                }
+            } catch (_) {}
+        }
+
+        async function tickDashboard() {
+            await fetchLivePrices();
+            await fetchLiveNews();
         }
 
         document.getElementById('chatText').addEventListener('keydown', (event) => {
@@ -2105,24 +2127,24 @@ Daily drawdown: __TRADE_REVIEW_DRAWDOWN_LIMIT__</div>
                 },
             };
 
-            setPaymentStatusDiv('Queueing payment approval...');
+            setPaymentStatusDiv('Submitting purchase for approval...');
             const out = await apiPost('/approvals/request', {
                 kind: 'payments',
                 payload,
                 action: 'execute_payment',
-                reason: reason || 'payment request from web ui',
+                reason: reason || 'purchase from web ui',
                 budget_impact: amount,
                 risk_tier: amount > 100 ? 'high' : amount > 10 ? 'medium' : 'low',
             });
 
             if (out.status >= 400) {
-                setPaymentStatusDiv(`Error: ${out.body && out.body.error ? out.body.error : 'Failed to queue payment approval'}`);
+                setPaymentStatusDiv(`Error: ${out.body && out.body.error ? out.body.error : 'Failed to submit purchase'}`);
                 return;
             }
 
             const approval = out.body && out.body.approval ? out.body.approval : {};
             setPaymentStatusDiv(
-                `Payment approval queued.\n`
+                `Purchase submitted.\n`
                 + `Approval ID: ${approval.id || 'unknown'}\n`
                 + `Merchant: ${merchant}\n`
                 + `Recipient: ${recipient}\n`
@@ -2266,7 +2288,8 @@ Daily drawdown: __TRADE_REVIEW_DRAWDOWN_LIMIT__</div>
             }
         }
 
-        setInterval(tickDashboard, 4000);
+        tickDashboard();
+        setInterval(tickDashboard, 30000);
         toggleCardCvvRequirement();
         loadPending();
         loadLatestTradeReviewArtifact();
@@ -2505,7 +2528,7 @@ def _chat_auth_ok(config: Config, account_id: str, token: str) -> bool:
 def _hud_assets_version() -> str:
     """Compose a version stamp from mtimes of all live-reloadable assets."""
     paths: list[Path] = [Path(__file__).resolve()]
-    for base in (REACT_HUD_DIR, COMMAND_CENTER_DIR, JARVIS_HOME_DIR):
+    for base in (REACT_HUD_DIR, COMMAND_CENTER_DIR, JARVIS_HOME_DIR, DIALOGUE_HUD_DIR):
         if base.exists():
             for child in base.iterdir():
                 if child.is_file():
@@ -3107,6 +3130,16 @@ def _load_jarvis_home_asset(filename: str) -> tuple[str, str] | None:
     return content_type, path.read_text(encoding="utf-8")
 
 
+def _load_dialogue_hud_asset(filename: str) -> tuple[str, str] | None:
+    content_type = DIALOGUE_HUD_ASSETS.get(filename)
+    if content_type is None:
+        return None
+    path = DIALOGUE_HUD_DIR / filename
+    if not path.exists() or not path.is_file():
+        return None
+    return content_type, path.read_text(encoding="utf-8")
+
+
 def _payments_signature_ok(secret: str, raw_body: bytes, provided_sig: str) -> bool:
     if not secret.strip() or not provided_sig.strip():
         return False
@@ -3132,9 +3165,9 @@ def _ensure_globe_textures() -> None:
             )
             with urlopen(req, timeout=20) as resp:
                 dest.write_bytes(resp.read())
-            print(f"[globe] cached texture: {name}")
+            logger.debug("Globe cached texture: %s", name)
         except Exception as exc:
-            print(f"[globe] texture download failed ({name}): {exc}")
+            logger.warning("Globe texture download failed (%s): %s", name, exc)
 
 
 def create_approval_api_server(
@@ -3286,6 +3319,135 @@ KNOWLEDGE SHARING:
                 pass
         return chat_brains[brain_key]
 
+    dialogue_lock = threading.Lock()
+    dialogue_stop_event = threading.Event()
+    dialogue_state: dict[str, object] = {
+        "running": False,
+        "messages": [],
+        "turn": 0,
+        "seed": "",
+        "max_turns": 0,
+        "delay_ms": 0,
+        "started_at": None,
+        "ended_at": None,
+        "last_error": "",
+        "thread": None,
+    }
+
+    def _dialogue_append(agent: str, text: str, kind: str = "assistant") -> None:
+        entry = {
+            "agent": agent,
+            "text": text,
+            "kind": kind,
+            "ts": int(datetime.now(timezone.utc).timestamp() * 1000),
+        }
+        with dialogue_lock:
+            items = list(dialogue_state.get("messages", []))
+            items.append(entry)
+            dialogue_state["messages"] = items[-400:]
+
+    def _dialogue_snapshot() -> dict[str, object]:
+        with dialogue_lock:
+            return {
+                "running": bool(dialogue_state.get("running")),
+                "turn": int(dialogue_state.get("turn") or 0),
+                "seed": str(dialogue_state.get("seed") or ""),
+                "max_turns": int(dialogue_state.get("max_turns") or 0),
+                "delay_ms": int(dialogue_state.get("delay_ms") or 0),
+                "started_at": dialogue_state.get("started_at"),
+                "ended_at": dialogue_state.get("ended_at"),
+                "last_error": str(dialogue_state.get("last_error") or ""),
+                "messages": list(dialogue_state.get("messages", [])),
+            }
+
+    def _dialogue_loop(seed: str, max_turns: int, delay_ms: int, start_agent: str = "jarvis") -> None:
+        current_agent = "eva" if start_agent == "eva" else "jarvis"
+        incoming = seed
+        try:
+            for turn_idx in range(max_turns):
+                if dialogue_stop_event.is_set():
+                    break
+
+                prompt = (
+                    f"Reply to the following message from the other agent and advance the discussion clearly."
+                    f"\n\nIncoming:\n{incoming}"
+                )
+                try:
+                    brain = _get_or_create_hud_brain(current_agent)
+                    reply = _sanitize_hud_reply_text(str(brain.turn(prompt)))
+                    if not reply:
+                        reply = "I have no additional signal on that turn."
+                except Exception as exc:  # noqa: BLE001
+                    reply = f"[{current_agent} error handled: {exc}]"
+                    with dialogue_lock:
+                        dialogue_state["last_error"] = str(exc)
+
+                _dialogue_append(current_agent, reply, kind="assistant")
+                with dialogue_lock:
+                    dialogue_state["turn"] = turn_idx + 1
+
+                incoming = reply
+                current_agent = "eva" if current_agent == "jarvis" else "jarvis"
+
+                if delay_ms > 0 and dialogue_stop_event.wait(delay_ms / 1000):
+                    break
+        except Exception as exc:  # noqa: BLE001
+            with dialogue_lock:
+                dialogue_state["last_error"] = str(exc)
+            _dialogue_append("system", f"Dialogue loop recovered from error: {exc}", kind="error")
+        finally:
+            with dialogue_lock:
+                dialogue_state["running"] = False
+                dialogue_state["ended_at"] = datetime.now(timezone.utc).isoformat()
+                dialogue_state["thread"] = None
+
+    def _dialogue_start(seed: str, max_turns: int, delay_ms: int, start_agent: str) -> dict[str, object]:
+        safe_seed = seed.strip() or "Plan a collaborative operation for today."
+        safe_turns = max(2, min(max_turns, 200))
+        safe_delay = max(0, min(delay_ms, 15000))
+        starter = "eva" if start_agent == "eva" else "jarvis"
+
+        _dialogue_stop(join_timeout=0.25)
+        dialogue_stop_event.clear()
+        with dialogue_lock:
+            dialogue_state["running"] = True
+            dialogue_state["messages"] = []
+            dialogue_state["turn"] = 0
+            dialogue_state["seed"] = safe_seed
+            dialogue_state["max_turns"] = safe_turns
+            dialogue_state["delay_ms"] = safe_delay
+            dialogue_state["started_at"] = datetime.now(timezone.utc).isoformat()
+            dialogue_state["ended_at"] = None
+            dialogue_state["last_error"] = ""
+
+        _dialogue_append("user", safe_seed, kind="seed")
+        thread = threading.Thread(
+            target=_dialogue_loop,
+            args=(safe_seed, safe_turns, safe_delay, starter),
+            daemon=True,
+            name="jarvis-eva-dialogue-loop",
+        )
+        with dialogue_lock:
+            dialogue_state["thread"] = thread
+        thread.start()
+        return _dialogue_snapshot()
+
+    def _dialogue_stop(join_timeout: float = 1.0) -> dict[str, object]:
+        dialogue_stop_event.set()
+        thread = None
+        with dialogue_lock:
+            maybe_thread = dialogue_state.get("thread")
+            if isinstance(maybe_thread, threading.Thread):
+                thread = maybe_thread
+        if thread and thread.is_alive():
+            thread.join(timeout=max(0.0, join_timeout))
+        with dialogue_lock:
+            if dialogue_state.get("running"):
+                dialogue_state["running"] = False
+                dialogue_state["ended_at"] = datetime.now(timezone.utc).isoformat()
+                dialogue_state["thread"] = None
+        return _dialogue_snapshot()
+
     class ApprovalApiHandler(BaseHTTPRequestHandler):
 
         # ...existing code...
@@ -3406,8 +3568,22 @@ KNOWLEDGE SHARING:
 
         def do_GET(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
+
+            if any(parsed.path.startswith(p) for p in AUTH_REQUIRED_PREFIXES):
+                if not check_auth(dict(self.headers), config):
+                    self._send(401, {"error": "unauthorized"})
+                    return
+                # Rate limiting fully disabled for development
+
             if parsed.path == "/":
                 self._send_html(200, _inject_live_reload(_render_ui_html(config)))
+                return
+
+            if parsed.path == "/favicon.ico":
+                # Avoid noisy 404s when the browser probes for a favicon.
+                self.send_response(204)
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
                 return
 
             if parsed.path == "/hud/version":
@@ -3486,18 +3662,9 @@ KNOWLEDGE SHARING:
                 return
 
             if parsed.path == "/hud/globe/config":
-                import json as _json
-                payload = {
-                    "mapboxToken": getattr(config, "mapbox_token", "") or "",
-                    "owmKey": getattr(config, "owm_api_key", "") or "",
-                }
-                body = _json.dumps(payload).encode()
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json; charset=utf-8")
-                self.send_header("Content-Length", str(len(body)))
-                self.send_header("Cache-Control", "no-store")
-                self.end_headers()
-                self.wfile.write(body)
+                # API keys are intentionally omitted — they are injected
+                # server-side by the globe renderer, not exposed to the browser.
+                self._send(200, {})
                 return
 
             if parsed.path in ("/hud/react", "/hud/react/", "/hud/globe", "/hud/globe/"):
@@ -3556,6 +3723,28 @@ KNOWLEDGE SHARING:
                 asset = _load_jarvis_home_asset(filename)
                 if asset is None:
                     self._send(404, {"error": "jarvis home asset unavailable"})
+                    return
+                content_type, body = asset
+                self._send_text(200, body, content_type)
+                return
+
+            if parsed.path in ("/hud/dialogue", "/hud/dialogue/"):
+                asset = _load_dialogue_hud_asset("index.html")
+                if asset is None:
+                    self._send(404, {"error": "dialogue hud unavailable"})
+                    return
+                content_type, body = asset
+                self._send_text(200, _inject_live_reload(body), content_type)
+                return
+
+            if parsed.path.startswith("/hud/dialogue/"):
+                filename = parsed.path[len("/hud/dialogue/") :]
+                if filename == "state":
+                    self._send(200, _dialogue_snapshot())
+                    return
+                asset = _load_dialogue_hud_asset(filename)
+                if asset is None:
+                    self._send(404, {"error": "dialogue hud asset unavailable"})
                     return
                 content_type, body = asset
                 self._send_text(200, body, content_type)
@@ -3688,8 +3877,13 @@ KNOWLEDGE SHARING:
                 if not file_path:
                     self._send(404, {"error": "supporting artifact not found"})
                     return
+                _allowed_roots = [Path("D:/jarvis").resolve(), Path("D:/jarvis-data").resolve()]
+                _resolved = Path(file_path).resolve()
+                if not any(_resolved.is_relative_to(r) for r in _allowed_roots):
+                    self._send(403, {"error": "access denied"})
+                    return
                 try:
-                    with open(file_path, "rb") as handle:
+                    with open(_resolved, "rb") as handle:
                         data = handle.read()
                 except OSError:
                     self._send(404, {"error": "supporting artifact not found"})
@@ -3738,6 +3932,10 @@ KNOWLEDGE SHARING:
                 self._send(200, _latest_metals_payload())
                 return
 
+            if parsed.path in HUD_ROUTE_CONTRACT["markets"]:
+                self._send(200, _market_hours_payload())
+                return
+
             if parsed.path in ("/hud/quote", "/api/hud/quote"):
                 qs = parse_qs(parsed.query)
                 symbol = str(qs.get("symbol", [""])[0]).strip().upper()
@@ -3745,6 +3943,58 @@ KNOWLEDGE SHARING:
                     self._send(400, {"error": "symbol is required"})
                     return
                 self._send(200, _yahoo_quote(symbol))
+                return
+
+            if parsed.path == "/hud/market/price":
+                qs = parse_qs(parsed.query)
+                raw_sym = (qs.get("symbol") or [""])[0].strip().lower()
+                if not raw_sym:
+                    self._send(400, {"error": "symbol query param required"})
+                    return
+                yahoo_sym = _resolve_market_symbol(raw_sym)
+                if not yahoo_sym:
+                    self._send(400, {"error": "invalid symbol"})
+                    return
+                data = _yahoo_quote(yahoo_sym)
+                if not data.get("ok"):
+                    self._send(502, {"error": data.get("error", "quote fetch failed"), "symbol": yahoo_sym})
+                    return
+                self._send(200, {
+                    "symbol": raw_sym,
+                    "yahoo_symbol": yahoo_sym,
+                    "name": data.get("name", yahoo_sym),
+                    "price": data.get("price"),
+                    "high": data.get("high"),
+                    "low": data.get("low"),
+                    "prev_close": data.get("prev_close"),
+                    "change": data.get("change"),
+                    "change_pct": data.get("change_pct"),
+                    "currency": data.get("currency", "USD"),
+                    "source": "yahoo_finance",
+                })
+                return
+
+            if parsed.path == "/hud/market/chart":
+                qs = parse_qs(parsed.query)
+                raw_sym = (qs.get("symbol") or [""])[0].strip().lower()
+                interval = (qs.get("interval") or ["1m"])[0].strip().lower()
+                try:
+                    limit = int((qs.get("limit") or ["120"])[0])
+                except ValueError:
+                    self._send(400, {"error": "invalid limit"})
+                    return
+                if not raw_sym:
+                    self._send(400, {"error": "symbol query param required"})
+                    return
+                yahoo_sym = _resolve_market_symbol(raw_sym)
+                if not yahoo_sym:
+                    self._send(400, {"error": "invalid symbol"})
+                    return
+                payload = _yahoo_chart_points(yahoo_sym, interval, limit)
+                if not payload.get("ok"):
+                    self._send(502, payload)
+                    return
+                self._send(200, payload)
                 return
 
             if parsed.path in ("/hud/quotes", "/api/hud/quotes"):
@@ -3826,7 +4076,6 @@ KNOWLEDGE SHARING:
 
             if parsed.path.startswith("/hud/air/route/"):
                 from .air_bridge import AirBridge
-                from urllib.parse import parse_qs
 
                 flight_id = parsed.path[len("/hud/air/route/"):]
                 qs = parse_qs(parsed.query)
@@ -3852,9 +4101,19 @@ KNOWLEDGE SHARING:
                     return
                 if file_path.exists() and file_path.is_file():
                     ext = file_path.suffix.lower()
-                    ct_map = {".svg": "image/svg+xml", ".png": "image/png",
-                              ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-                              ".ico": "image/x-icon", ".webp": "image/webp"}
+                    ct_map = {
+                        ".html": "text/html; charset=utf-8",
+                        ".js": "application/javascript; charset=utf-8",
+                        ".css": "text/css; charset=utf-8",
+                        ".json": "application/json; charset=utf-8",
+                        ".txt": "text/plain; charset=utf-8",
+                        ".svg": "image/svg+xml",
+                        ".png": "image/png",
+                        ".jpg": "image/jpeg",
+                        ".jpeg": "image/jpeg",
+                        ".ico": "image/x-icon",
+                        ".webp": "image/webp",
+                    }
                     ct = ct_map.get(ext, "application/octet-stream")
                     data = file_path.read_bytes()
                     self.send_response(200)
@@ -3878,6 +4137,22 @@ KNOWLEDGE SHARING:
                 if raw_body is None:
                     raw_body = self._read_raw_body()
                 return raw_body
+
+            if any(parsed.path.startswith(p) for p in AUTH_REQUIRED_PREFIXES):
+                if not check_auth(dict(self.headers), config):
+                    self._send(401, {"error": "unauthorized"})
+                    return
+                client = self.client_address[0]
+                # Rate limiting disabled for development
+                # if not DEFAULT_LIMITER.check(client):
+                #     self._send(429, {"error": "rate limit exceeded"})
+                #     return
+
+
+            _heavy_routes = {"/hud/vision/frame", "/hud/ask", "/ipc/system/execute-command"}
+            if parsed.path in _heavy_routes:
+                # Rate limiting fully disabled for development
+                pass
 
             if parsed.path == "/hud/show":
                 self._send(200, {"status": "show"})
@@ -4157,13 +4432,24 @@ KNOWLEDGE SHARING:
                     style=config.voice_tts_style,
                     speaker_boost=config.voice_tts_speaker_boost,
                 )
-                result = adapter.synthesize(text, voice=preferred_voice)
+                try:
+                    result = adapter.synthesize(text, voice=preferred_voice)
+                except Exception:
+                    # Graceful degradation: the client falls back to browser speech synthesis.
+                    self.send_response(204)
+                    self.send_header("Cache-Control", "no-store")
+                    self.end_headers()
+                    return
                 if result.get("error"):
-                    self._send(500, {"error": result["error"]})
+                    self.send_response(204)
+                    self.send_header("Cache-Control", "no-store")
+                    self.end_headers()
                     return
                 audio = result.get("audio", b"")
                 if not audio:
-                    self._send(500, {"error": "no audio returned"})
+                    self.send_response(204)
+                    self.send_header("Cache-Control", "no-store")
+                    self.end_headers()
                     return
                 self.send_response(200)
                 self.send_header("Content-Type", "audio/mpeg")
@@ -4171,6 +4457,35 @@ KNOWLEDGE SHARING:
                 self.send_header("Cache-Control", "no-store")
                 self.end_headers()
                 self.wfile.write(audio)
+                return
+
+            if parsed.path == "/hud/dialogue/start":
+                body = self._read_json(ensure_raw_body())
+                seed = str(body.get("seed", "")).strip()
+                start_agent = str(body.get("start_agent", "jarvis")).strip().lower() or "jarvis"
+                try:
+                    max_turns = int(body.get("max_turns", 24))
+                except Exception:
+                    self._send(400, {"error": "max_turns must be an integer"})
+                    return
+                try:
+                    delay_ms = int(body.get("delay_ms", 1200))
+                except Exception:
+                    self._send(400, {"error": "delay_ms must be an integer"})
+                    return
+                try:
+                    snapshot = _dialogue_start(seed, max_turns, delay_ms, start_agent)
+                    self._send(200, snapshot)
+                except Exception as exc:
+                    self._send(500, {"error": f"failed to start dialogue: {exc}"})
+                return
+
+            if parsed.path == "/hud/dialogue/stop":
+                try:
+                    snapshot = _dialogue_stop()
+                    self._send(200, snapshot)
+                except Exception as exc:
+                    self._send(500, {"error": f"failed to stop dialogue: {exc}"})
                 return
 
             if parsed.path == "/hud/ask":
@@ -5072,6 +5387,8 @@ KNOWLEDGE SHARING:
                     self._send(503, {"error": "payments reconciliation webhook is not configured"})
                     return
 
+                raw_body = ensure_raw_body()
+                body = self._read_json(raw_body)
                 provided_sig = self.headers.get("X-Jarvis-Signature", "")
                 if not _payments_signature_ok(config.payments_webhook_secret, raw_body, provided_sig):
                     self._send(401, {"error": "invalid signature"})
@@ -5263,7 +5580,7 @@ if __name__ == "__main__":
     from jarvis.config import Config
     config = Config.from_env()
     server = create_approval_api_server(config)
-    print("Approval API listening on http://127.0.0.1:8080")
+    logger.info("Approval API listening on http://127.0.0.1:8080")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

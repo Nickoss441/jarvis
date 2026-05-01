@@ -62,8 +62,9 @@ def dispatch_call_phone(
     if not phone_number or not message:
         return {"error": "phone_number and message are required"}
 
-    # Validate phone number format (basic)
-    if not phone_number.startswith("+") or len(phone_number) < 10:
+    # Validate E.164 format: + followed by 7-15 digits only
+    import re as _re
+    if not _re.fullmatch(r"\+\d{7,15}", phone_number):
         return {
             "error": "phone_number must be in E.164 format (e.g., +14155552671)"
         }
@@ -335,7 +336,8 @@ def make_call_phone_tool(
         if not phone_number or not message.strip():
             return {"error": "phone_number and message are required"}
 
-        if not phone_number.startswith("+") or len(phone_number) < 10:
+        import re as _re3
+        if not _re3.fullmatch(r"\+\d{7,15}", phone_number):
             return {
                 "error": "phone_number must be in E.164 format (e.g., +14155552671)"
             }

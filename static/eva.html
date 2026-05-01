@@ -1,0 +1,397 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Oracle Eye</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    background: #080008;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+  canvas { display: block; cursor: none; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+const cv = document.getElementById('c');
+const cx = cv.getContext('2d');
+
+function resize() {
+  const sz = Math.min(window.innerWidth, window.innerHeight, 600);
+  cv.width = sz; cv.height = sz;
+}
+resize();
+window.addEventListener('resize', () => { resize(); });
+
+let t = 0, phase = 0, scanY = 0;
+let blinkT = 0, nextBlink = 220, blinking = false, blinkP = 0;
+let mouseX = -1, mouseY = -1;
+let pupX = 0, pupY = 0, tpX = 0, tpY = 0;
+let outerRot = 0;
+let dataStreams = [];
+
+// Init data stream particles
+for (let i = 0; i < 18; i++) {
+  dataStreams.push({
+    angle: (i / 18) * Math.PI * 2,
+    dist: 0.82 + Math.random() * 0.12,
+    speed: 0.002 + Math.random() * 0.003,
+    size: 1 + Math.random() * 1.5,
+    opacity: Math.random(),
+    phase: Math.random() * Math.PI * 2
+  });
+}
+
+document.addEventListener('mousemove', e => {
+  const r = cv.getBoundingClientRect();
+  mouseX = (e.clientX - r.left) * (cv.width / r.width);
+  mouseY = (e.clientY - r.top) * (cv.height / r.height);
+});
+document.addEventListener('mouseleave', () => { mouseX = -1; mouseY = -1; });
+
+function col(ph) {
+  // Cycle through pink → magenta → purple → violet → back
+  const p = (Math.sin(ph * 0.018) + 1) / 2;
+  const p2 = (Math.sin(ph * 0.011 + 1.2) + 1) / 2;
+  const r = Math.round(200 + p * 55);
+  const g = Math.round(0 + p2 * 30);
+  const b = Math.round(180 + p * 75);
+  return {
+    r, g, b,
+    main: `rgb(${r},${g},${b})`,
+    a: (alpha) => `rgba(${r},${g},${b},${alpha})`,
+    dim: `rgba(${r},${g},${b},0.08)`,
+    mid: `rgba(${r},${g},${b},0.35)`,
+    bright: `rgba(${r},${g},${b},0.9)`,
+    glow: `rgba(${r},${g},${b},0.15)`,
+  };
+}
+
+function draw() {
+  const W = cv.width, H = cv.height;
+  const CX = W/2, CY = H/2;
+  const scale = W / 340;
+  const cl = col(phase);
+
+  cx.clearRect(0, 0, W, H);
+
+  // Background radial pulse
+  const bgGlow = cx.createRadialGradient(CX, CY, 0, CX, CY, W * 0.55);
+  bgGlow.addColorStop(0, cl.a(0.06 + 0.03 * Math.sin(t * 0.03)));
+  bgGlow.addColorStop(0.5, cl.a(0.02));
+  bgGlow.addColorStop(1, 'transparent');
+  cx.fillStyle = bgGlow;
+  cx.fillRect(0, 0, W, H);
+
+  const OR = 152 * scale;
+  outerRot += 0.005;
+
+  // ── OUTER RINGS ──────────────────────────────────
+  // Ring 3 — faint outermost
+  cx.beginPath(); cx.arc(CX, CY, OR + 22 * scale, 0, Math.PI*2);
+  cx.strokeStyle = cl.a(0.1); cx.lineWidth = 0.5 * scale; cx.stroke();
+
+  // Ring 1 — main rotating
+  cx.save(); cx.translate(CX, CY); cx.rotate(outerRot);
+  cx.beginPath(); cx.arc(0, 0, OR, 0, Math.PI*2);
+  cx.strokeStyle = cl.a(0.55); cx.lineWidth = 0.8 * scale; cx.stroke();
+
+  // Dashed inner ring
+  cx.beginPath(); cx.arc(0, 0, OR - 7 * scale, 0, Math.PI*2);
+  cx.setLineDash([3 * scale, 18 * scale]);
+  cx.strokeStyle = cl.a(0.18); cx.lineWidth = 0.5 * scale; cx.stroke();
+  cx.setLineDash([]);
+
+  // Tick marks
+  for (let i = 0; i < 24; i++) {
+    const a = (i / 24) * Math.PI * 2;
+    const big = i % 6 === 0, med = i % 3 === 0;
+    const r1 = OR, r2 = OR + (big ? 14 : med ? 9 : 5) * scale;
+    cx.beginPath();
+    cx.moveTo(Math.cos(a) * r1, Math.sin(a) * r1);
+    cx.lineTo(Math.cos(a) * r2, Math.sin(a) * r2);
+    cx.strokeStyle = cl.a(big ? 1 : med ? 0.55 : 0.3);
+    cx.lineWidth = (big ? 1.5 : 0.7) * scale; cx.stroke();
+
+    // Inner tick
+    const ri = OR - 12 * scale;
+    cx.beginPath();
+    cx.moveTo(Math.cos(a) * OR, Math.sin(a) * OR);
+    cx.lineTo(Math.cos(a) * ri, Math.sin(a) * ri);
+    cx.strokeStyle = cl.a(0.08); cx.lineWidth = 0.4 * scale; cx.stroke();
+  }
+
+  // Cross-hairs at 4 cardinal points
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2;
+    const r1 = OR + 18 * scale, r2 = OR + 32 * scale;
+    cx.beginPath();
+    cx.moveTo(Math.cos(a) * r1, Math.sin(a) * r1);
+    cx.lineTo(Math.cos(a) * r2, Math.sin(a) * r2);
+    cx.strokeStyle = cl.a(0.6); cx.lineWidth = 1.2 * scale; cx.stroke();
+    // perpendicular tiny line
+    const pa = a + Math.PI/2;
+    const pm = OR + 25 * scale;
+    cx.beginPath();
+    cx.moveTo(Math.cos(a)*pm + Math.cos(pa)*4*scale, Math.sin(a)*pm + Math.sin(pa)*4*scale);
+    cx.lineTo(Math.cos(a)*pm - Math.cos(pa)*4*scale, Math.sin(a)*pm - Math.sin(pa)*4*scale);
+    cx.strokeStyle = cl.a(0.45); cx.lineWidth = 0.8 * scale; cx.stroke();
+  }
+  cx.restore();
+
+  // Counter-rotating inner ring
+  cx.save(); cx.translate(CX, CY); cx.rotate(-outerRot * 1.4);
+  cx.beginPath(); cx.arc(0, 0, OR - 18 * scale, 0, Math.PI*2);
+  cx.setLineDash([2 * scale, 24 * scale]);
+  cx.strokeStyle = cl.a(0.12); cx.lineWidth = 0.5 * scale; cx.stroke();
+  cx.setLineDash([]);
+  cx.restore();
+
+  // Floating data nodes on outer ring
+  dataStreams.forEach(ds => {
+    ds.angle += ds.speed;
+    const pulse = (Math.sin(t * 0.04 + ds.phase) + 1) / 2;
+    const r = OR * ds.dist;
+    const nx = CX + Math.cos(ds.angle) * r;
+    const ny = CY + Math.sin(ds.angle) * r;
+    cx.beginPath(); cx.arc(nx, ny, ds.size * scale, 0, Math.PI*2);
+    cx.fillStyle = cl.a(0.15 + pulse * 0.45);
+    cx.fill();
+  });
+
+  // ── PYRAMID ──────────────────────────────────────
+  const apex = { x: CX, y: CY - 118 * scale };
+  const bL   = { x: CX - 118 * scale, y: CY + 60 * scale };
+  const bR   = { x: CX + 118 * scale, y: CY + 60 * scale };
+  const ledH = 18 * scale;
+  const bLd  = { x: CX - 108 * scale, y: CY + (60 + ledH/scale) * scale };
+  const bRd  = { x: CX + 108 * scale, y: CY + (60 + ledH/scale) * scale };
+  const ledMid = { x: CX, y: CY + (60 + ledH/scale + 4) * scale };
+  const pyH = bL.y - apex.y;
+
+  // Pyramid interior — WIREFRAME ONLY: horizontal lines + dot grid
+  cx.save();
+  cx.beginPath(); cx.moveTo(apex.x, apex.y); cx.lineTo(bL.x, bL.y); cx.lineTo(bR.x, bR.y); cx.closePath();
+  cx.clip();
+
+  // Very subtle fill
+  const pyFill = cx.createLinearGradient(CX, apex.y, CX, bL.y);
+  pyFill.addColorStop(0, cl.a(0.02));
+  pyFill.addColorStop(1, cl.a(0.06));
+  cx.fillStyle = pyFill; cx.fillRect(0, 0, W, H);
+
+  // Horizontal wireframe lines — thin, sparse, techy
+  const numLines = 16;
+  for (let i = 1; i < numLines; i++) {
+    const fy = apex.y + pyH * i / numLines;
+    const fw = (bR.x - bL.x) * (i / numLines);
+    const alpha = 0.08 + (i % 4 === 0 ? 0.14 : 0);
+    cx.beginPath(); cx.moveTo(CX - fw/2, fy); cx.lineTo(CX + fw/2, fy);
+    cx.strokeStyle = cl.a(alpha); cx.lineWidth = (i % 4 === 0 ? 0.9 : 0.4) * scale; cx.stroke();
+  }
+
+  // Dot grid — wireframe texture
+  for (let row = 1; row < 13; row++) {
+    const fy = apex.y + pyH * row / 13;
+    const fw = (bR.x - bL.x) * (row / 13);
+    const dots = Math.floor(fw / (13 * scale));
+    for (let d = 0; d <= dots; d++) {
+      const fx = CX - fw/2 + fw * d / (dots || 1);
+      const pulse = Math.sin(t * 0.03 + row * 0.4 + d * 0.3) > 0.6 ? 0.45 : 0.15;
+      cx.beginPath(); cx.arc(fx, fy, 1.1 * scale, 0, Math.PI*2);
+      cx.fillStyle = cl.a(pulse); cx.fill();
+    }
+  }
+
+  // Vertical center line
+  cx.beginPath(); cx.moveTo(CX, apex.y); cx.lineTo(CX, bL.y);
+  cx.strokeStyle = cl.a(0.25); cx.lineWidth = 0.5 * scale; cx.stroke();
+
+  // Diagonal wireframe lines from apex
+  for (let i = 1; i < 5; i++) {
+    const fy = apex.y + pyH * i / 5;
+    const fw = (bR.x - bL.x) * (i / 5);
+    cx.beginPath(); cx.moveTo(apex.x, apex.y); cx.lineTo(CX - fw/2, fy);
+    cx.strokeStyle = cl.a(0.06); cx.lineWidth = 0.4 * scale; cx.stroke();
+    cx.beginPath(); cx.moveTo(apex.x, apex.y); cx.lineTo(CX + fw/2, fy);
+    cx.strokeStyle = cl.a(0.06); cx.lineWidth = 0.4 * scale; cx.stroke();
+  }
+
+  // Scan line sweep
+  const sy = apex.y + (scanY % pyH);
+  const sfrac = (sy - apex.y) / pyH;
+  const sw = (bR.x - bL.x) * sfrac;
+  const sg = cx.createLinearGradient(CX - sw/2, 0, CX + sw/2, 0);
+  sg.addColorStop(0, 'transparent');
+  sg.addColorStop(0.15, cl.a(0.5));
+  sg.addColorStop(0.5, cl.a(1));
+  sg.addColorStop(0.85, cl.a(0.5));
+  sg.addColorStop(1, 'transparent');
+  cx.fillStyle = sg; cx.fillRect(CX - sw/2, sy - 1.2 * scale, sw, 2.4 * scale);
+  // scan glow
+  const sg2 = cx.createLinearGradient(CX - sw/2, 0, CX + sw/2, 0);
+  sg2.addColorStop(0, 'transparent'); sg2.addColorStop(0.5, cl.a(0.1)); sg2.addColorStop(1, 'transparent');
+  cx.fillStyle = sg2; cx.fillRect(CX - sw/2, sy - 10 * scale, sw, 20 * scale);
+
+  cx.restore();
+
+  // Pyramid edges — wireframe strokes, slightly glowing
+  // Edge glow (draw twice — wide faint then thin bright)
+  const drawEdge = (x1,y1,x2,y2) => {
+    cx.beginPath(); cx.moveTo(x1,y1); cx.lineTo(x2,y2);
+    cx.strokeStyle = cl.a(0.12); cx.lineWidth = 4 * scale; cx.stroke();
+    cx.beginPath(); cx.moveTo(x1,y1); cx.lineTo(x2,y2);
+    cx.strokeStyle = cl.a(0.9); cx.lineWidth = 1 * scale; cx.stroke();
+  };
+  drawEdge(apex.x, apex.y, bL.x, bL.y);
+  drawEdge(apex.x, apex.y, bR.x, bR.y);
+  drawEdge(bL.x, bL.y, bR.x, bR.y);
+
+  // 3D ledge faces — wireframe
+  // Left face
+  cx.beginPath(); cx.moveTo(bL.x, bL.y); cx.lineTo(bLd.x, bLd.y); cx.lineTo(CX, ledMid.y); cx.lineTo(CX, bL.y);
+  cx.fillStyle = cl.a(0.04); cx.fill();
+  cx.strokeStyle = cl.a(0.5); cx.lineWidth = 0.8 * scale; cx.stroke();
+  // Right face
+  cx.beginPath(); cx.moveTo(bR.x, bR.y); cx.lineTo(bRd.x, bRd.y); cx.lineTo(CX, ledMid.y); cx.lineTo(CX, bR.y);
+  cx.fillStyle = cl.a(0.03); cx.fill();
+  cx.strokeStyle = cl.a(0.5); cx.lineWidth = 0.8 * scale; cx.stroke();
+  // Bottom ledge edge
+  drawEdge(bLd.x, bLd.y, bRd.x, bRd.y);
+
+  // ── EYE ──────────────────────────────────────────
+  const EY = CY - 12 * scale;
+  const eyeW = 72 * scale, eyeBaseH = 28 * scale;
+  const blinkAmt = blinking ? Math.sin(blinkP * Math.PI) : 0;
+  const eyeH = eyeBaseH * (1 - blinkAmt * 0.97);
+
+  // Eye shape path helper
+  const eyePath = () => {
+    cx.beginPath();
+    cx.moveTo(CX - eyeW, EY);
+    cx.bezierCurveTo(CX - eyeW*0.5, EY - eyeH*1.1, CX + eyeW*0.5, EY - eyeH*1.1, CX + eyeW, EY);
+    cx.bezierCurveTo(CX + eyeW*0.5, EY + eyeH*1.1, CX - eyeW*0.5, EY + eyeH*1.1, CX - eyeW, EY);
+    cx.closePath();
+  };
+
+  cx.save();
+  eyePath();
+
+  // Sclera — dark with subtle wireframe veins
+  const sclGrd = cx.createRadialGradient(CX, EY, 2, CX, EY, eyeW);
+  sclGrd.addColorStop(0, '#1a0a20');
+  sclGrd.addColorStop(0.6, '#0d0614');
+  sclGrd.addColorStop(1, '#060010');
+  cx.fillStyle = sclGrd; cx.fill();
+  cx.clip();
+
+  // Sclera wireframe lines (subtle)
+  for (let i = -3; i <= 3; i++) {
+    if (i === 0) continue;
+    cx.beginPath();
+    cx.moveTo(CX - eyeW, EY + i * eyeH * 0.3);
+    cx.lineTo(CX + eyeW, EY + i * eyeH * 0.3);
+    cx.strokeStyle = cl.a(0.04); cx.lineWidth = 0.4 * scale; cx.stroke();
+  }
+
+  // Eye tracking
+  const irisR = eyeH * 1.08;
+  const maxS = irisR * 0.22;
+  const mX = mouseX < 0 ? CX : mouseX;
+  const mY = mouseY < 0 ? EY : mouseY;
+  tpX = Math.max(-maxS, Math.min(maxS, ((mX - CX) / (W/2)) * maxS));
+  tpY = Math.max(-maxS, Math.min(maxS, ((mY - EY) / (H/2)) * maxS));
+  pupX += (tpX - pupX) * 0.09;
+  pupY += (tpY - pupY) * 0.09;
+  const px = CX + pupX, py = EY + pupY;
+
+  // Iris — wireframe rings instead of solid fill
+  // Dark base
+  cx.beginPath(); cx.arc(px, py, irisR, 0, Math.PI*2);
+  const irisBase = cx.createRadialGradient(px, py, 0, px, py, irisR);
+  irisBase.addColorStop(0, '#100520');
+  irisBase.addColorStop(1, '#060010');
+  cx.fillStyle = irisBase; cx.fill();
+
+  // Iris wireframe rings
+  const rings = [0.25, 0.45, 0.65, 0.82, 1.0];
+  rings.forEach((r, i) => {
+    const pulse = 0.2 + 0.35 * Math.abs(Math.sin(t * 0.04 + i * 0.7));
+    cx.beginPath(); cx.arc(px, py, irisR * r, 0, Math.PI*2);
+    cx.strokeStyle = cl.a(r === 1.0 ? 0.8 : pulse);
+    cx.lineWidth = (r === 1.0 ? 1.2 : 0.6) * scale; cx.stroke();
+  });
+
+  // Iris wireframe rays
+  for (let i = 0; i < 24; i++) {
+    const a = (i / 24) * Math.PI * 2;
+    const r1 = irisR * 0.28, r2 = irisR * 0.92;
+    const pulse = Math.sin(t * 0.03 + i * 0.5) > 0.5 ? 0.2 : 0.06;
+    cx.beginPath();
+    cx.moveTo(px + Math.cos(a)*r1, py + Math.sin(a)*r1);
+    cx.lineTo(px + Math.cos(a)*r2, py + Math.sin(a)*r2);
+    cx.strokeStyle = cl.a(pulse); cx.lineWidth = 0.5 * scale; cx.stroke();
+  }
+
+  // Cat slit pupil — vertical, glowing
+  const slitW = irisR * 0.2;
+  const slitH = irisR * 0.78;
+  // Pupil glow
+  cx.beginPath(); cx.ellipse(px, py, slitW * 2.5, slitH * 1.1, 0, 0, Math.PI*2);
+  cx.fillStyle = cl.a(0.08); cx.fill();
+  // Pupil core
+  cx.beginPath(); cx.ellipse(px, py, slitW, slitH, 0, 0, Math.PI*2);
+  cx.fillStyle = '#04000a'; cx.fill();
+  // Pupil wireframe outline
+  cx.beginPath(); cx.ellipse(px, py, slitW, slitH, 0, 0, Math.PI*2);
+  cx.strokeStyle = cl.a(0.7); cx.lineWidth = 0.8 * scale; cx.stroke();
+
+  // Specular — tiny wireframe glint
+  cx.beginPath(); cx.arc(px - irisR*0.3, py - irisR*0.35, 2.5 * scale, 0, Math.PI*2);
+  cx.fillStyle = cl.a(0.6); cx.fill();
+  cx.beginPath(); cx.arc(px - irisR*0.3, py - irisR*0.35, 4 * scale, 0, Math.PI*2);
+  cx.strokeStyle = cl.a(0.2); cx.lineWidth = 0.5 * scale; cx.stroke();
+
+  cx.restore();
+
+  // Eye outline — glowing wireframe
+  eyePath();
+  cx.strokeStyle = cl.a(0.12); cx.lineWidth = 5 * scale; cx.stroke();
+  eyePath();
+  cx.strokeStyle = cl.a(0.85); cx.lineWidth = 1 * scale; cx.stroke();
+
+  // Corner marks at eye corners (wireframe detail)
+  const corners = [{x: CX-eyeW, y: EY}, {x: CX+eyeW, y: EY}];
+  corners.forEach((c, i) => {
+    const dir = i === 0 ? 1 : -1;
+    cx.beginPath(); cx.moveTo(c.x + dir*6*scale, c.y - 5*scale); cx.lineTo(c.x, c.y); cx.lineTo(c.x + dir*6*scale, c.y + 5*scale);
+    cx.strokeStyle = cl.a(0.7); cx.lineWidth = 0.8 * scale; cx.stroke();
+  });
+}
+
+function loop() {
+  t++; phase++;
+  scanY += 2.0;
+  blinkT++;
+  if (!blinking && blinkT >= nextBlink) {
+    blinking = true; blinkP = 0;
+    nextBlink = 160 + Math.random() * 220; blinkT = 0;
+  }
+  if (blinking) {
+    blinkP += 0.12;
+    if (blinkP >= 1) { blinking = false; blinkP = 0; }
+  }
+  draw();
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>

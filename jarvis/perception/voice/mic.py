@@ -161,11 +161,13 @@ class MicVoiceLoop:
         wake_word: str = _WAKE_WORD_DEFAULT,
         tts_adapter: Any | None = None,
         whisper_model_size: str = "base",
+        persona_voice: str = "male",
     ) -> None:
         self.brain = brain
         self.wake_word = wake_word.lower().strip()
         self.tts = tts_adapter
         self.whisper_model_size = whisper_model_size
+        self._persona_voice = persona_voice
         self._whisper_model: Any = None
 
     # ── Whisper ──────────────────────────────────────────────────────────────
@@ -197,7 +199,7 @@ class MicVoiceLoop:
     def _speak(self, text: str) -> None:
         if not self.tts:
             return
-        result = self.tts.synthesize(text)
+        result = self.tts.synthesize(text, voice=self._persona_voice)
         if result.get("error") or not result.get("audio"):
             logger.warning("TTS skipped: %s", result.get("error", "no audio"))
             return

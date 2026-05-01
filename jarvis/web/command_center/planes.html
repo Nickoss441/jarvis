@@ -1,34 +1,90 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Jarvis | European Flight Tracking</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://api.mapbox.com/mapbox-gl-js/v3.7.0/mapbox-gl.css" />
     <style>
-        :root {
-            --bg:       #03080f;
-            --surface:  #080e16;
-            --border:   #121d2b;
-            --accent:   #22d3ee;
-            --accent2:  #0ea5e9;
-            --text:     #c8d8e8;
-            --muted:    #4a5e72;
+        /* Fallback Mapbox declarations to avoid runtime warning if CDN CSS is unavailable. */
+        .mapboxgl-map {
+            position: relative;
+            overflow: hidden;
+            font: 12px/20px "Helvetica Neue", Arial, Helvetica, sans-serif;
+            -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
         }
-        * { box-sizing: border-box; }
-        html, body { height: 100%; margin: 0; overflow: hidden; }
+
+        .mapboxgl-canvas {
+            position: absolute;
+            left: 0;
+            top: 0;
+        }
+
+        .mapboxgl-canvas-container {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Mapbox GL internal CSS presence probe. */
+        .mapboxgl-canary {
+            background-color: salmon;
+        }
+
+        .mapboxgl-ctrl-bottom-left,
+        .mapboxgl-ctrl-bottom-right,
+        .mapboxgl-ctrl-top-left,
+        .mapboxgl-ctrl-top-right {
+            position: absolute;
+            pointer-events: none;
+            z-index: 2;
+        }
+
+        :root {
+            --bg: #03080f;
+            --surface: #080e16;
+            --border: #121d2b;
+            --accent: #22d3ee;
+            --accent2: #0ea5e9;
+            --text: #c8d8e8;
+            --muted: #4a5e72;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+            overflow: hidden;
+        }
+
         body {
             background: var(--bg);
             color: var(--text);
             font-family: "Segoe UI", sans-serif;
             display: flex;
         }
-        .mono { font-family: "JetBrains Mono", Consolas, monospace; }
+
+        .mono {
+            font-family: "JetBrains Mono", Consolas, monospace;
+        }
 
         /* ── Scrollbars ── */
-        ::-webkit-scrollbar { width: 4px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #1e3a4a; border-radius: 4px; }
+        ::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #1e3a4a;
+            border-radius: 4px;
+        }
 
         /* ── Sidebar ── */
         #sidebar {
@@ -53,8 +109,10 @@
             color: var(--muted);
             border-bottom: 1px solid var(--border);
         }
+
         .sidebar-section-header button {
-            width: 22px; height: 22px;
+            width: 22px;
+            height: 22px;
             background: #0d1e2e;
             border: 1px solid var(--border);
             border-radius: 4px;
@@ -62,10 +120,15 @@
             font-size: 14px;
             line-height: 1;
             cursor: pointer;
-            display: flex; align-items: center; justify-content: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             transition: background 0.15s;
         }
-        .sidebar-section-header button:hover { background: #122a3e; }
+
+        .sidebar-section-header button:hover {
+            background: #122a3e;
+        }
 
         /* Watchlist cards */
         #watchlist-cards {
@@ -73,6 +136,7 @@
             overflow-y: auto;
             padding: 6px 8px;
         }
+
         .watch-card {
             display: flex;
             align-items: center;
@@ -85,24 +149,71 @@
             cursor: pointer;
             transition: border-color 0.15s, background 0.15s;
         }
-        .watch-card:hover { border-color: var(--accent); background: #0f2030; }
-        .watch-card.selected { border-color: var(--accent); background: rgba(34,211,238,0.06); }
+
+        .watch-card:hover {
+            border-color: var(--accent);
+            background: #0f2030;
+        }
+
+        .watch-card.selected {
+            border-color: var(--accent);
+            background: rgba(34, 211, 238, 0.06);
+        }
+
         .watch-status {
-            font-size: 8px; font-weight: 700; letter-spacing: 0.08em;
-            padding: 2px 6px; border-radius: 3px;
+            font-size: 8px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            padding: 2px 6px;
+            border-radius: 3px;
             flex-shrink: 0;
         }
-        .watch-status.transit { color: var(--accent); border: 1px solid rgba(34,211,238,0.3); }
-        .watch-status.ground  { color: #10b981;       border: 1px solid rgba(16,185,129,0.3); }
-        .watch-status.novis   { color: var(--muted);  border: 1px solid #1e3a4a; }
-        .watch-info { flex: 1; min-width: 0; }
-        .watch-callsign { font-size: 12px; font-weight: 700; color: #e2f0fa; }
-        .watch-meta { font-size: 9px; color: var(--muted); margin-top: 1px; }
-        .watch-remove {
-            color: var(--muted); font-size: 12px; cursor: pointer; flex-shrink: 0;
-            padding: 2px 4px; border-radius: 3px;
+
+        .watch-status.transit {
+            color: var(--accent);
+            border: 1px solid rgba(34, 211, 238, 0.3);
         }
-        .watch-remove:hover { color: #ef4444; background: rgba(239,68,68,0.1); }
+
+        .watch-status.ground {
+            color: #10b981;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+
+        .watch-status.novis {
+            color: var(--muted);
+            border: 1px solid #1e3a4a;
+        }
+
+        .watch-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .watch-callsign {
+            font-size: 12px;
+            font-weight: 700;
+            color: #e2f0fa;
+        }
+
+        .watch-meta {
+            font-size: 9px;
+            color: var(--muted);
+            margin-top: 1px;
+        }
+
+        .watch-remove {
+            color: var(--muted);
+            font-size: 12px;
+            cursor: pointer;
+            flex-shrink: 0;
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+
+        .watch-remove:hover {
+            color: #ef4444;
+            background: rgba(239, 68, 68, 0.1);
+        }
 
         #watchlist-empty {
             padding: 16px;
@@ -112,7 +223,11 @@
         }
 
         /* Divider */
-        .sidebar-divider { height: 1px; background: var(--border); margin: 0; }
+        .sidebar-divider {
+            height: 1px;
+            background: var(--border);
+            margin: 0;
+        }
 
         /* Live aircraft list */
         #aircraft-section {
@@ -121,18 +236,37 @@
             flex: 1;
             overflow: hidden;
         }
-        #filter-wrap { padding: 8px 10px; }
-        #filter-input {
-            width: 100%; padding: 6px 10px;
-            background: #0d1824; border: 1px solid var(--border);
-            border-radius: 6px; color: var(--text); font-size: 11px;
-            outline: none; transition: border-color 0.15s;
+
+        #filter-wrap {
+            padding: 8px 10px;
         }
-        #filter-input:focus { border-color: var(--accent); }
-        #aircraft-list { flex: 1; overflow-y: auto; padding: 0 8px 8px; }
+
+        #filter-input {
+            width: 100%;
+            padding: 6px 10px;
+            background: #0d1824;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-size: 11px;
+            outline: none;
+            transition: border-color 0.15s;
+        }
+
+        #filter-input:focus {
+            border-color: var(--accent);
+        }
+
+        #aircraft-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0 8px 8px;
+        }
 
         .ac-card {
-            display: flex; align-items: center; gap: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
             padding: 7px 10px;
             border: 1px solid transparent;
             border-radius: 7px;
@@ -140,14 +274,43 @@
             cursor: pointer;
             transition: background 0.12s, border-color 0.12s;
         }
-        .ac-card:hover { background: #0d1824; border-color: #1e3a4a; }
-        .ac-card.selected { background: rgba(34,211,238,0.05); border-color: var(--accent); }
-        .ac-dot {
-            width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+
+        .ac-card:hover {
+            background: #0d1824;
+            border-color: #1e3a4a;
         }
-        .ac-main { flex: 1; min-width: 0; }
-        .ac-callsign { font-size: 11px; font-weight: 700; color: #e2f0fa; }
-        .ac-sub { font-size: 9px; color: var(--muted); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+        .ac-card.selected {
+            background: rgba(34, 211, 238, 0.05);
+            border-color: var(--accent);
+        }
+
+        .ac-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .ac-main {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .ac-callsign {
+            font-size: 11px;
+            font-weight: 700;
+            color: #e2f0fa;
+        }
+
+        .ac-sub {
+            font-size: 9px;
+            color: var(--muted);
+            margin-top: 1px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
 
         /* ── Map area ── */
         #map-area {
@@ -155,19 +318,28 @@
             position: relative;
             overflow: hidden;
         }
+
         #globe-container {
-            position: absolute; inset: 0;
+            position: absolute;
+            inset: 0;
         }
 
         /* Leaflet overrides */
-        .leaflet-container { background: #020b14 !important; }
-        .ac-icon { background: transparent !important; border: none !important; }
+        .leaflet-container {
+            background: #020b14 !important;
+        }
+
+        .ac-icon {
+            background: transparent !important;
+            border: none !important;
+        }
 
         /* ── Detail card (floating, centered) ── */
         #detail-card {
             display: none;
             position: absolute;
-            top: 50%; left: 50%;
+            top: 50%;
+            left: 50%;
             transform: translate(-50%, -50%);
             z-index: 900;
             width: 320px;
@@ -175,39 +347,70 @@
             border: 1px solid #1a3a52;
             border-radius: 14px;
             backdrop-filter: blur(12px);
-            box-shadow: 0 0 40px rgba(0,0,0,0.7), 0 0 0 1px rgba(34,211,238,0.08);
+            box-shadow: 0 0 40px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(34, 211, 238, 0.08);
             overflow: hidden;
         }
+
         .detail-header {
-            display: flex; align-items: center; gap: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
             padding: 14px 16px 10px;
             border-bottom: 1px solid var(--border);
         }
+
         .detail-callsign {
             flex: 1;
-            font-size: 16px; font-weight: 800; letter-spacing: 0.04em;
+            font-size: 16px;
+            font-weight: 800;
+            letter-spacing: 0.04em;
             color: var(--accent);
         }
-        .detail-copy, .detail-close {
-            color: var(--muted); font-size: 13px; cursor: pointer;
-            padding: 3px 6px; border-radius: 4px; background: transparent; border: none;
+
+        .detail-copy,
+        .detail-close {
+            color: var(--muted);
+            font-size: 13px;
+            cursor: pointer;
+            padding: 3px 6px;
+            border-radius: 4px;
+            background: transparent;
+            border: none;
             transition: color 0.15s, background 0.15s;
         }
-        .detail-copy:hover { color: var(--text); background: #0d1824; }
-        .detail-close:hover { color: #ef4444; background: rgba(239,68,68,0.1); }
+
+        .detail-copy:hover {
+            color: var(--text);
+            background: #0d1824;
+        }
+
+        .detail-close:hover {
+            color: #ef4444;
+            background: rgba(239, 68, 68, 0.1);
+        }
 
         .detail-silhouette {
-            text-align: center; padding: 14px 0 8px;
+            text-align: center;
+            padding: 14px 0 8px;
         }
+
         .detail-meta {
-            display: flex; align-items: center; justify-content: center; gap: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
             padding: 0 16px 12px;
-            font-size: 10px; color: var(--muted);
+            font-size: 10px;
+            color: var(--muted);
         }
+
         .icao-badge {
             padding: 2px 8px;
-            background: #0d1824; border: 1px solid #1e3a4a;
-            border-radius: 4px; font-family: monospace; font-size: 10px;
+            background: #0d1824;
+            border: 1px solid #1e3a4a;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 10px;
             color: var(--text);
         }
 
@@ -217,108 +420,203 @@
             background: #0a1620;
             border: 1px solid var(--border);
             border-radius: 8px;
-            font-size: 10px; color: var(--muted);
+            font-size: 10px;
+            color: var(--muted);
         }
+
         .route-endpoints {
-            display: flex; justify-content: space-between;
+            display: flex;
+            justify-content: space-between;
             margin-bottom: 6px;
         }
+
         .route-track {
-            height: 2px; background: #1e3a4a; border-radius: 2px;
-            position: relative; overflow: visible;
+            height: 2px;
+            background: #1e3a4a;
+            border-radius: 2px;
+            position: relative;
+            overflow: visible;
         }
+
         .route-fill {
-            height: 100%; background: var(--accent);
-            border-radius: 2px; width: 50%;
+            height: 100%;
+            background: var(--accent);
+            border-radius: 2px;
+            width: 50%;
             box-shadow: 0 0 6px var(--accent);
         }
+
         .route-plane {
-            position: absolute; top: 50%; left: 50%;
+            position: absolute;
+            top: 50%;
+            left: 50%;
             transform: translate(-50%, -50%);
-            font-size: 12px; line-height: 1;
+            font-size: 12px;
+            line-height: 1;
         }
 
         .detail-stats-3 {
-            display: grid; grid-template-columns: 1fr 1fr 1fr;
-            gap: 1px; background: var(--border);
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 1px;
+            background: var(--border);
             margin: 0 0;
         }
+
         .stat3-cell {
             background: var(--surface);
             padding: 10px 0 8px;
             text-align: center;
         }
+
         .stat3-label {
-            font-size: 8px; letter-spacing: 0.1em; text-transform: uppercase;
-            color: var(--muted); margin-bottom: 3px;
+            font-size: 8px;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--muted);
+            margin-bottom: 3px;
         }
+
         .stat3-val {
-            font-family: monospace; font-size: 13px; font-weight: 700;
+            font-family: monospace;
+            font-size: 13px;
+            font-weight: 700;
             color: var(--accent);
         }
 
-        .detail-rows { padding: 8px 16px 4px; }
+        .detail-rows {
+            padding: 8px 16px 4px;
+        }
+
         .drow {
-            display: flex; justify-content: space-between; align-items: center;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
             padding: 5px 0;
-            border-bottom: 1px solid rgba(255,255,255,0.03);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
             font-size: 10px;
         }
-        .drow:last-child { border-bottom: none; }
-        .drow-label { color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; font-size: 9px; }
-        .drow-val { font-family: monospace; color: var(--text); font-size: 10px; }
+
+        .drow:last-child {
+            border-bottom: none;
+        }
+
+        .drow-label {
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.07em;
+            font-size: 9px;
+        }
+
+        .drow-val {
+            font-family: monospace;
+            color: var(--text);
+            font-size: 10px;
+        }
 
         .detail-actions {
             padding: 10px 16px 14px;
         }
+
         .btn-watch {
-            width: 100%; padding: 8px;
+            width: 100%;
+            padding: 8px;
             background: transparent;
-            border: 1px solid rgba(34,211,238,0.3);
+            border: 1px solid rgba(34, 211, 238, 0.3);
             border-radius: 7px;
-            color: var(--accent); font-size: 11px; font-weight: 600; letter-spacing: 0.05em;
-            cursor: pointer; transition: background 0.15s, border-color 0.15s;
+            color: var(--accent);
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+            cursor: pointer;
+            transition: background 0.15s, border-color 0.15s;
         }
-        .btn-watch:hover { background: rgba(34,211,238,0.08); border-color: var(--accent); }
+
+        .btn-watch:hover {
+            background: rgba(34, 211, 238, 0.08);
+            border-color: var(--accent);
+        }
+
         .btn-watch.watching {
-            background: rgba(34,211,238,0.06);
+            background: rgba(34, 211, 238, 0.06);
             border-color: var(--accent);
             color: var(--accent);
         }
 
         /* ── Top HUD bar ── */
         #hud-bar {
-            position: absolute; top: 12px; left: 12px;
-            display: flex; align-items: center; gap: 10px;
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
             z-index: 800;
-            background: rgba(8,14,22,0.85);
+            background: rgba(8, 14, 22, 0.85);
             border: 1px solid var(--border);
             border-radius: 8px;
             padding: 6px 12px;
             backdrop-filter: blur(8px);
         }
+
         .pulse-dot {
-            width: 6px; height: 6px; border-radius: 50%;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
             animation: pulse 2s infinite;
         }
-        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
-        .hud-badge {
-            font-size: 9px; letter-spacing: 0.07em;
-            padding: 2px 6px; border-radius: 3px;
-            border: 1px solid; font-family: monospace;
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1
+            }
+
+            50% {
+                opacity: 0.35
+            }
         }
-        .hud-badge.live  { color:#10b981; border-color:#10b98140; }
-        .hud-badge.stale { color:#f59e0b; border-color:#f59e0b40; }
-        .hud-badge.error { color:#ef4444; border-color:#ef444440; }
+
+        .hud-badge {
+            font-size: 9px;
+            letter-spacing: 0.07em;
+            padding: 2px 6px;
+            border-radius: 3px;
+            border: 1px solid;
+            font-family: monospace;
+        }
+
+        .hud-badge.live {
+            color: #10b981;
+            border-color: #10b98140;
+        }
+
+        .hud-badge.stale {
+            color: #f59e0b;
+            border-color: #f59e0b40;
+        }
+
+        .hud-badge.error {
+            color: #ef4444;
+            border-color: #ef444440;
+        }
 
         /* ── Add-to-watchlist modal ── */
         #watch-modal {
             display: none;
-            position: fixed; inset: 0; z-index: 9500;
-            background: rgba(0,0,0,0.6);
-            align-items: center; justify-content: center;
+            position: fixed;
+            inset: 0;
+            z-index: 9500;
+            background: rgba(0, 0, 0, 0.6);
+            align-items: center;
+            justify-content: center;
         }
-        #watch-modal.open { display: flex; }
+
+        #watch-modal.open {
+            display: flex;
+        }
+
         .modal-box {
             width: 320px;
             background: #0a1620;
@@ -326,42 +624,86 @@
             border-radius: 12px;
             padding: 24px;
         }
+
         .modal-title {
-            font-size: 13px; font-weight: 700; color: #e2f0fa; margin-bottom: 14px;
+            font-size: 13px;
+            font-weight: 700;
+            color: #e2f0fa;
+            margin-bottom: 14px;
         }
+
         .modal-input {
-            width: 100%; padding: 8px 12px;
-            background: #0d1824; border: 1px solid var(--border);
-            border-radius: 6px; color: var(--text); font-size: 12px;
-            outline: none; margin-bottom: 12px;
-            font-family: monospace; letter-spacing: 0.05em;
+            width: 100%;
+            padding: 8px 12px;
+            background: #0d1824;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-size: 12px;
+            outline: none;
+            margin-bottom: 12px;
+            font-family: monospace;
+            letter-spacing: 0.05em;
             transition: border-color 0.15s;
         }
-        .modal-input:focus { border-color: var(--accent); }
-        .modal-actions { display: flex; gap: 8px; }
-        .modal-btn {
-            flex: 1; padding: 8px;
-            border-radius: 6px; font-size: 11px; font-weight: 600;
-            cursor: pointer; border: 1px solid; transition: background 0.15s;
+
+        .modal-input:focus {
+            border-color: var(--accent);
         }
+
+        .modal-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .modal-btn {
+            flex: 1;
+            padding: 8px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            border: 1px solid;
+            transition: background 0.15s;
+        }
+
         .modal-btn.primary {
-            background: rgba(34,211,238,0.1); border-color: rgba(34,211,238,0.4);
+            background: rgba(34, 211, 238, 0.1);
+            border-color: rgba(34, 211, 238, 0.4);
             color: var(--accent);
         }
-        .modal-btn.primary:hover { background: rgba(34,211,238,0.18); }
-        .modal-btn.cancel {
-            background: transparent; border-color: var(--border); color: var(--muted);
+
+        .modal-btn.primary:hover {
+            background: rgba(34, 211, 238, 0.18);
         }
-        .modal-btn.cancel:hover { background: #0d1824; }
+
+        .modal-btn.cancel {
+            background: transparent;
+            border-color: var(--border);
+            color: var(--muted);
+        }
+
+        .modal-btn.cancel:hover {
+            background: #0d1824;
+        }
 
         /* ── Splash ── */
         #splash {
-            position: fixed; inset: 0; z-index: 9999;
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
             background: #03080f;
-            display: flex; align-items: center; justify-content: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             transition: opacity 0.6s ease;
         }
-        #splash.fade-out { opacity: 0; pointer-events: none; }
+
+        #splash.fade-out {
+            opacity: 0;
+            pointer-events: none;
+        }
+
         .splash-card {
             width: 340px;
             background: #080e16;
@@ -369,317 +711,404 @@
             border-radius: 14px;
             padding: 32px 28px;
         }
+
         .splash-step {
-            display: flex; align-items: center; gap: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
             padding: 8px 0;
-            border-bottom: 1px solid rgba(255,255,255,0.03);
-            font-size: 11px; color: var(--muted); font-family: monospace;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+            font-size: 11px;
+            color: var(--muted);
+            font-family: monospace;
             transition: color 0.3s;
         }
-        .splash-step:last-child { border-bottom: none; }
-        .splash-step.done { color: var(--text); }
-        .splash-step.error { color: #ef4444; }
+
+        .splash-step:last-child {
+            border-bottom: none;
+        }
+
+        .splash-step.done {
+            color: var(--text);
+        }
+
+        .splash-step.error {
+            color: #ef4444;
+        }
+
         .step-icon {
-            width: 16px; height: 16px; flex-shrink: 0;
-            display: flex; align-items: center; justify-content: center;
+            width: 16px;
+            height: 16px;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             font-size: 11px;
         }
+
         .step-icon.spinning::after {
-            content: ''; display: block; width: 10px; height: 10px;
-            border: 1.5px solid rgba(34,211,238,0.3); border-top-color: var(--accent);
-            border-radius: 50%; animation: spin 0.7s linear infinite;
+            content: '';
+            display: block;
+            width: 10px;
+            height: 10px;
+            border: 1.5px solid rgba(34, 211, 238, 0.3);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
         }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .splash-bar-track { height: 2px; background: #121d2b; border-radius: 2px; margin-top: 18px; overflow: hidden; }
-        .splash-bar-fill { height: 100%; width: 0%; background: var(--accent); border-radius: 2px; box-shadow: 0 0 8px rgba(34,211,238,0.6); transition: width 0.4s; }
-        #splash-msg { text-align: center; font-size: 9px; color: var(--muted); font-family: monospace; margin-top: 10px; letter-spacing: 0.08em; }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .splash-bar-track {
+            height: 2px;
+            background: #121d2b;
+            border-radius: 2px;
+            margin-top: 18px;
+            overflow: hidden;
+        }
+
+        .splash-bar-fill {
+            height: 100%;
+            width: 0%;
+            background: var(--accent);
+            border-radius: 2px;
+            box-shadow: 0 0 8px rgba(34, 211, 238, 0.6);
+            transition: width 0.4s;
+        }
+
+        #splash-msg {
+            text-align: center;
+            font-size: 9px;
+            color: var(--muted);
+            font-family: monospace;
+            margin-top: 10px;
+            letter-spacing: 0.08em;
+        }
 
         /* ── Rest banner ── */
         #rest-banner {
             display: none;
-            position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
-            z-index: 500; background: rgba(8,14,22,0.92); border: 1px solid rgba(245,158,11,0.3);
-            border-radius: 6px; padding: 5px 12px; font-size: 9px; color: #f59e0b;
-            font-family: monospace; backdrop-filter: blur(8px);
+            position: fixed;
+            bottom: 12px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 500;
+            background: rgba(8, 14, 22, 0.92);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: 6px;
+            padding: 5px 12px;
+            font-size: 9px;
+            color: #f59e0b;
+            font-family: monospace;
+            backdrop-filter: blur(8px);
         }
 
         /* Aircraft silhouette SVG */
-        .ac-silhouette { color: var(--accent); }
+        .ac-silhouette {
+            color: var(--accent);
+        }
     </style>
 </head>
+
 <body>
 
-<!-- Splash -->
-<div id="splash">
-    <div class="splash-card">
-        <div style="text-align:center;margin-bottom:20px;">
-            <svg width="40" height="40" viewBox="0 0 40 40" style="margin:0 auto 10px;display:block;">
-                <polygon points="20,2 35,10 35,30 20,38 5,30 5,10" fill="none" stroke="#22d3ee" stroke-width="1" stroke-opacity="0.4"/>
-                <path d="M8,20 Q20,10 32,20 Q20,28 8,20Z" fill="rgba(34,211,238,0.08)" stroke="#22d3ee" stroke-width="1"/>
-                <circle cx="20" cy="20" r="5" fill="#22d3ee" opacity="0.7"/>
-                <circle cx="20" cy="20" r="2" fill="#020b14"/>
-                <line x1="20" y1="2" x2="20" y2="38" stroke="#22d3ee" stroke-width="0.4" opacity="0.2"/>
-                <line x1="2" y1="20" x2="38" y2="20" stroke="#22d3ee" stroke-width="0.4" opacity="0.2"/>
-            </svg>
-            <div style="font-size:11px;font-weight:700;letter-spacing:0.15em;color:#e2f0fa;font-family:monospace;">EUROPEAN AIRSPACE</div>
-            <div style="font-size:9px;color:#4a5e72;font-family:monospace;margin-top:3px;letter-spacing:0.08em;">Flight Intelligence</div>
-        </div>
-        <div id="splash-steps">
-            <div class="splash-step" id="step-leaflet"><div class="step-icon" id="icon-leaflet" style="color:#1e3a4a">○</div>Map engine</div>
-            <div class="splash-step" id="step-tiles"><div class="step-icon" id="icon-tiles" style="color:#1e3a4a">○</div>Terrain tiles</div>
-            <div class="splash-step" id="step-data"><div class="step-icon" id="icon-data" style="color:#1e3a4a">○</div>Live aircraft feed</div>
-        </div>
-        <div class="splash-bar-track"><div class="splash-bar-fill" id="splash-bar"></div></div>
-        <div id="splash-msg">STANDBY</div>
-    </div>
-</div>
-
-<!-- Rest banner -->
-<div id="rest-banner">⏸ TAB HIDDEN — POLLING PAUSED</div>
-
-<!-- Add to watchlist modal -->
-<div id="watch-modal">
-    <div class="modal-box">
-        <div class="modal-title">Track a Flight</div>
-        <input id="modal-input" class="modal-input mono" type="text" placeholder="ICAO hex or callsign (e.g. 3c6444)" spellcheck="false" autocomplete="off" />
-        <div id="modal-error" style="font-size:10px;color:#ef4444;margin-bottom:8px;display:none;"></div>
-        <div class="modal-actions">
-            <button class="modal-btn primary" id="modal-add">+ Track</button>
-            <button class="modal-btn cancel" id="modal-cancel">Cancel</button>
-        </div>
-    </div>
-</div>
-
-<!-- Narrow nav -->
-<nav style="width:52px;flex-shrink:0;background:#080e16;border-right:1px solid #121d2b;display:flex;flex-direction:column;align-items:center;padding:16px 0 16px;gap:20px;">
-    <a href="/hud/cc" style="text-decoration:none;" title="Command Center">
-        <div style="width:32px;height:32px;background:#0d1824;border:1px solid #1e3a4a;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;cursor:pointer;" title="Command">⌂</div>
-    </a>
-    <div style="width:32px;height:32px;background:rgba(34,211,238,0.08);border:1px solid rgba(34,211,238,0.3);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;color:#22d3ee;" title="Flights">✈</div>
-</nav>
-
-<!-- Left sidebar -->
-<div id="sidebar">
-    <!-- Watched flights -->
-    <div class="sidebar-section-header">
-        <span>Watched Flights</span>
-        <button id="btn-add-watch" title="Track a flight">+</button>
-    </div>
-    <div id="watchlist-cards">
-        <div id="watchlist-empty" class="mono">No tracked flights<br><span style="font-size:9px;opacity:0.6">Click + to add</span></div>
-    </div>
-
-    <div class="sidebar-divider"></div>
-
-    <!-- Live aircraft -->
-    <div id="aircraft-section">
-        <div class="sidebar-section-header" style="border-bottom:none;">
-            <span>European Airspace</span>
-            <span id="live-count" style="font-size:9px;color:#22d3ee;font-family:monospace;">0</span>
-        </div>
-        <div id="filter-wrap">
-            <input id="filter-input" type="text" placeholder="Filter callsign / ICAO…" autocomplete="off" spellcheck="false" />
-        </div>
-        <div id="aircraft-list"></div>
-    </div>
-</div>
-
-<!-- Map area -->
-<div id="map-area">
-    <div id="globe-container"></div>
-
-    <!-- HUD bar -->
-    <div id="hud-bar">
-        <div class="pulse-dot" id="data-pulse" style="background:#4a5e72;"></div>
-        <span class="mono" style="font-size:9px;color:#4a5e72;" id="data-count">0 AC</span>
-        <span class="hud-badge" id="data-badge" style="display:none;"></span>
-    </div>
-
-    <!-- Detail card -->
-    <div id="detail-card">
-        <div class="detail-header">
-            <div class="detail-callsign mono" id="det-callsign">--</div>
-            <button class="detail-copy" id="det-copy" title="Copy ICAO">⧉</button>
-            <button class="detail-close" id="det-close">✕</button>
-        </div>
-
-        <!-- Silhouette -->
-        <div class="detail-silhouette">
-            <svg width="70" height="70" viewBox="0 0 70 70" class="ac-silhouette">
-                <!-- Top-down aircraft -->
-                <g fill="currentColor" opacity="0.9">
-                    <!-- Fuselage -->
-                    <ellipse cx="35" cy="35" rx="4" ry="22"/>
-                    <!-- Wings -->
-                    <polygon points="35,28 10,42 14,42 35,33 56,42 60,42"/>
-                    <!-- Tail -->
-                    <polygon points="35,52 24,60 26,60 35,55 44,60 46,60"/>
-                    <!-- Engines -->
-                    <ellipse cx="18" cy="40" rx="3" ry="5" opacity="0.6"/>
-                    <ellipse cx="52" cy="40" rx="3" ry="5" opacity="0.6"/>
-                </g>
-                <circle cx="35" cy="35" r="3" fill="currentColor" opacity="0.4"/>
-            </svg>
-        </div>
-
-        <!-- Country + ICAO -->
-        <div class="detail-meta">
-            <span id="det-country" style="font-size:10px;color:#c8d8e8;"></span>
-            <span class="icao-badge mono" id="det-icao">--</span>
-        </div>
-
-        <!-- Route bar -->
-        <div class="route-bar">
-            <div class="route-endpoints">
-                <span>ORIGIN <span style="color:#e2f0fa;font-family:monospace;" id="det-origin">--</span></span>
-                <span>DEST <span style="color:#e2f0fa;font-family:monospace;" id="det-dest">--</span></span>
+    <!-- Splash -->
+    <div id="splash">
+        <div class="splash-card">
+            <div style="text-align:center;margin-bottom:20px;">
+                <svg width="40" height="40" viewBox="0 0 40 40" style="margin:0 auto 10px;display:block;">
+                    <polygon points="20,2 35,10 35,30 20,38 5,30 5,10" fill="none" stroke="#22d3ee" stroke-width="1"
+                        stroke-opacity="0.4" />
+                    <path d="M8,20 Q20,10 32,20 Q20,28 8,20Z" fill="rgba(34,211,238,0.08)" stroke="#22d3ee"
+                        stroke-width="1" />
+                    <circle cx="20" cy="20" r="5" fill="#22d3ee" opacity="0.7" />
+                    <circle cx="20" cy="20" r="2" fill="#020b14" />
+                    <line x1="20" y1="2" x2="20" y2="38" stroke="#22d3ee" stroke-width="0.4" opacity="0.2" />
+                    <line x1="2" y1="20" x2="38" y2="20" stroke="#22d3ee" stroke-width="0.4" opacity="0.2" />
+                </svg>
+                <div style="font-size:11px;font-weight:700;letter-spacing:0.15em;color:#e2f0fa;font-family:monospace;">
+                    EUROPEAN AIRSPACE</div>
+                <div style="font-size:9px;color:#4a5e72;font-family:monospace;margin-top:3px;letter-spacing:0.08em;">
+                    Flight Intelligence</div>
             </div>
-            <div class="route-track">
-                <div class="route-fill" id="det-route-fill"></div>
-                <div class="route-plane">✈</div>
+            <div id="splash-steps">
+                <div class="splash-step" id="step-leaflet">
+                    <div class="step-icon" id="icon-leaflet" style="color:#1e3a4a">○</div>Map engine
+                </div>
+                <div class="splash-step" id="step-tiles">
+                    <div class="step-icon" id="icon-tiles" style="color:#1e3a4a">○</div>Terrain tiles
+                </div>
+                <div class="splash-step" id="step-data">
+                    <div class="step-icon" id="icon-data" style="color:#1e3a4a">○</div>Live aircraft feed
+                </div>
+            </div>
+            <div class="splash-bar-track">
+                <div class="splash-bar-fill" id="splash-bar"></div>
+            </div>
+            <div id="splash-msg">STANDBY</div>
+        </div>
+    </div>
+
+    <!-- Rest banner -->
+    <div id="rest-banner">⏸ TAB HIDDEN — POLLING PAUSED</div>
+
+    <!-- Add to watchlist modal -->
+    <div id="watch-modal">
+        <div class="modal-box">
+            <div class="modal-title">Track a Flight</div>
+            <input id="modal-input" class="modal-input mono" type="text"
+                placeholder="ICAO hex or callsign (e.g. 3c6444)" spellcheck="false" autocomplete="off" />
+            <div id="modal-error" style="font-size:10px;color:#ef4444;margin-bottom:8px;display:none;"></div>
+            <div class="modal-actions">
+                <button class="modal-btn primary" id="modal-add">+ Track</button>
+                <button class="modal-btn cancel" id="modal-cancel">Cancel</button>
             </div>
         </div>
+    </div>
 
-        <!-- 3-column stats -->
-        <div class="detail-stats-3">
-            <div class="stat3-cell">
-                <div class="stat3-label">Altitude</div>
-                <div class="stat3-val mono" id="det-alt">--</div>
-            </div>
-            <div class="stat3-cell">
-                <div class="stat3-label">Speed</div>
-                <div class="stat3-val mono" id="det-speed">--</div>
-            </div>
-            <div class="stat3-cell">
-                <div class="stat3-label">Heading</div>
-                <div class="stat3-val mono" id="det-hdg">--</div>
-            </div>
+    <!-- Narrow nav -->
+    <nav
+        style="width:52px;flex-shrink:0;background:#080e16;border-right:1px solid #121d2b;display:flex;flex-direction:column;align-items:center;padding:16px 0 16px;gap:20px;">
+        <a href="/hud/cc" style="text-decoration:none;" title="Command Center">
+            <div style="width:32px;height:32px;background:#0d1824;border:1px solid #1e3a4a;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;cursor:pointer;"
+                title="Command">⌂</div>
+        </a>
+        <div style="width:32px;height:32px;background:rgba(34,211,238,0.08);border:1px solid rgba(34,211,238,0.3);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;color:#22d3ee;"
+            title="Flights">✈</div>
+    </nav>
+
+    <!-- Left sidebar -->
+    <div id="sidebar">
+        <!-- Watched flights -->
+        <div class="sidebar-section-header">
+            <span>Watched Flights</span>
+            <button id="btn-add-watch" title="Track a flight">+</button>
+        </div>
+        <div id="watchlist-cards">
+            <div id="watchlist-empty" class="mono">No tracked flights<br><span style="font-size:9px;opacity:0.6">Click +
+                    to add</span></div>
         </div>
 
-        <!-- Detail rows -->
-        <div class="detail-rows">
-            <div class="drow"><span class="drow-label">Vert. Rate</span><span class="drow-val" id="det-vrate">--</span></div>
-            <div class="drow"><span class="drow-label">Position</span><span class="drow-val" id="det-pos">--</span></div>
-            <div class="drow"><span class="drow-label">Squawk</span><span class="drow-val" id="det-squawk">--</span></div>
-            <div class="drow"><span class="drow-label">ICAO24</span><span class="drow-val" id="det-icao24">--</span></div>
-        </div>
+        <div class="sidebar-divider"></div>
 
-        <!-- Actions -->
-        <div class="detail-actions">
-            <button class="btn-watch" id="det-watch-btn">+ ADD TO WATCHLIST</button>
+        <!-- Live aircraft -->
+        <div id="aircraft-section">
+            <div class="sidebar-section-header" style="border-bottom:none;">
+                <span>European Airspace</span>
+                <span id="live-count" style="font-size:9px;color:#22d3ee;font-family:monospace;">0</span>
+            </div>
+            <div id="filter-wrap">
+                <input id="filter-input" type="text" placeholder="Filter callsign / ICAO…" autocomplete="off"
+                    spellcheck="false" />
+            </div>
+            <div id="aircraft-list"></div>
         </div>
     </div>
-</div>
 
-<script type="module">
-import { AirDataService } from "./air_service.js";
-import { PerformanceProfiler } from "./performance_profiler.js";
-import { RendererManager } from "./renderers/manager.js";
+    <!-- Map area -->
+    <div id="map-area">
+        <div id="globe-container"></div>
 
-const airService = new AirDataService();
-const profiler = new PerformanceProfiler(60, 300);
-const globeContainer = document.getElementById("globe-container");
-const mapContainer = document.createElement("div"); // unused placeholder
+        <!-- HUD bar -->
+        <div id="hud-bar">
+            <div class="pulse-dot" id="data-pulse" style="background:#4a5e72;"></div>
+            <span class="mono" style="font-size:9px;color:#4a5e72;" id="data-count">0 AC</span>
+            <span class="hud-badge" id="data-badge" style="display:none;"></span>
+        </div>
 
-let rendererManager = null;
-let aircraftList = [];
-let filteredList = [];
-let selectedAc = null;
-let watchlist = [];   // array of {icaoId, ...}
-let watchedSet = new Set();
+        <!-- Detail card -->
+        <div id="detail-card">
+            <div class="detail-header">
+                <div class="detail-callsign mono" id="det-callsign">--</div>
+                <button class="detail-copy" id="det-copy" title="Copy ICAO">⧉</button>
+                <button class="detail-close" id="det-close">✕</button>
+            </div>
 
-// ── Formatters ───────────────────────────────────────────────────────────────
+            <!-- Silhouette -->
+            <div class="detail-silhouette">
+                <svg width="70" height="70" viewBox="0 0 70 70" class="ac-silhouette">
+                    <!-- Top-down aircraft -->
+                    <g fill="currentColor" opacity="0.9">
+                        <!-- Fuselage -->
+                        <ellipse cx="35" cy="35" rx="4" ry="22" />
+                        <!-- Wings -->
+                        <polygon points="35,28 10,42 14,42 35,33 56,42 60,42" />
+                        <!-- Tail -->
+                        <polygon points="35,52 24,60 26,60 35,55 44,60 46,60" />
+                        <!-- Engines -->
+                        <ellipse cx="18" cy="40" rx="3" ry="5" opacity="0.6" />
+                        <ellipse cx="52" cy="40" rx="3" ry="5" opacity="0.6" />
+                    </g>
+                    <circle cx="35" cy="35" r="3" fill="currentColor" opacity="0.4" />
+                </svg>
+            </div>
 
-function mToFt(m) { return Math.round((m || 0) * 3.28084); }
-function msToKt(v) { return Math.round((v || 0) * 1.94384); }
-function fmtAlt(ac) {
-    if (ac.on_ground || (ac.alt || 0) < 50) return "GND";
-    return mToFt(ac.alt).toLocaleString() + " ft";
-}
-function fmtSpeed(ac) { return msToKt(ac.velocity) + " kt"; }
-function fmtHdg(deg) { return deg != null ? Math.round(deg) + "°" : "--"; }
-function fmtVrate(vr) {
-    if (vr == null) return "--";
-    const fpm = Math.round(vr * 196.85);
-    if (fpm > 100) return "↑ +" + fpm + " fpm";
-    if (fpm < -100) return "↓ " + fpm + " fpm";
-    return "⟷ Level";
-}
-function fmtPos(ac) {
-    if (ac.lat == null) return "--";
-    const la = ac.lat >= 0 ? ac.lat.toFixed(3) + "°N" : Math.abs(ac.lat).toFixed(3) + "°S";
-    const lo = ac.lon >= 0 ? ac.lon.toFixed(3) + "°E" : Math.abs(ac.lon).toFixed(3) + "°W";
-    return la + " " + lo;
-}
-function watchStatus(icaoId) {
-    const ac = aircraftList.find(a => a.id === icaoId);
-    if (!ac) return "novis";
-    return ac.on_ground || (ac.velocity || 0) < 5 ? "ground" : "transit";
-}
+            <!-- Country + ICAO -->
+            <div class="detail-meta">
+                <span id="det-country" style="font-size:10px;color:#c8d8e8;"></span>
+                <span class="icao-badge mono" id="det-icao">--</span>
+            </div>
 
-// ── Watchlist ────────────────────────────────────────────────────────────────
+            <!-- Route bar -->
+            <div class="route-bar">
+                <div class="route-endpoints">
+                    <span>ORIGIN <span style="color:#e2f0fa;font-family:monospace;" id="det-origin">--</span></span>
+                    <span>DEST <span style="color:#e2f0fa;font-family:monospace;" id="det-dest">--</span></span>
+                </div>
+                <div class="route-track">
+                    <div class="route-fill" id="det-route-fill"></div>
+                    <div class="route-plane">✈</div>
+                </div>
+            </div>
 
-async function loadWatchlist() {
-    try {
-        const r = await fetch("/hud/air/watchlist");
-        if (r.ok) {
-            const d = await r.json();
-            watchlist = d.watchlist || [];
-            watchedSet = new Set(watchlist.map(x => typeof x === "string" ? x : x.icao_id || x.id || x));
+            <!-- 3-column stats -->
+            <div class="detail-stats-3">
+                <div class="stat3-cell">
+                    <div class="stat3-label">Altitude</div>
+                    <div class="stat3-val mono" id="det-alt">--</div>
+                </div>
+                <div class="stat3-cell">
+                    <div class="stat3-label">Speed</div>
+                    <div class="stat3-val mono" id="det-speed">--</div>
+                </div>
+                <div class="stat3-cell">
+                    <div class="stat3-label">Heading</div>
+                    <div class="stat3-val mono" id="det-hdg">--</div>
+                </div>
+            </div>
+
+            <!-- Detail rows -->
+            <div class="detail-rows">
+                <div class="drow"><span class="drow-label">Vert. Rate</span><span class="drow-val"
+                        id="det-vrate">--</span></div>
+                <div class="drow"><span class="drow-label">Position</span><span class="drow-val" id="det-pos">--</span>
+                </div>
+                <div class="drow"><span class="drow-label">Squawk</span><span class="drow-val" id="det-squawk">--</span>
+                </div>
+                <div class="drow"><span class="drow-label">ICAO24</span><span class="drow-val" id="det-icao24">--</span>
+                </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="detail-actions">
+                <button class="btn-watch" id="det-watch-btn">+ ADD TO WATCHLIST</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { AirDataService } from "./air_service.js";
+        import { PerformanceProfiler } from "./performance_profiler.js";
+        import { RendererManager } from "./renderers/manager.js";
+
+        const airService = new AirDataService();
+        const profiler = new PerformanceProfiler(60, 300);
+        const globeContainer = document.getElementById("globe-container");
+        const mapContainer = document.createElement("div"); // unused placeholder
+
+        let rendererManager = null;
+        let aircraftList = [];
+        let filteredList = [];
+        let selectedAc = null;
+        let watchlist = [];   // array of {icaoId, ...}
+        let watchedSet = new Set();
+
+        // ── Formatters ───────────────────────────────────────────────────────────────
+
+        function mToFt(m) { return Math.round((m || 0) * 3.28084); }
+        function msToKt(v) { return Math.round((v || 0) * 1.94384); }
+        function fmtAlt(ac) {
+            if (ac.on_ground || (ac.alt || 0) < 50) return "GND";
+            return mToFt(ac.alt).toLocaleString() + " ft";
         }
-    } catch (_) {}
-    renderWatchlist();
-}
+        function fmtSpeed(ac) { return msToKt(ac.velocity) + " kt"; }
+        function fmtHdg(deg) { return deg != null ? Math.round(deg) + "°" : "--"; }
+        function fmtVrate(vr) {
+            if (vr == null) return "--";
+            const fpm = Math.round(vr * 196.85);
+            if (fpm > 100) return "↑ +" + fpm + " fpm";
+            if (fpm < -100) return "↓ " + fpm + " fpm";
+            return "⟷ Level";
+        }
+        function fmtPos(ac) {
+            if (ac.lat == null) return "--";
+            const la = ac.lat >= 0 ? ac.lat.toFixed(3) + "°N" : Math.abs(ac.lat).toFixed(3) + "°S";
+            const lo = ac.lon >= 0 ? ac.lon.toFixed(3) + "°E" : Math.abs(ac.lon).toFixed(3) + "°W";
+            return la + " " + lo;
+        }
+        function watchStatus(icaoId) {
+            const ac = aircraftList.find(a => a.id === icaoId);
+            if (!ac) return "novis";
+            return ac.on_ground || (ac.velocity || 0) < 5 ? "ground" : "transit";
+        }
 
-async function addToWatchlist(icaoId) {
-    icaoId = icaoId.toLowerCase().trim();
-    if (!icaoId || watchedSet.has(icaoId)) return false;
-    try {
-        const r = await fetch("/hud/air/watchlist", {
-            method: "POST", headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({ icao_id: icaoId })
-        });
-        if (r.ok) {
-            watchedSet.add(icaoId);
-            watchlist.push(icaoId);
+        // ── Watchlist ────────────────────────────────────────────────────────────────
+
+        async function loadWatchlist() {
+            try {
+                const r = await fetch("/hud/air/watchlist");
+                if (r.ok) {
+                    const d = await r.json();
+                    watchlist = d.watchlist || [];
+                    watchedSet = new Set(watchlist.map(x => typeof x === "string" ? x : x.icao_id || x.id || x));
+                }
+            } catch (_) { }
             renderWatchlist();
-            return true;
         }
-    } catch (_) {}
-    return false;
-}
 
-async function removeFromWatchlist(icaoId) {
-    try {
-        await fetch(`/hud/air/watchlist/${icaoId}`, { method: "DELETE" });
-    } catch (_) {}
-    watchedSet.delete(icaoId);
-    watchlist = watchlist.filter(x => (typeof x === "string" ? x : x.icao_id || x.id) !== icaoId);
-    renderWatchlist();
-    if (selectedAc && selectedAc.id === icaoId) updateWatchBtn();
-}
+        async function addToWatchlist(icaoId) {
+            icaoId = icaoId.toLowerCase().trim();
+            if (!icaoId || watchedSet.has(icaoId)) return false;
+            try {
+                const r = await fetch("/hud/air/watchlist", {
+                    method: "POST", headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ icao_id: icaoId })
+                });
+                if (r.ok) {
+                    watchedSet.add(icaoId);
+                    watchlist.push(icaoId);
+                    renderWatchlist();
+                    return true;
+                }
+            } catch (_) { }
+            return false;
+        }
 
-function renderWatchlist() {
-    const container = document.getElementById("watchlist-cards");
-    const empty = document.getElementById("watchlist-empty");
-    if (watchedSet.size === 0) {
-        empty.style.display = "block";
-        container.innerHTML = "";
-        container.appendChild(empty);
-        return;
-    }
-    empty.style.display = "none";
-    const items = [...watchedSet];
-    container.innerHTML = items.map(id => {
-        const ac = aircraftList.find(a => a.id === id);
-        const status = watchStatus(id);
-        const callsign = ac ? (ac.callsign || id.toUpperCase()) : id.toUpperCase();
-        const meta = ac
-            ? `${fmtAlt(ac)} · ${fmtSpeed(ac)}`
-            : "Not in range";
-        const labels = { transit: "IN TRANSIT", ground: "ON GROUND", novis: "NOT VISIBLE" };
-        const isSelected = selectedAc && selectedAc.id === id;
-        return `<div class="watch-card${isSelected ? " selected" : ""}" data-id="${id}">
+        async function removeFromWatchlist(icaoId) {
+            try {
+                await fetch(`/hud/air/watchlist/${icaoId}`, { method: "DELETE" });
+            } catch (_) { }
+            watchedSet.delete(icaoId);
+            watchlist = watchlist.filter(x => (typeof x === "string" ? x : x.icao_id || x.id) !== icaoId);
+            renderWatchlist();
+            if (selectedAc && selectedAc.id === icaoId) updateWatchBtn();
+        }
+
+        function renderWatchlist() {
+            const container = document.getElementById("watchlist-cards");
+            const empty = document.getElementById("watchlist-empty");
+            if (watchedSet.size === 0) {
+                empty.style.display = "block";
+                container.innerHTML = "";
+                container.appendChild(empty);
+                return;
+            }
+            empty.style.display = "none";
+            const items = [...watchedSet];
+            container.innerHTML = items.map(id => {
+                const ac = aircraftList.find(a => a.id === id);
+                const status = watchStatus(id);
+                const callsign = ac ? (ac.callsign || id.toUpperCase()) : id.toUpperCase();
+                const meta = ac
+                    ? `${fmtAlt(ac)} · ${fmtSpeed(ac)}`
+                    : "Not in range";
+                const labels = { transit: "IN TRANSIT", ground: "ON GROUND", novis: "NOT VISIBLE" };
+                const isSelected = selectedAc && selectedAc.id === id;
+                return `<div class="watch-card${isSelected ? " selected" : ""}" data-id="${id}">
             <span class="watch-status ${status}">${labels[status]}</span>
             <div class="watch-info">
                 <div class="watch-callsign mono">${callsign}</div>
@@ -687,308 +1116,314 @@ function renderWatchlist() {
             </div>
             <span class="watch-remove" data-rm="${id}" title="Remove">✕</span>
         </div>`;
-    }).join("");
+            }).join("");
 
-    container.querySelectorAll(".watch-card").forEach(el => {
-        el.addEventListener("click", (e) => {
-            if (e.target.dataset.rm) return;
-            const id = el.dataset.id;
-            const ac = aircraftList.find(a => a.id === id);
-            if (ac && rendererManager) {
-                rendererManager.selectFlight(id);
-                showDetail(ac);
+            container.querySelectorAll(".watch-card").forEach(el => {
+                el.addEventListener("click", (e) => {
+                    if (e.target.dataset.rm) return;
+                    const id = el.dataset.id;
+                    const ac = aircraftList.find(a => a.id === id);
+                    if (ac && rendererManager) {
+                        rendererManager.selectFlight(id);
+                        showDetail(ac);
+                    }
+                });
+            });
+            container.querySelectorAll("[data-rm]").forEach(el => {
+                el.addEventListener("click", () => removeFromWatchlist(el.dataset.rm));
+            });
+        }
+
+        // ── Aircraft list ────────────────────────────────────────────────────────────
+
+        function applyFilter() {
+            const q = document.getElementById("filter-input").value.toLowerCase().trim();
+            filteredList = q
+                ? aircraftList.filter(ac =>
+                    ac.id.toLowerCase().includes(q) ||
+                    (ac.callsign && ac.callsign.toLowerCase().includes(q))
+                )
+                : aircraftList;
+            renderAcList();
+        }
+
+        function renderAcList() {
+            const el = document.getElementById("aircraft-list");
+            const shown = filteredList.slice(0, 80);
+
+            if (shown.length === 0) {
+                el.innerHTML = '<div style="text-align:center;font-size:10px;color:#4a5e72;padding:20px 0;font-family:monospace;">NO AIRCRAFT IN VIEW</div>';
+                return;
             }
-        });
-    });
-    container.querySelectorAll("[data-rm]").forEach(el => {
-        el.addEventListener("click", () => removeFromWatchlist(el.dataset.rm));
-    });
-}
 
-// ── Aircraft list ────────────────────────────────────────────────────────────
-
-function applyFilter() {
-    const q = document.getElementById("filter-input").value.toLowerCase().trim();
-    filteredList = q
-        ? aircraftList.filter(ac =>
-            ac.id.toLowerCase().includes(q) ||
-            (ac.callsign && ac.callsign.toLowerCase().includes(q))
-          )
-        : aircraftList;
-    renderAcList();
-}
-
-function renderAcList() {
-    const el = document.getElementById("aircraft-list");
-    const shown = filteredList.slice(0, 80);
-
-    if (shown.length === 0) {
-        el.innerHTML = '<div style="text-align:center;font-size:10px;color:#4a5e72;padding:20px 0;font-family:monospace;">NO AIRCRAFT IN VIEW</div>';
-        return;
-    }
-
-    el.innerHTML = shown.map(ac => {
-        const isSelected = selectedAc && ac.id === selectedAc.id;
-        const isGround = ac.on_ground || (ac.velocity || 0) < 5;
-        const dot = isGround ? "#4a5e72" : "#22d3ee";
-        const callsign = ac.callsign || "UNKNOWN";
-        const sub = `${ac.id.toUpperCase()} · ${fmtAlt(ac)} · ${fmtSpeed(ac)}`;
-        return `<div class="ac-card${isSelected ? " selected" : ""}" data-id="${ac.id}">
+            el.innerHTML = shown.map(ac => {
+                const isSelected = selectedAc && ac.id === selectedAc.id;
+                const isGround = ac.on_ground || (ac.velocity || 0) < 5;
+                const dot = isGround ? "#4a5e72" : "#22d3ee";
+                const callsign = ac.callsign || "UNKNOWN";
+                const sub = `${ac.id.toUpperCase()} · ${fmtAlt(ac)} · ${fmtSpeed(ac)}`;
+                return `<div class="ac-card${isSelected ? " selected" : ""}" data-id="${ac.id}">
             <div class="ac-dot" style="background:${dot};"></div>
             <div class="ac-main">
                 <div class="ac-callsign mono">${callsign}</div>
                 <div class="ac-sub mono">${sub}</div>
             </div>
         </div>`;
-    }).join("");
+            }).join("");
 
-    if (filteredList.length > 80) {
-        el.innerHTML += `<div style="text-align:center;font-size:9px;color:#4a5e72;padding:8px 0;font-family:monospace;">+${filteredList.length - 80} more — use filter</div>`;
-    }
+            if (filteredList.length > 80) {
+                el.innerHTML += `<div style="text-align:center;font-size:9px;color:#4a5e72;padding:8px 0;font-family:monospace;">+${filteredList.length - 80} more — use filter</div>`;
+            }
 
-    el.querySelectorAll(".ac-card").forEach(card => {
-        card.addEventListener("click", () => {
-            const ac = aircraftList.find(a => a.id === card.dataset.id);
-            if (!ac) return;
+            el.querySelectorAll(".ac-card").forEach(card => {
+                card.addEventListener("click", () => {
+                    const ac = aircraftList.find(a => a.id === card.dataset.id);
+                    if (!ac) return;
+                    selectedAc = ac;
+                    if (rendererManager) rendererManager.selectFlight(ac.id);
+                    showDetail(ac);
+                    renderAcList();
+                    renderWatchlist();
+                });
+            });
+
+            document.getElementById("live-count").textContent = aircraftList.length;
+        }
+
+        // ── Detail card ──────────────────────────────────────────────────────────────
+
+        function showDetail(ac) {
             selectedAc = ac;
-            if (rendererManager) rendererManager.selectFlight(ac.id);
-            showDetail(ac);
+            const card = document.getElementById("detail-card");
+            card.style.display = "block";
+
+            document.getElementById("det-callsign").textContent = ac.callsign || "UNKNOWN";
+            document.getElementById("det-icao").textContent = ac.id.toUpperCase();
+            document.getElementById("det-icao24").textContent = ac.id.toUpperCase();
+            document.getElementById("det-country").textContent = ac.origin_country || "";
+            document.getElementById("det-alt").textContent = fmtAlt(ac);
+            document.getElementById("det-speed").textContent = fmtSpeed(ac);
+            document.getElementById("det-hdg").textContent = fmtHdg(ac.heading);
+            document.getElementById("det-vrate").textContent = fmtVrate(ac.vertical_rate);
+            document.getElementById("det-pos").textContent = fmtPos(ac);
+            document.getElementById("det-squawk").textContent = ac.squawk ? "SQK " + ac.squawk : "--";
+            document.getElementById("det-origin").textContent = "…";
+            document.getElementById("det-dest").textContent = "…";
+
+            const isAirborne = !ac.on_ground && (ac.velocity || 0) >= 5;
+            document.getElementById("det-route-fill").style.width = isAirborne ? "50%" : "0%";
+
+            updateWatchBtn();
+
+            // Async: fetch real origin/destination from backend (adsbdb callsign lookup)
+            if (ac.callsign) {
+                airService.fetchRoute(ac.id, ac.callsign).then(route => {
+                    if (selectedAc?.id !== ac.id) return; // user switched away
+                    document.getElementById("det-origin").textContent = route.origin || "--";
+                    document.getElementById("det-dest").textContent = route.destination || "--";
+                }).catch(() => {
+                    document.getElementById("det-origin").textContent = "--";
+                    document.getElementById("det-dest").textContent = "--";
+                });
+            } else {
+                document.getElementById("det-origin").textContent = "--";
+                document.getElementById("det-dest").textContent = "--";
+            }
+        }
+
+        function updateWatchBtn() {
+            const btn = document.getElementById("det-watch-btn");
+            if (!selectedAc) return;
+            const watching = watchedSet.has(selectedAc.id);
+            btn.textContent = watching ? "✓ WATCHING" : "+ ADD TO WATCHLIST";
+            btn.className = "btn-watch" + (watching ? " watching" : "");
+        }
+
+        function hideDetail() {
+            selectedAc = null;
+            document.getElementById("detail-card").style.display = "none";
             renderAcList();
             renderWatchlist();
-        });
-    });
-
-    document.getElementById("live-count").textContent = aircraftList.length;
-}
-
-// ── Detail card ──────────────────────────────────────────────────────────────
-
-function showDetail(ac) {
-    selectedAc = ac;
-    const card = document.getElementById("detail-card");
-    card.style.display = "block";
-
-    document.getElementById("det-callsign").textContent = ac.callsign || "UNKNOWN";
-    document.getElementById("det-icao").textContent = ac.id.toUpperCase();
-    document.getElementById("det-icao24").textContent = ac.id.toUpperCase();
-    document.getElementById("det-country").textContent = ac.origin_country || "";
-    document.getElementById("det-alt").textContent = fmtAlt(ac);
-    document.getElementById("det-speed").textContent = fmtSpeed(ac);
-    document.getElementById("det-hdg").textContent = fmtHdg(ac.heading);
-    document.getElementById("det-vrate").textContent = fmtVrate(ac.vertical_rate);
-    document.getElementById("det-pos").textContent = fmtPos(ac);
-    document.getElementById("det-squawk").textContent = ac.squawk ? "SQK " + ac.squawk : "--";
-    document.getElementById("det-origin").textContent = "…";
-    document.getElementById("det-dest").textContent = "…";
-
-    const isAirborne = !ac.on_ground && (ac.velocity || 0) >= 5;
-    document.getElementById("det-route-fill").style.width = isAirborne ? "50%" : "0%";
-
-    updateWatchBtn();
-
-    // Async: fetch real origin/destination from backend (adsbdb callsign lookup)
-    if (ac.callsign) {
-        airService.fetchRoute(ac.id, ac.callsign).then(route => {
-            if (selectedAc?.id !== ac.id) return; // user switched away
-            document.getElementById("det-origin").textContent = route.origin || "--";
-            document.getElementById("det-dest").textContent = route.destination || "--";
-        }).catch(() => {
-            document.getElementById("det-origin").textContent = "--";
-            document.getElementById("det-dest").textContent = "--";
-        });
-    } else {
-        document.getElementById("det-origin").textContent = "--";
-        document.getElementById("det-dest").textContent = "--";
-    }
-}
-
-function updateWatchBtn() {
-    const btn = document.getElementById("det-watch-btn");
-    if (!selectedAc) return;
-    const watching = watchedSet.has(selectedAc.id);
-    btn.textContent = watching ? "✓ WATCHING" : "+ ADD TO WATCHLIST";
-    btn.className = "btn-watch" + (watching ? " watching" : "");
-}
-
-function hideDetail() {
-    selectedAc = null;
-    document.getElementById("detail-card").style.display = "none";
-    renderAcList();
-    renderWatchlist();
-}
-
-// ── HUD badge ────────────────────────────────────────────────────────────────
-
-function updateHUD(data) {
-    const badge = document.getElementById("data-badge");
-    const pulse = document.getElementById("data-pulse");
-    const colors = { live: "#10b981", stale: "#f59e0b", error: "#ef4444" };
-    pulse.style.background = colors[data.state] || "#4a5e72";
-    badge.textContent = data.state.toUpperCase();
-    badge.className = `hud-badge ${data.state}`;
-    badge.style.display = "inline";
-    document.getElementById("data-count").textContent = aircraftList.length + " AC";
-}
-
-// ── Splash ───────────────────────────────────────────────────────────────────
-let _splashDone = 0;
-const SPLASH_STEPS = ["leaflet", "tiles", "data"];
-
-function splashStep(id, state, msg) {
-    const step = document.getElementById("step-" + id);
-    const icon = document.getElementById("icon-" + id);
-    if (!step || !icon) return;
-    if (state === "spinning") {
-        icon.className = "step-icon spinning"; icon.textContent = "";
-    } else if (state === "done") {
-        icon.className = "step-icon"; icon.textContent = "✓"; icon.style.color = "#10b981";
-        step.classList.add("done"); _splashDone++;
-        document.getElementById("splash-bar").style.width = Math.round((_splashDone / SPLASH_STEPS.length) * 100) + "%";
-    } else if (state === "error") {
-        icon.className = "step-icon"; icon.textContent = "✕"; icon.style.color = "#ef4444";
-        step.classList.add("error");
-    }
-    if (msg) { const m = document.getElementById("splash-msg"); m.textContent = msg; }
-}
-
-function dismissSplash() {
-    document.getElementById("splash-msg").textContent = "ALL SYSTEMS GO";
-    document.getElementById("splash-msg").style.color = "#10b981";
-    setTimeout(() => {
-        const el = document.getElementById("splash");
-        el.classList.add("fade-out");
-        setTimeout(() => el.remove(), 650);
-    }, 500);
-}
-
-// ── Rest state ───────────────────────────────────────────────────────────────
-function enterRestState() {
-    airService.pause();
-    const gr = rendererManager?.globeRenderer;
-    if (gr?._drTimer) { clearInterval(gr._drTimer); gr._drTimer = null; }
-    document.getElementById("rest-banner").style.display = "block";
-    document.getElementById("data-pulse").style.animationPlayState = "paused";
-}
-function exitRestState() {
-    airService.resume();
-    const gr = rendererManager?.globeRenderer;
-    if (gr && !gr._drTimer) gr._startDRLoop();
-    document.getElementById("rest-banner").style.display = "none";
-    document.getElementById("data-pulse").style.animationPlayState = "running";
-    gr?.map?.invalidateSize();
-}
-document.addEventListener("visibilitychange", () => {
-    document.visibilityState === "hidden" ? enterRestState() : exitRestState();
-});
-
-// ── Events ───────────────────────────────────────────────────────────────────
-document.getElementById("filter-input").addEventListener("input", applyFilter);
-
-document.getElementById("det-close").addEventListener("click", () => {
-    rendererManager?.clearSelection();
-    hideDetail();
-});
-document.getElementById("det-copy").addEventListener("click", () => {
-    if (selectedAc) navigator.clipboard?.writeText(selectedAc.id).catch(() => {});
-});
-document.getElementById("det-watch-btn").addEventListener("click", async () => {
-    if (!selectedAc) return;
-    if (watchedSet.has(selectedAc.id)) {
-        await removeFromWatchlist(selectedAc.id);
-    } else {
-        await addToWatchlist(selectedAc.id);
-    }
-    updateWatchBtn();
-});
-
-// Modal
-document.getElementById("btn-add-watch").addEventListener("click", () => {
-    document.getElementById("watch-modal").classList.add("open");
-    document.getElementById("modal-input").value = "";
-    document.getElementById("modal-error").style.display = "none";
-    setTimeout(() => document.getElementById("modal-input").focus(), 50);
-});
-document.getElementById("modal-cancel").addEventListener("click", () => {
-    document.getElementById("watch-modal").classList.remove("open");
-});
-document.getElementById("modal-add").addEventListener("click", async () => {
-    const val = document.getElementById("modal-input").value.trim();
-    if (!val) return;
-    const ok = await addToWatchlist(val);
-    if (!ok && watchedSet.has(val.toLowerCase())) {
-        const err = document.getElementById("modal-error");
-        err.textContent = "Already tracking " + val.toLowerCase();
-        err.style.display = "block";
-        return;
-    }
-    document.getElementById("watch-modal").classList.remove("open");
-});
-document.getElementById("modal-input").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") document.getElementById("modal-add").click();
-    if (e.key === "Escape") document.getElementById("modal-cancel").click();
-});
-document.getElementById("watch-modal").addEventListener("click", (e) => {
-    if (e.target === e.currentTarget) document.getElementById("modal-cancel").click();
-});
-
-// ── Boot ─────────────────────────────────────────────────────────────────────
-(async () => {
-    splashStep("leaflet", "spinning", "Loading map engine...");
-    try {
-        rendererManager = new RendererManager(globeContainer, mapContainer, { mapboxToken: "" });
-
-        rendererManager.subscribe((event) => {
-            if (event.event === "flight-selected") {
-                const ac = aircraftList.find(a => a.id === event.data.flightId);
-                if (ac) { showDetail(ac); renderAcList(); renderWatchlist(); }
-            }
-            if (event.event === "flight-deselected") hideDetail();
-        });
-
-        await rendererManager.init();
-        splashStep("leaflet", "done");
-
-        splashStep("tiles", "spinning", "Loading tiles...");
-        await new Promise(r => setTimeout(r, 700));
-        splashStep("tiles", "done");
-
-    } catch (err) {
-        splashStep("leaflet", "error", err.message);
-        return;
-    }
-
-    // Load watchlist from server
-    await loadWatchlist();
-
-    splashStep("data", "spinning", "Fetching aircraft...");
-    let firstData = false;
-
-    airService.subscribe((data) => {
-        aircraftList = data.aircraft || [];
-        applyFilter();
-        if (rendererManager) rendererManager.updateAircraft(aircraftList);
-        updateHUD(data);
-        renderWatchlist();
-
-        if (selectedAc) {
-            const fresh = aircraftList.find(a => a.id === selectedAc.id);
-            if (fresh) { selectedAc = fresh; showDetail(fresh); }
         }
 
-        if (!firstData) {
-            firstData = true;
-            if (data.state === "error") {
-                splashStep("data", "error", data.message || "No data");
+        // ── HUD badge ────────────────────────────────────────────────────────────────
+
+        function updateHUD(data) {
+            const badge = document.getElementById("data-badge");
+            const pulse = document.getElementById("data-pulse");
+            const colors = { live: "#10b981", stale: "#f59e0b", error: "#ef4444" };
+            pulse.style.background = colors[data.state] || "#4a5e72";
+            badge.textContent = data.state.toUpperCase();
+            badge.className = `hud-badge ${data.state}`;
+            badge.style.display = "inline";
+            document.getElementById("data-count").textContent = aircraftList.length + " AC";
+        }
+
+        // ── Splash ───────────────────────────────────────────────────────────────────
+        let _splashDone = 0;
+        const SPLASH_STEPS = ["leaflet", "tiles", "data"];
+
+        function splashStep(id, state, msg) {
+            const step = document.getElementById("step-" + id);
+            const icon = document.getElementById("icon-" + id);
+            if (!step || !icon) return;
+            if (state === "spinning") {
+                icon.className = "step-icon spinning"; icon.textContent = "";
+            } else if (state === "done") {
+                icon.className = "step-icon"; icon.textContent = "✓"; icon.style.color = "#10b981";
+                step.classList.add("done"); _splashDone++;
+                document.getElementById("splash-bar").style.width = Math.round((_splashDone / SPLASH_STEPS.length) * 100) + "%";
+            } else if (state === "error") {
+                icon.className = "step-icon"; icon.textContent = "✕"; icon.style.color = "#ef4444";
+                step.classList.add("error");
+            }
+            if (msg) { const m = document.getElementById("splash-msg"); m.textContent = msg; }
+        }
+
+        function dismissSplash() {
+            document.getElementById("splash-msg").textContent = "ALL SYSTEMS GO";
+            document.getElementById("splash-msg").style.color = "#10b981";
+            setTimeout(() => {
+                const el = document.getElementById("splash");
+                el.classList.add("fade-out");
+                setTimeout(() => el.remove(), 650);
+            }, 500);
+        }
+
+        // ── Rest state ───────────────────────────────────────────────────────────────
+        function enterRestState() {
+            airService.pause();
+            const gr = rendererManager?.globeRenderer;
+            if (gr?._drTimer) { clearInterval(gr._drTimer); gr._drTimer = null; }
+            document.getElementById("rest-banner").style.display = "block";
+            document.getElementById("data-pulse").style.animationPlayState = "paused";
+        }
+        function exitRestState() {
+            airService.resume();
+            const gr = rendererManager?.globeRenderer;
+            if (gr && !gr._drTimer) gr._startDRLoop();
+            document.getElementById("rest-banner").style.display = "none";
+            document.getElementById("data-pulse").style.animationPlayState = "running";
+            gr?.map?.invalidateSize();
+        }
+        document.addEventListener("visibilitychange", () => {
+            document.visibilityState === "hidden" ? enterRestState() : exitRestState();
+        });
+
+        // ── Events ───────────────────────────────────────────────────────────────────
+        document.getElementById("filter-input").addEventListener("input", applyFilter);
+
+        document.getElementById("det-close").addEventListener("click", () => {
+            rendererManager?.clearSelection();
+            hideDetail();
+        });
+        document.getElementById("det-copy").addEventListener("click", () => {
+            if (selectedAc) navigator.clipboard?.writeText(selectedAc.id).catch(() => { });
+        });
+        document.getElementById("det-watch-btn").addEventListener("click", async () => {
+            if (!selectedAc) return;
+            if (watchedSet.has(selectedAc.id)) {
+                await removeFromWatchlist(selectedAc.id);
             } else {
-                splashStep("data", "done", `${aircraftList.length} aircraft`);
-                dismissSplash();
+                await addToWatchlist(selectedAc.id);
             }
-        }
-    });
+            updateWatchBtn();
+        });
 
-    airService.startPolling();
-    console.log("[Planes] Boot complete.");
-})();
-</script>
+        // Modal
+        document.getElementById("btn-add-watch").addEventListener("click", () => {
+            document.getElementById("watch-modal").classList.add("open");
+            document.getElementById("modal-input").value = "";
+            document.getElementById("modal-error").style.display = "none";
+            setTimeout(() => document.getElementById("modal-input").focus(), 50);
+        });
+        document.getElementById("modal-cancel").addEventListener("click", () => {
+            document.getElementById("watch-modal").classList.remove("open");
+        });
+        document.getElementById("modal-add").addEventListener("click", async () => {
+            const val = document.getElementById("modal-input").value.trim();
+            if (!val) return;
+            const ok = await addToWatchlist(val);
+            if (!ok && watchedSet.has(val.toLowerCase())) {
+                const err = document.getElementById("modal-error");
+                err.textContent = "Already tracking " + val.toLowerCase();
+                err.style.display = "block";
+                return;
+            }
+            document.getElementById("watch-modal").classList.remove("open");
+        });
+        document.getElementById("modal-input").addEventListener("keydown", (e) => {
+            if (e.key === "Enter") document.getElementById("modal-add").click();
+            if (e.key === "Escape") document.getElementById("modal-cancel").click();
+        });
+        document.getElementById("watch-modal").addEventListener("click", (e) => {
+            if (e.target === e.currentTarget) document.getElementById("modal-cancel").click();
+        });
+
+        // ── Boot ─────────────────────────────────────────────────────────────────────
+        (async () => {
+            splashStep("leaflet", "spinning", "Loading map engine...");
+            try {
+                rendererManager = new RendererManager(globeContainer, mapContainer, { mapboxToken: "" });
+
+                rendererManager.subscribe((event) => {
+                    if (event.event === "flight-selected") {
+                        const ac = aircraftList.find(a => a.id === event.data.flightId);
+                        if (ac) { showDetail(ac); renderAcList(); renderWatchlist(); }
+                    }
+                    if (event.event === "flight-deselected") hideDetail();
+                });
+
+                await rendererManager.init();
+                splashStep("leaflet", "done");
+
+                splashStep("tiles", "spinning", "Loading tiles...");
+                await new Promise(r => setTimeout(r, 700));
+                splashStep("tiles", "done");
+
+            } catch (err) {
+                splashStep("leaflet", "error", err.message);
+                return;
+            }
+
+            // Load watchlist from server
+            await loadWatchlist();
+
+            splashStep("data", "spinning", "Fetching aircraft...");
+            let firstData = false;
+
+            airService.subscribe((data) => {
+                aircraftList = data.aircraft || [];
+                applyFilter();
+                if (rendererManager) rendererManager.updateAircraft(aircraftList);
+                updateHUD(data);
+                renderWatchlist();
+
+                if (selectedAc) {
+                    const fresh = aircraftList.find(a => a.id === selectedAc.id);
+                    if (fresh) { selectedAc = fresh; showDetail(fresh); }
+                }
+
+                if (!firstData) {
+                    firstData = true;
+                    if (data.state === "error") {
+                        if (aircraftList.length > 0) {
+                            splashStep("data", "done", `${aircraftList.length} aircraft (fallback)`);
+                            dismissSplash();
+                        } else {
+                            splashStep("data", "error", data.message || "No data");
+                        }
+                    } else {
+                        splashStep("data", "done", `${aircraftList.length} aircraft`);
+                        dismissSplash();
+                    }
+                }
+            });
+
+            airService.startPolling();
+            console.log("[Planes] Boot complete.");
+        })();
+    </script>
 </body>
+
 </html>

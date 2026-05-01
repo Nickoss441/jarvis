@@ -33,6 +33,13 @@ class Conversation:
             return
         except (OSError, json.JSONDecodeError) as exc:
             _log.warning("conversation history at %s is corrupt — resetting: %s", self.storage_path, exc)
+            # Preserve corrupt file for post-mortem before wiping
+            corrupt_path = self.storage_path.with_suffix(".corrupt")
+            try:
+                self.storage_path.rename(corrupt_path)
+                _log.info("corrupt history moved to %s", corrupt_path)
+            except OSError:
+                pass
             self.messages = []
             return
 

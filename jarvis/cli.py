@@ -44,6 +44,7 @@ from .tools.weather_here import make_weather_here_tool
 from .tools.route_eta import make_route_eta_tool
 from .tools.eta_to import make_eta_to_tool
 from .tools.spotify import make_spotify_tool
+from .tools.eva_delegate import eva_delegate
 
 
 SYSTEM_CONTROL_PROMPT = """You are Jarvis System Control, a local system-control agent for {user_name}.
@@ -76,6 +77,7 @@ def build_brain_from_config(config: Config, system_prompt_template: str | None =
     approval_service = ApprovalService(config)
 
     tools = ToolRegistry()
+    tools.register(eva_delegate)
     tools.register(web_search)
     tools.register(web_fetch)
     for t in make_notes_tools(config.notes_dir):
@@ -244,16 +246,64 @@ def build_system_control_brain() -> Brain:
     return build_system_control_brain_from_config(config)
 
 
+def _make_tts_speaker(config: Config):
+    """Return a speaker whose .speak(text) plays audio via the configured TTS adapter.
+
+    Falls back to build_default_speaker() when voice is disabled or unconfigured.
+    """
+    if not config.phase_voice or not config.voice_tts_provider:
+        return build_default_speaker()
+    try:
+        from .perception.voice import build_tts_adapter
+        adapter = build_tts_adapter(
+            config.voice_tts_provider,
+            api_key=config.voice_tts_api_key,
+            voice_ids={
+                "male":   config.voice_tts_voice_id_male,
+                "female": config.voice_tts_voice_id_female,
+                "jarvis": config.voice_tts_voice_id_jarvis,
+                "eva":    config.voice_tts_voice_id_eva,
+            },
+            default_voice=config.voice_tts_default_voice,
+            model=config.voice_tts_model,
+            fallback_provider=config.voice_tts_fallback_provider,
+        )
+        voice = config.voice_tts_persona or config.voice_tts_default_voice
+
+        class _AdapterSpeaker:
+            def speak(self, text: str) -> bool:
+                result = adapter.synthesize(text, voice=voice)
+                if result.get("error") or not result.get("audio"):
+                    return False
+                try:
+                    import numpy as np
+                    import sounddevice as sd
+                    sd.play(
+                        np.frombuffer(result["audio"], dtype=np.int16),
+                        samplerate=result["sample_rate_hz"],
+                        blocking=True,
+                    )
+                    return True
+                except Exception:
+                    return False
+
+        return _AdapterSpeaker()
+    except Exception:
+        return build_default_speaker()
+
+
 def repl() -> None:
     print("Jarvis (phase 1) — type 'quit' to exit, 'reset' to clear conversation.\n")
 
     try:
-        brain = build_brain()
+        config = Config.from_env()
+        config.validate()
+        brain = build_brain_from_config(config)
     except Exception as e:
         print(f"Startup error: {e}")
         sys.exit(1)
 
-    speaker = build_default_speaker()
+    speaker = _make_tts_speaker(config)
 
     while True:
         try:
@@ -286,12 +336,14 @@ def repl_system_control() -> None:
     print("Jarvis System Control — type 'quit' to exit, 'reset' to clear conversation.\n")
 
     try:
-        brain = build_system_control_brain()
+        config = Config.from_env()
+        config.validate()
+        brain = build_system_control_brain_from_config(config)
     except Exception as e:
         print(f"Startup error: {e}")
         sys.exit(1)
 
-    speaker = build_default_speaker()
+    speaker = _make_tts_speaker(config)
 
     while True:
         try:

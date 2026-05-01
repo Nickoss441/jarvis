@@ -255,13 +255,13 @@ class Wallet:
         account.add_transaction(transaction)
         
         # Check for alerts
-        if account.monthly_budget and account.is_budget_exceeded(transaction.timestamp.year, transaction.timestamp.month):
+        if account.monthly_budget is not None and account.is_budget_exceeded(transaction.timestamp.year, transaction.timestamp.month):
             self._add_alert(
                 "budget_exceeded",
                 f"Monthly budget of {account.monthly_budget} {account.currency} exceeded on account {account.name}"
             )
-        
-        if account.alert_threshold and account.balance < account.alert_threshold:
+
+        if account.alert_threshold is not None and account.balance < account.alert_threshold:
             self._add_alert(
                 "low_balance",
                 f"Balance on {account.name} ({account.balance}) below threshold ({account.alert_threshold})"

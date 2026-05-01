@@ -196,7 +196,7 @@ class Portfolio:
         total = 0.0
         for asset_key, holding in self.holdings.items():
             price = self.get_latest_price(holding.asset)
-            if price:
+            if price is not None and price > 0:
                 total += holding.current_value(price)
             else:
                 # Use cost basis if no price available
@@ -223,7 +223,7 @@ class Portfolio:
         allocation: dict[str, float] = {}
         for asset_key, holding in self.holdings.items():
             price = self.get_latest_price(holding.asset)
-            if price:
+            if price is not None and price > 0:
                 value = holding.current_value(price)
                 allocation[asset_key] = (value / total_value) * 100
         
@@ -250,7 +250,7 @@ class Portfolio:
                 holding = self.holdings.get(asset_key)
                 if holding:
                     price = self.get_latest_price(holding.asset)
-                    quantity_change = change_needed / price if price else 0
+                    quantity_change = change_needed / price if (price is not None and price > 0) else 0
                     
                     recommendations[asset_key] = {
                         "current_percent": current_percent,

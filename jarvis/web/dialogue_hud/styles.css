@@ -1,0 +1,200 @@
+:root {
+    --bg: #041019;
+    --panel: #071926;
+    --line: rgba(73, 196, 255, 0.26);
+    --text: #dff6ff;
+    --muted: #8fb9cb;
+    --jarvis: #3bc7ff;
+    --eva: #7bffc2;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    background:
+        radial-gradient(circle at 10% 10%, rgba(59, 199, 255, 0.18), transparent 28%),
+        radial-gradient(circle at 85% 15%, rgba(123, 255, 194, 0.12), transparent 30%),
+        linear-gradient(160deg, #020912 0%, var(--bg) 55%, #031421 100%);
+    color: var(--text);
+    font-family: "Space Grotesk", sans-serif;
+}
+
+.dh-shell {
+    width: min(1200px, 96vw);
+    margin: 20px auto;
+    display: grid;
+    gap: 12px;
+}
+
+.dh-header,
+.dh-controls,
+.dh-status,
+.dh-columns {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: rgba(3, 17, 28, 0.7);
+    backdrop-filter: blur(8px);
+}
+
+.dh-header {
+    padding: 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.dh-header h1 {
+    margin: 4px 0 0;
+    font-size: 1.2rem;
+}
+
+.dh-kicker {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.dh-link {
+    color: var(--jarvis);
+    text-decoration: none;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+}
+
+.dh-controls {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: 2fr repeat(3, 1fr) 1fr;
+    padding: 12px;
+}
+
+.dh-controls label {
+    display: grid;
+    gap: 5px;
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.dh-controls input,
+.dh-controls textarea,
+.dh-controls select {
+    width: 100%;
+    border: 1px solid var(--line);
+    background: rgba(1, 13, 22, 0.9);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 8px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+}
+
+.dh-inline {
+    align-self: end;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.dh-actions {
+    grid-column: 1 / -1;
+    display: flex;
+    gap: 8px;
+}
+
+.dh-btn {
+    border: 1px solid var(--line);
+    background: rgba(4, 23, 36, 0.85);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 8px 12px;
+    cursor: pointer;
+}
+
+.dh-btn-primary {
+    border-color: rgba(59, 199, 255, 0.6);
+}
+
+.dh-status {
+    padding: 9px 12px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.dh-columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    padding: 10px;
+    min-height: 52vh;
+}
+
+.dh-columns:not(.split-enabled) {
+    grid-template-columns: 1fr;
+}
+
+.dh-column {
+    border: 1px solid rgba(73, 196, 255, 0.2);
+    border-radius: 10px;
+    padding: 10px;
+    background: rgba(2, 14, 22, 0.72);
+    display: grid;
+    gap: 8px;
+    min-height: 300px;
+}
+
+.dh-column h2 {
+    margin: 0;
+    font-size: 14px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.dh-scroll {
+    overflow: auto;
+    display: grid;
+    gap: 8px;
+    max-height: 58vh;
+    padding-right: 3px;
+}
+
+.dh-msg {
+    border-radius: 9px;
+    padding: 8px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.dh-msg.jarvis {
+    border-color: rgba(59, 199, 255, 0.45);
+    background: rgba(13, 56, 78, 0.35);
+}
+
+.dh-msg.eva {
+    border-color: rgba(123, 255, 194, 0.45);
+    background: rgba(14, 74, 59, 0.33);
+}
+
+.dh-msg.error {
+    border-color: rgba(255, 95, 95, 0.45);
+    background: rgba(86, 16, 16, 0.3);
+}
+
+@media (max-width: 900px) {
+    .dh-controls {
+        grid-template-columns: 1fr;
+    }
+
+    .dh-columns {
+        grid-template-columns: 1fr;
+    }
+}

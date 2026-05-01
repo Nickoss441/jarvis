@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Jarvis + EVA Dialogue</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+        rel="stylesheet" />
+    <link rel="stylesheet" href="/hud/dialogue/styles.css" />
+</head>
+
+<body>
+    <div class="dh-shell">
+        <header class="dh-header">
+            <div>
+                <div class="dh-kicker">Collaboration Console</div>
+                <h1>Jarvis + EVA Continuous Dialogue</h1>
+            </div>
+            <a class="dh-link" href="/hud/cc">Back To Command Center</a>
+        </header>
+
+        <section class="dh-controls">
+            <label>
+                Seed message
+                <textarea id="seedText" rows="2" placeholder="Start topic for Jarvis and EVA"></textarea>
+            </label>
+            <label>
+                Max turns
+                <input id="maxTurns" type="number" value="24" min="2" max="200" />
+            </label>
+            <label>
+                Delay (ms)
+                <input id="delayMs" type="number" value="1200" min="0" max="15000" />
+            </label>
+            <label>
+                Start agent
+                <select id="startAgent">
+                    <option value="jarvis">Jarvis</option>
+                    <option value="eva">EVA</option>
+                </select>
+            </label>
+            <label class="dh-inline">
+                <input id="splitToggle" type="checkbox" checked />
+                Split view when asked
+            </label>
+            <div class="dh-actions">
+                <button id="startBtn" class="dh-btn dh-btn-primary" type="button">Start Loop</button>
+                <button id="stopBtn" class="dh-btn" type="button">Stop Loop</button>
+                <button id="clearBtn" class="dh-btn" type="button">Clear Screen</button>
+            </div>
+        </section>
+
+        <section class="dh-status" id="statusBar">Idle</section>
+
+        <section class="dh-columns" id="dialogueColumns">
+            <article class="dh-column">
+                <h2>Jarvis</h2>
+                <div class="dh-scroll" id="jarvisCol"></div>
+            </article>
+            <article class="dh-column">
+                <h2>EVA</h2>
+                <div class="dh-scroll" id="evaCol"></div>
+            </article>
+        </section>
+    </div>
+
+    <script type="module" src="/hud/dialogue/app.js"></script>
+</body>
+
+</html>

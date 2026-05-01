@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 
-VOCAL_REPLY_PATTERN = r"respond\s+vocally:\s*(.+?)(?:\s*$|\s+(?:and|then))"
+VOCAL_REPLY_PATTERN = r"respond\s+vocally:\s*(.+)(?:\s*$|\s+(?:and|then))"
 """Regex pattern matching 'respond vocally: <command>' phrases."""
 
 

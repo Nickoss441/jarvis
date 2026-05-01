@@ -1,37 +1,4 @@
-﻿// --- Render live aircraft as 3D markers ---
-React.useEffect(() => {
-    if (!rendererRef.current) return;
-    const scene = rendererRef.current.scene || rendererRef.current.__scene || null;
-    if (!scene) return;
-    // Remove previous aircraft markers
-    scene.traverse(function (obj) {
-        if (obj.userData && obj.userData.type === "aircraft-marker") {
-            scene.remove(obj);
-        }
-    });
-    // Add new aircraft markers
-    if (Array.isArray(aircraft)) {
-        aircraft.forEach((ac) => {
-            if (!Number.isFinite(ac.lat) || !Number.isFinite(ac.lon)) return;
-            const marker = new THREE.Mesh(
-                new THREE.SphereGeometry(0.55, 10, 10),
-                new THREE.MeshBasicMaterial({ color: 0xffe066 })
-            );
-            // Place slightly above globe surface (radius ~120)
-            const r = 120.8;
-            const lat = (ac.lat * Math.PI) / 180;
-            const lon = (ac.lon * Math.PI) / 180;
-            marker.position.set(
-                r * Math.cos(lat) * Math.cos(lon),
-                r * Math.sin(lat),
-                -r * Math.cos(lat) * Math.sin(lon)
-            );
-            marker.userData = { type: "aircraft-marker", id: ac.id };
-            scene.add(marker);
-        });
-    }
-}, [aircraft]);
-// --- LIVE AIRCRAFT DATA HOOK ---
+﻿// --- LIVE AIRCRAFT DATA HOOK ---
 function useLiveAircraftData(pollMs = 10000) {
     const [aircraft, setAircraft] = React.useState([]);
     React.useEffect(() => {
@@ -39,7 +6,7 @@ function useLiveAircraftData(pollMs = 10000) {
         let timer = null;
         async function fetchAircraft() {
             try {
-                const res = await fetch("/hud/air", { cache: "no-store" });
+                const res = await fetch("/hud/air/states", { cache: "no-store" });
                 if (!res.ok) throw new Error("aircraft status " + res.status);
                 const data = await res.json();
                 if (!cancelled) setAircraft(Array.isArray(data.aircraft) ? data.aircraft : []);
@@ -356,6 +323,8 @@ const MAJOR_CITY_DOTS = [
     { id: "auckland", city: "Auckland", country: "New Zealand", lat: -36.8509, lon: 174.7645 },
 ];
 
+const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
 // Pull local time parts for a Date in a given IANA timezone.
 function localPartsInTZ(date, tz) {
     const dtf = new Intl.DateTimeFormat("en-US", {
@@ -376,52 +345,104 @@ function localPartsInTZ(date, tz) {
     };
 }
 
-// Convert "wall-clock minutes since midnight in tz on day offset" to a UTC ms.
-// We use the IANA tz current offset (good enough for status displays — drifts only across the precise DST transition minute).
-function tzWallClockToUTCms(referenceDate, tz, dayOffset, hour, minute) {
-    // referenceDate "now" -> local parts in tz on the current day
-    const nowLocal = localPartsInTZ(referenceDate, tz);
-    // build a UTC Date at the same y/m/d/h/mi/s; the diff to referenceDate gives the tz offset.
-    const asIfUTC = Date.UTC(nowLocal.y, nowLocal.m - 1, nowLocal.d, nowLocal.h, nowLocal.mi, nowLocal.s);
-    const tzOffsetMs = asIfUTC - referenceDate.getTime();
-    // target wall clock = today's local midnight + dayOffset days + hour:minute
-    const localMidnightUTC = Date.UTC(nowLocal.y, nowLocal.m - 1, nowLocal.d, 0, 0, 0);
-    return localMidnightUTC + dayOffset * 86400000 + hour * 3600000 + minute * 60000 - tzOffsetMs;
+// Convert a wall-clock date/time in an IANA timezone into a UTC timestamp.
+// Iterative offset solving keeps countdowns stable and avoids per-second drift.
+function tzWallClockToUTCms(tz, year, month, day, hour, minute) {
+    let guess = Date.UTC(year, month - 1, day, hour, minute, 0);
+    for (let i = 0; i < 4; i += 1) {
+        const localAtGuess = localPartsInTZ(new Date(guess), tz);
+        const asIfUTC = Date.UTC(
+            localAtGuess.y,
+            localAtGuess.m - 1,
+            localAtGuess.d,
+            localAtGuess.h,
+            localAtGuess.mi,
+            localAtGuess.s
+        );
+        const offsetMs = asIfUTC - guess;
+        const next = Date.UTC(year, month - 1, day, hour, minute, 0) - offsetMs;
+        if (Math.abs(next - guess) < 1000) {
+            guess = next;
+            break;
+        }
+        guess = next;
+    }
+    return guess;
 }
 
 function getMarketStatus(market, now) {
     const local = localPartsInTZ(now, market.tz);
-    const openTodayUTC = tzWallClockToUTCms(now, market.tz, 0, market.openH, market.openM);
-    const closeTodayUTC = tzWallClockToUTCms(now, market.tz, 0, market.closeH, market.closeM);
+    const nowMinutes = local.h * 60 + local.mi;
+    const openMinutes = market.openH * 60 + market.openM;
+    const closeMinutes = market.closeH * 60 + market.closeM;
     const isTradingDay = market.daysOpen.includes(local.dow);
     const nowMs = now.getTime();
 
-    if (isTradingDay && nowMs >= openTodayUTC && nowMs < closeTodayUTC) {
-        return { open: true, label: "OPEN", deltaMs: closeTodayUTC - nowMs, deltaLabel: "closes in" };
+    if (isTradingDay && nowMinutes >= openMinutes && nowMinutes < closeMinutes) {
+        const closeTodayUTC = tzWallClockToUTCms(market.tz, local.y, local.m, local.d, market.closeH, market.closeM);
+        return { open: true, label: "OPEN", deltaMs: closeTodayUTC - nowMs, deltaLabel: "closes in", nextOpenLocal: "" };
     }
+
+    if (isTradingDay && nowMinutes < openMinutes) {
+        const openTodayUTC = tzWallClockToUTCms(market.tz, local.y, local.m, local.d, market.openH, market.openM);
+        const hh = String(market.openH).padStart(2, "0");
+        const mm = String(market.openM).padStart(2, "0");
+        return {
+            open: false,
+            label: "CLOSED",
+            deltaMs: openTodayUTC - nowMs,
+            deltaLabel: "opens in",
+            nextOpenLocal: `${WEEKDAY_SHORT[local.dow]} ${hh}:${mm}`,
+        };
+    }
+
     // find next open within next 8 days
-    for (let offset = 0; offset < 8; offset += 1) {
-        const probeDow = (local.dow + offset) % 7;
-        const probeOpenUTC = tzWallClockToUTCms(now, market.tz, offset, market.openH, market.openM);
-        if (market.daysOpen.includes(probeDow) && probeOpenUTC > nowMs) {
-            return { open: false, label: "CLOSED", deltaMs: probeOpenUTC - nowMs, deltaLabel: "opens in" };
+    for (let offset = 1; offset < 8; offset += 1) {
+        const probeLocal = localPartsInTZ(new Date(nowMs + offset * 86400000), market.tz);
+        if (market.daysOpen.includes(probeLocal.dow)) {
+            const probeOpenUTC = tzWallClockToUTCms(market.tz, probeLocal.y, probeLocal.m, probeLocal.d, market.openH, market.openM);
+            const hh = String(market.openH).padStart(2, "0");
+            const mm = String(market.openM).padStart(2, "0");
+            return {
+                open: false,
+                label: "CLOSED",
+                deltaMs: probeOpenUTC - nowMs,
+                deltaLabel: "opens in",
+                nextOpenLocal: `${WEEKDAY_SHORT[probeLocal.dow]} ${hh}:${mm}`,
+            };
         }
     }
-    return { open: false, label: "CLOSED", deltaMs: 0, deltaLabel: "opens in" };
+    return { open: false, label: "CLOSED", deltaMs: 0, deltaLabel: "opens in", nextOpenLocal: "" };
 }
 
 function formatHMS(ms) {
     if (ms <= 0) return "00:00:00";
     const total = Math.floor(ms / 1000);
-    const h = Math.floor(total / 3600);
+    const d = Math.floor(total / 86400);
+    const h = Math.floor((total % 86400) / 3600);
     const m = Math.floor((total % 3600) / 60);
     const s = total % 60;
     const pad = (n) => String(n).padStart(2, "0");
+    if (d > 0) return `${d}d ${pad(h)}:${pad(m)}:${pad(s)}`;
     return `${pad(h)}:${pad(m)}:${pad(s)}`;
 }
 
-function formatMarketLocalClock(tz) {
-    return new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date());
+function formatMarketLocalClock(tz, now) {
+    return new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(now || new Date());
+}
+
+function formatViewerLocalClock(now) {
+    try {
+        return new Intl.DateTimeFormat("en-GB", {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+            hour12: false,
+            timeZoneName: "short",
+        }).format(now || new Date());
+    } catch (_) {
+        return (now || new Date()).toLocaleTimeString();
+    }
 }
 
 function formatPopulationEstimate(value) {
@@ -787,14 +808,76 @@ function LiveLocationBadge({ liveLocation }) {
 }
 
 function MarketHoursPanel() {
+    const [markets, setMarkets] = React.useState(() => MARKETS);
     const [now, setNow] = React.useState(() => new Date());
+    const [clockOffsetMs, setClockOffsetMs] = React.useState(0);
+    const [timeSource, setTimeSource] = React.useState("local");
+
+    const fetchMarketSchedule = React.useCallback(async () => {
+        try {
+            const res = await fetch(`/hud/markets?_ts=${Date.now()}`, { cache: "no-store" });
+            if (!res.ok) return;
+            const data = await res.json();
+            const items = Array.isArray(data && data.items) ? data.items : null;
+            if (!items || items.length === 0) return;
+            setMarkets(items.filter((item) => item && item.id && item.tz && item.openH != null && item.closeH != null));
+        } catch (_) {
+        }
+    }, []);
+
+    const syncServerClock = React.useCallback(async () => {
+        try {
+            const res = await fetch(`/health?_ts=${Date.now()}`, { cache: "no-store" });
+            const serverDateHeader = res.headers.get("date");
+            if (!serverDateHeader) {
+                setTimeSource("local");
+                return;
+            }
+            const serverNow = new Date(serverDateHeader).getTime();
+            if (!Number.isFinite(serverNow)) {
+                setTimeSource("local");
+                return;
+            }
+            setClockOffsetMs(serverNow - Date.now());
+            setTimeSource("server");
+        } catch (_) {
+            setTimeSource("local");
+        }
+    }, []);
+
     React.useEffect(() => {
         const t = window.setInterval(() => setNow(new Date()), 1000);
         return () => window.clearInterval(t);
     }, []);
 
-    const enriched = MARKETS.map((m) => ({ market: m, status: getMarketStatus(m, now) }));
+    React.useEffect(() => {
+        syncServerClock();
+        const t = window.setInterval(syncServerClock, 5 * 60 * 1000);
+        return () => window.clearInterval(t);
+    }, [syncServerClock]);
+
+    React.useEffect(() => {
+        fetchMarketSchedule();
+        const t = window.setInterval(fetchMarketSchedule, 10 * 60 * 1000);
+        return () => window.clearInterval(t);
+    }, [fetchMarketSchedule]);
+
+    const effectiveNow = React.useMemo(
+        () => new Date(now.getTime() + clockOffsetMs),
+        [now, clockOffsetMs]
+    );
+
+    const enriched = markets.map((m) => ({ market: m, status: getMarketStatus(m, effectiveNow) }));
     const openCount = enriched.filter((row) => row.status.open).length;
+    const nextOpen = enriched
+        .filter((row) => !row.status.open && row.status.deltaMs > 0)
+        .sort((a, b) => a.status.deltaMs - b.status.deltaMs)[0] || null;
+    const viewerLocal = formatViewerLocalClock(new Date());
+    const headerMeta = openCount > 0
+        ? `${openCount} / ${markets.length} open • machine ${viewerLocal}`
+        : nextOpen
+            ? `All cash markets closed • next: ${nextOpen.market.name} in ${formatHMS(nextOpen.status.deltaMs)} • machine ${viewerLocal}`
+            : `All cash markets closed • machine ${viewerLocal}`;
 
     return React.createElement(
         "section",
@@ -802,8 +885,23 @@ function MarketHoursPanel() {
         React.createElement(
             "div",
             { className: "hud-market-header" },
-            React.createElement("div", { className: "hud-market-title" }, "Global Market Hours"),
-            React.createElement("div", { className: "hud-market-meta" }, `${openCount} / ${MARKETS.length} open • UTC ${now.toISOString().slice(11, 19)}`)
+            React.createElement(
+                "div",
+                { className: "hud-market-title-wrap" },
+                React.createElement("div", { className: "hud-market-title" }, "ECA x EVA Market Matrix"),
+                React.createElement("div", { className: "hud-market-subtitle" }, "Cash session lattice and handoff timing")
+            ),
+            React.createElement(
+                "div",
+                { className: "hud-market-head-right" },
+                React.createElement(
+                    "div",
+                    { className: "hud-market-brand" },
+                    React.createElement("span", { className: "hud-market-chip jarvis" }, "ECA CORE"),
+                    React.createElement("span", { className: "hud-market-chip eva" }, "EVA ANALYTICS")
+                ),
+                React.createElement("div", { className: "hud-market-meta" }, headerMeta)
+            )
         ),
         React.createElement(
             "div",
@@ -817,13 +915,17 @@ function MarketHoursPanel() {
                         "div",
                         { className: "hud-market-ident" },
                         React.createElement("span", { className: "hud-market-name" }, market.name),
-                        React.createElement("span", { className: "hud-market-city" }, `${market.city} • ${formatMarketLocalClock(market.tz)} local`)
+                        React.createElement("span", { className: "hud-market-city" }, `${market.city} • ${formatMarketLocalClock(market.tz, effectiveNow)} local`)
                     ),
                     React.createElement(
                         "div",
                         { className: "hud-market-status" },
                         React.createElement("span", { className: "hud-market-state" }, status.label),
-                        React.createElement("span", { className: "hud-market-countdown" }, `${status.deltaLabel} ${formatHMS(status.deltaMs)}`)
+                        React.createElement(
+                            "span",
+                            { className: "hud-market-countdown" },
+                            `${status.deltaLabel} ${formatHMS(status.deltaMs)}${status.nextOpenLocal ? ` (${status.nextOpenLocal})` : ""}`
+                        )
                     )
                 )
             )
@@ -1082,7 +1184,7 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, selectedMarker, liveLoca
         SHIPPING_LANES.forEach(function (lane) {
             const wpts = lane.waypoints;
             for (let i = 0; i < wpts.length - 1; i++) {
-                arcsData.push({ startLat: wpts[i].lat, startLng: wpts[i].lon, endLat: wpts[i + 1].lat, endLng: wpts[i + 1].lon, color: '#' + lane.color.toString(16).padStart(6, '0') + '88', _label: lane.label, _cargo: lane.cargo });
+                arcsData.push({ startLat: wpts[i].lat, startLng: wpts[i].lon, endLat: wpts[i + 1].lat, endLng: wpts[i + 1].lon, color: '#' + lane.color.toString(16).padStart(6, '0'), _label: lane.label, _cargo: lane.cargo });
             }
         });
         const markerMap = {};
@@ -1090,7 +1192,7 @@ function GlobeLayer({ onMarkerSelect, selectedMarkerId, selectedMarker, liveLoca
         GLOBE_CONNECTIONS.forEach(function (pair) {
             const ma = markerMap[pair[0]], mb = markerMap[pair[1]];
             if (ma && ma.lat != null && mb && mb.lat != null) {
-                arcsData.push({ startLat: ma.lat, startLng: ma.lon, endLat: mb.lat, endLng: mb.lon, color: '#ffffff33', _label: ma.label + ' - ' + mb.label });
+                arcsData.push({ startLat: ma.lat, startLng: ma.lon, endLat: mb.lat, endLng: mb.lon, color: '#ffffff', _label: ma.label + ' - ' + mb.label });
             }
         });
         globe.arcsData(arcsData).arcColor(function (d) { return d.color; }).arcStroke(0.5).arcDashLength(0.4).arcDashGap(0.2).arcDashAnimateTime(3000).arcAltitudeAutoScale(0.25);
@@ -1516,6 +1618,31 @@ function HudViewport() {
         liveMarkers.find(m => m.id === selectedMarker.id) || selectedMarker,
         [liveMarkers, selectedMarker]
     );
+    const alertSummary = React.useMemo(() => {
+        const levelFor = (threat) => {
+            const t = String(threat || "").toLowerCase();
+            if (t.includes("critical")) return "critical";
+            if (t.includes("elevated")) return "elevated";
+            if (t.includes("guarded")) return "guarded";
+            return "nominal";
+        };
+        const criticalCount = liveMarkers.filter((m) => levelFor(m.threat) === "critical").length;
+        const elevatedCount = liveMarkers.filter((m) => levelFor(m.threat) === "elevated").length;
+        const guardedCount = liveMarkers.filter((m) => levelFor(m.threat) === "guarded").length;
+        const focusPriority = liveSelected && liveSelected.priority ? liveSelected.priority : "P3";
+        const focusLabel = liveSelected && liveSelected.label ? liveSelected.label : "Unknown";
+
+        if (criticalCount > 0) {
+            return `${criticalCount} critical alert${criticalCount > 1 ? "s" : ""} • ${focusPriority} focus: ${focusLabel}`;
+        }
+        if (elevatedCount > 0) {
+            return `${elevatedCount} elevated alert${elevatedCount > 1 ? "s" : ""} • ${focusPriority} focus: ${focusLabel}`;
+        }
+        if (guardedCount > 0) {
+            return `${guardedCount} guarded region${guardedCount > 1 ? "s" : ""} • ${focusPriority} focus: ${focusLabel}`;
+        }
+        return `No critical alerts • ${focusPriority} focus: ${focusLabel}`;
+    }, [liveMarkers, liveSelected]);
     const iso = new Date().toISOString();
 
     React.useEffect(() => {
@@ -1610,7 +1737,7 @@ function HudViewport() {
             "div",
             { className: "hud-footer" },
             React.createElement("span", null, `Loaded ${iso}`),
-            React.createElement("span", { className: "hud-alert" }, `No critical alerts • ${selectedMarker.priority} focus: ${selectedMarker.label}`)
+            React.createElement("span", { className: "hud-alert" }, alertSummary)
         )
     );
 }

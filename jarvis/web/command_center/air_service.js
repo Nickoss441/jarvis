@@ -90,10 +90,16 @@ class AirDataService {
 
         // Normalize aircraft to AircraftState objects
         const aircraft = (json.aircraft || []).map((a) => new AircraftState(a));
+        const rawState = json.state || DataState.LIVE;
+        // If provider is down but backend serves fallback aircraft, treat it as stale
+        // instead of a hard error so the UI remains usable.
+        const normalizedState = (rawState === DataState.ERROR && aircraft.length > 0)
+            ? DataState.STALE
+            : rawState;
 
         return {
             aircraft,
-            state: json.state || DataState.LIVE,
+            state: normalizedState,
             timestamp: json.timestamp || Date.now() / 1000,
             message: json.message || null,
         };

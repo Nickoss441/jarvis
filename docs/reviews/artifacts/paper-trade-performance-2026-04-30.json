@@ -1,0 +1,41 @@
+{
+  "anomalies": {
+    "latency_count": 0,
+    "latency_threshold_ms": 1000.0,
+    "slippage_count": 0,
+    "slippage_threshold_bps": 50.0
+  },
+  "audit": {
+    "dispatch_failure_count": 0,
+    "policy_violation_count": 0
+  },
+  "meets_minimum_window": true,
+  "minimum_window": {
+    "trades": 100,
+    "trading_days": 20
+  },
+  "mode": "paper",
+  "ok": true,
+  "pnl": {
+    "average_loss": -100.0,
+    "average_per_trade": 103.2,
+    "average_win": 172.14285714285714,
+    "gross_loss": 3800.0,
+    "gross_profit": 19280.0,
+    "net": 15480.0,
+    "profit_factor": 5.073684210526316,
+    "win_rate": 0.7466666666666667
+  },
+  "risk": {
+    "max_drawdown": 3800.0
+  },
+  "trade_count": 150,
+  "trades_log": "C:\\Users\\Nickos\\AppData\\Local\\Temp\\pytest-of-Nickos\\pytest-2\\test_backtesting_integration_g0\\trades.jsonl",
+  "trading_days": 25,
+  "window": {
+    "end": "2026-04-24T20:41:18.725880+00:00",
+    "end_ts": 1777063278.7258797,
+    "start": "2026-03-31T15:41:18.725880+00:00",
+    "start_ts": 1774971678.7258797
+  }
+}
